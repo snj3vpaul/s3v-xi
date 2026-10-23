@@ -1,0 +1,14 @@
+# Local-only files omitted from Vercel CLI uploads.
+.git/
+.github/
+.vercel/
+node_modules/
+.next/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+docs/
+**/*.test.ts
+**/*.test.tsx
