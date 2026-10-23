@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {scoreMatchFigures, boostedPoints, EMPTY_FIGURES, type MatchFigures} from "./scoring";
+import {scoreMatchFigures, boostedPoints, EMPTY_FIGURES, validateFigures, type MatchFigures} from "./scoring";
 import {parseMatchCsv, csvRowsToEntries, downloadMatchCsv} from "./match-store";
 const f = (changes: Partial<MatchFigures> = {}): MatchFigures => ({...EMPTY_FIGURES, playerId: "12", ...changes});
 describe("match fantasy point engine", () => {
@@ -50,5 +50,21 @@ describe("match imports",()=>{
   it("parses quoted csv fields and rejects malformed rows",()=>{
     expect(parseMatchCsv('player_id,runs,fours,sixes,wickets,maidens,catches,stumpings,directRunOuts,assistedRunOuts,dismissed,played,notes\n12,0,0,0,0,0,0,0,0,0,false,true,"hello, world"\n')[0].notes).toBe("hello, world");
     expect(()=>parseMatchCsv('player_id,runs\n12')).toThrow();
+  });
+});
+
+
+describe("integrity guards", () => {
+  it("rejects malformed imported boolean types before scoring", () => {
+    const input = {...EMPTY_FIGURES, playerId: "p01", played: "false" as unknown as boolean};
+    expect(validateFigures(input)).not.toEqual([]);
+  });
+  it("does not award points to non-participants", () => {
+    expect(scoreMatchFigures({...EMPTY_FIGURES, playerId: "p01", played: false}, "BAT").total).toBe(0);
+  });
+  it("does not award cumulative milestone bonuses", () => {
+    const scored = scoreMatchFigures({...EMPTY_FIGURES, playerId: "p01", runs: 100}, "BAT");
+    expect(scored.lines.filter(line => line.key === "milestone")).toHaveLength(1);
+    expect(scored.lines.find(line => line.key === "milestone")?.points).toBe(16);
   });
 });

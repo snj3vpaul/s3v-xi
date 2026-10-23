@@ -10,7 +10,7 @@
 - **Full Squad** (bench points) and **Skipper x3** (captain triple points) browser-only chip previews.
 - Deterministic demo scoring with tests.
 
-**Not production ready.** No actual CricHeroes integration, persistence, authentication, database, transfer engine, confirmed match scores, deadline enforcement, auto-substitution or leaderboard exists yet. All player and match data is invented for demo purposes. The demo is not affiliated with CricHeroes or Fantasy Premier League.
+**Not production ready.** No actual CricHeroes integration, shared persistence, authentication, database, transfer engine, confirmed match scores, deadline enforcement, auto-substitution or leaderboard exists yet. The initial fantasy XI demonstration uses fictional player statistics; the player archive contains real historical aggregate leaderboard figures, and the match workspace has no verified match figures. The demo is not affiliated with CricHeroes or Fantasy Premier League.
 
 ## Run locally
 
@@ -64,3 +64,14 @@ Added playable routes:
 The historical CSVs are cumulative tournament totals, **not match scorecards**. No automatic CricHeroes API access is claimed. The matched scorecard URL opens on CricHeroes; you must supply individual match statistics by manual entry or a permitted CSV export. Imported figures are stored in your browser only, not shared with other users.
 
 Refer to [Update 02 documentation](docs/UPDATE_02.md) for exact formats, limitations and fantasy scoring rules.
+
+## Update 03 — Product audit and usable improvements
+
+- The fictional team builder now restores and saves draft selections in **local browser storage** (not a manager account). Invalid/tampered drafts fall back to the sample lineup.
+- Swap a reserve into a full starting XI without breaking the 15-player roster. Captaincy is cleared if its player moves to the bench.
+- Search the demo player pool and reset locally saved demo choices.
+- Compare two historical player records side-by-side on `/players`, without claiming match-by-match analytics.
+- Centralized, immutable scoring defaults with published `s3v-t20-v1` rules identifier. Added targeted validation and swap tests.
+- Corrected home-page language to make clear that player match data is not an official live feed.
+
+See [Product audit](docs/PRODUCT_AUDIT_03.md) for benchmark notes, unimplemented functionality and limitations. The application still lacks a shared database, legitimate fantasy-manager rankings, score verification and league lock rules.

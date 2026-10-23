@@ -1,3 +1,4 @@
+import { SCORING_VERSION } from "@/lib/scoring-rules";
 "use client";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
@@ -70,7 +71,7 @@ export function MatchCentre(){
  }
  function exportCurrent(){const csv=downloadMatchCsv(entries);const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="s3v-xi-match-24540875.csv";a.click();URL.revokeObjectURL(url);}
  return <>
- <div className="match-info"><div><p className="kicker">REFERENCE MATCH / CRICHEROES</p><h3>CANTERBURY T20 <span>vs</span> KANATA T20</h3><p>T20 Division 2026 · CricHeroes scorecard ID 24540875</p></div><a href={MATCH_URL} target="_blank" rel="noopener noreferrer" className="external-source">VIEW ORIGINAL SCORECARD ↗</a></div>
+ <div className="match-info"><div><p className="kicker">REFERENCE MATCH / CRICHEROES</p><h3>CANTERBURY T20 <span>vs</span> KANATA T20</h3><p>T20 Division 2026 · CricHeroes scorecard ID 24540875 · Scoring rules {SCORING_VERSION}</p></div><a href={MATCH_URL} target="_blank" rel="noopener noreferrer" className="external-source">VIEW ORIGINAL SCORECARD ↗</a></div>
  <div className="source-warning"><strong>NOT AN AUTOMATIC CRICHEROES FEED</strong><span>The linked match statistics could not be verified here. Enter official figures yourself or import an authorized match CSV. Your entries stay in this browser and are never shown as independently verified official results.</span></div>
  <div className="import-toolbar"><a href="/templates/match-24540875.csv" download className="outline-btn">↓ DOWNLOAD CSV TEMPLATE</a><button type="button" className="outline-btn" onClick={()=>fileInput.current?.click()}>↑ IMPORT MATCH CSV</button><input type="file" accept=".csv,text/csv" className="visually-hidden" ref={fileInput} onChange={e=>{const f=e.target.files?.[0];if(f)void upload(f)}} aria-label="Upload match statistics CSV"/><button type="button" className="outline-btn" onClick={exportCurrent} disabled={!entries.length}>↓ EXPORT ENTRIES</button><button type="button" className="outline-btn" onClick={loadSamples}>LOAD ILLUSTRATIVE EXAMPLE</button><button type="button" className="outline-btn danger-btn" onClick={clearAll} disabled={!entries.length}>CLEAR ENTRIES</button></div>
  <p className="workspace-feedback" role="status" aria-live="polite">{!hydrated?"Loading saved entries…":note}</p>
