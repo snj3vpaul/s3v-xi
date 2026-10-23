@@ -1,0 +1,2 @@
+import Link from "next/link";
+export function SiteHeader(){return <header className="header app-header"><Link className="brand" href="/">S3V <span>XI.</span></Link><nav aria-label="Main navigation"><Link href="/">Home</Link><Link href="/players">Players</Link><Link href="/match-centre">Match centre</Link><Link href="/leaderboard">Leaderboard</Link><Link href="/points">Point rules</Link></nav><Link className="nav-cta" href="/match-centre">OPEN MATCH DESK ↗</Link></header>}

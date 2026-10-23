@@ -1,0 +1,16 @@
+"use client";
+import {useMemo,useState} from "react";
+import Link from "next/link";
+import {HISTORICAL_PLAYERS,TOURNAMENTS,formatRole} from "@/lib/tournament";
+type Sort = "runs"|"wickets"|"catches"|"matches";
+export function PlayerDirectory(){
+ const [tournament,setTournament]=useState("1985886"),[query,setQuery]=useState(""),[team,setTeam]=useState("all"),[sort,setSort]=useState<Sort>("runs"),[limit,setLimit]=useState(60);
+ const teams=useMemo(()=>Array.from(new Set(HISTORICAL_PLAYERS.filter(p=>p.tournamentId===tournament).map(p=>p.team))).sort(),[tournament]);
+ const shown=useMemo(()=>HISTORICAL_PLAYERS.filter(p=>p.tournamentId===tournament&&(team==="all"||p.team===team)&&`${p.name} ${p.team} ${p.playerId}`.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b[sort]-a[sort]||a.name.localeCompare(b.name)),[tournament,team,query,sort]);
+ return <><div className="directory-tools"><label className="calc-control"><span>Tournament</span><select value={tournament} onChange={e=>{setTournament(e.target.value);setTeam("all");setLimit(60)}}>{TOURNAMENTS.map(t=><option value={t.id} key={t.id}>{t.name}</option>)}</select></label><label className="calc-control"><span>Search name, club or ID</span><input value={query} onChange={e=>{setQuery(e.target.value);setLimit(60)}} placeholder="Search the player pool"/></label><label className="calc-control"><span>Cricket team</span><select value={team} onChange={e=>{setTeam(e.target.value);setLimit(60)}}><option value="all">All clubs</option>{teams.map(t=><option key={t}>{t}</option>)}</select></label><label className="calc-control"><span>Sort by</span><select value={sort} onChange={e=>setSort(e.target.value as Sort)}><option value="runs">Most runs</option><option value="wickets">Most wickets</option><option value="catches">Most catches</option><option value="matches">Most matches</option></select></label></div>
+ <p className="directory-caption"><strong>{shown.length}</strong> player-team registration records · Historical tournament totals, not fantasy match points. <span>Roles marked "UNCONFIRMED" need admin verification.</span></p>
+ <div className="directory-table"><div className="directory-table-head"><span>PLAYER / TEAM</span><span>ROLE</span><span>MATCHES</span><span>RUNS</span><span>WICKETS</span><span>CATCHES</span><span>DETAIL</span></div>{shown.slice(0,limit).map(p=><details key={p.id} className="directory-record"><summary><span className="identity-block"><strong>{p.name}</strong><small>{p.team}</small></span><span className="directory-role">{formatRole(p.role)}</span><b>{p.matches}</b><b>{p.runs}</b><b>{p.wickets}</b><b>{p.catches}</b><span className="detail-chevron">＋</span></summary><div className="directory-extra"><span>Player ID: {p.playerId}</span><span>SR: {p.strikeRate || "—"}</span><span>Economy: {p.economy || "—"}</span><span>4s: {p.fours}</span><span>6s: {p.sixes}</span>{tournament==="1985886"&&["Canterbury T20","Kanata T20"].includes(p.team)&&<Link href={`/match-centre?player=${encodeURIComponent(p.playerId)}`} className="text-action">ADD MATCH STATS ↗</Link>}</div></details>)}</div>
+ {shown.length>limit&&<button className="outline-btn load-more" onClick={()=>setLimit(l=>l+60)}>SHOW MORE PLAYERS ↓</button>}
+ {shown.length===0&&<p className="empty-message">No matching players. Try another club or search.</p>}
+ </>;
+}

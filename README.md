@@ -50,3 +50,17 @@ Upload these files to your existing repository `snj3vpaul/s3v-xi` on a feature b
 See `docs/` for architecture, rules, integration principles and deployment.
 
 > **Indexing note:** Search-engine indexing is deliberately disabled for this fictional prototype via Next.js metadata. Remove that restriction when real tournament data and legal/privacy documentation are ready.
+
+
+## Update 02 — Player points and match centre
+
+Added playable routes:
+
+- **`/points`** — click-through scoring guide and live points calculator.
+- **`/players`** — browsable player archive from the four uploaded tournament leaderboards.
+- **`/match-centre`** — match-stat entry, CSV import/export, score breakdown and clickable player point standings for the Canterbury T20 vs Kanata T20 match reference.
+- **`/leaderboard`** — player points rankings calculated from locally entered match figures.
+
+The historical CSVs are cumulative tournament totals, **not match scorecards**. No automatic CricHeroes API access is claimed. The matched scorecard URL opens on CricHeroes; you must supply individual match statistics by manual entry or a permitted CSV export. Imported figures are stored in your browser only, not shared with other users.
+
+Refer to [Update 02 documentation](docs/UPDATE_02.md) for exact formats, limitations and fantasy scoring rules.
