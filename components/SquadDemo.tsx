@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PLAYERS, START_BENCH, START_SQUAD } from "@/lib/demo";
-import { TARGET, validateSquad, scoreDemo, type Role, type Player } from "@/lib/fantasy";
+import { TARGET, MAX_PLAYERS_PER_TEAM, validateSquad, scoreDemo, type Role, type Player } from "@/lib/fantasy";
 import { SQUAD_STORAGE_KEY, parseSquadWorkspace, swapBenchPlayer, type SquadWorkspace } from "@/lib/squad-workspace";
 
 const roles: (Role | "ALL")[] = ["ALL", "WK", "BAT", "AR", "BOWL"];
@@ -48,6 +48,8 @@ export function SquadDemo() {
   const ready = issues.length === 0;
   const base = ready ? scoreDemo(squad, benchIds, captain!, vice!, null) : null;
   const actual = ready ? scoreDemo(squad, benchIds, captain!, vice!, chip) : null;
+  const counts = new Map<string, number>();
+  squad.forEach(p => counts.set(p.team, (counts.get(p.team) ?? 0) + 1));
   const filteredPlayers = PLAYERS.filter(p => (filter === "ALL" || filter === p.role) && `${p.name} ${p.team}`.toLowerCase().includes(search.toLowerCase()));
 
   function selectPlayer(player: Player) {
@@ -62,6 +64,7 @@ export function SquadDemo() {
       return;
     }
     if (squadIds.length >= 15 || squad.filter(p => p.role === player.role).length >= TARGET[player.role]) return;
+    if ((counts.get(player.team) ?? 0) >= MAX_PLAYERS_PER_TEAM) { setNotice(`You can select a maximum of 3 players from ${player.team}. Remove an existing player to add another.`); return; }
     setWorkspace(prev => ({...prev,
       squadIds: [...prev.squadIds, player.id],
       benchIds: prev.squadIds.length - prev.benchIds.length >= 11 ? [...prev.benchIds, player.id] : prev.benchIds,
@@ -120,11 +123,12 @@ export function SquadDemo() {
         <div className="pool-head"><span>PLAYER / CLUB</span><span>ROLE</span><span>PTS</span><span>SELECTION</span></div>
         {filteredPlayers.map(player => {
           const selected = squadIds.includes(player.id);
-          const disabled = !selected && (squadIds.length >= 15 || squad.filter(p => p.role === player.role).length >= TARGET[player.role]);
+          const atTeamLimit = (counts.get(player.team) ?? 0) >= MAX_PLAYERS_PER_TEAM;
+          const disabled = !selected && (squadIds.length >= 15 || squad.filter(p => p.role === player.role).length >= TARGET[player.role] || atTeamLimit);
           return <div className="poolrow" key={player.id}>
-            <div className="person"><div className="avatar">{player.name.split(" ").map(s => s[0]).join("")}</div><div><strong>{player.name}</strong><small>{player.team}</small></div></div>
+            <div className="person"><div className="avatar">{player.name.split(" ").map(s => s[0]).join("")}</div><div><strong>{player.name}</strong><small>{player.team} · {counts.get(player.team) ?? 0}/3</small></div></div>
             <span className="role">{player.role}</span><b className="pts">{player.points}</b>
-            <button type="button" className={selected ? "add selected" : "add"} disabled={disabled} onClick={() => selectPlayer(player)} aria-label={`${selected ? "Remove" : "Add"} ${player.name}`}>{selected ? "✓ ADDED" : disabled ? "FULL" : "+ ADD"}</button>
+            <button type="button" className={selected ? "add selected" : "add"} disabled={disabled} title={atTeamLimit && !selected ? `Maximum 3 players from ${player.team}` : undefined} onClick={() => selectPlayer(player)} aria-label={`${selected ? "Remove" : "Add"} ${player.name}`}>{selected ? "✓ ADDED" : atTeamLimit ? "TEAM 3/3" : disabled ? "FULL" : "+ ADD"}</button>
           </div>;
         })}
         {!filteredPlayers.length && <p className="empty-small">No players match your search.</p>}

@@ -1,4 +1,4 @@
-import { TARGET, type Chip, type Player, type Role, validateSquad } from "./fantasy";
+import { TARGET, MAX_PLAYERS_PER_TEAM, type Chip, type Player, type Role, validateSquad } from "./fantasy";
 
 export const SQUAD_STORAGE_KEY = "s3v-xi:squad-demo:v1";
 export interface SquadWorkspace {
@@ -27,6 +27,9 @@ export function parseSquadWorkspace(raw: string, pool: Player[]): SquadWorkspace
       if (squadIds.filter(id => known.get(id)?.role === role).length > TARGET[role]) return null;
     }
     if (squadIds.length - benchIds.length > 11) return null;
+    const teamCounts = new Map<string,number>();
+    squadIds.forEach(id => { const team = known.get(id)!.team; teamCounts.set(team,(teamCounts.get(team) ?? 0) + 1); });
+    if ([...teamCounts.values()].some(count => count > MAX_PLAYERS_PER_TEAM)) return null;
     const starters = squadIds.filter(id => !benchIds.includes(id));
     const captain = data.captain === null || typeof data.captain === "string" ? data.captain as string | null : null;
     const vice = data.vice === null || typeof data.vice === "string" ? data.vice as string | null : null;

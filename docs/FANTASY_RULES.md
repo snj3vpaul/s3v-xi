@@ -7,3 +7,7 @@ Pick 15 eligible players: 2 WK, 5 BAT, 3 AR, 5 BOWL. Choose 11 starters and four
 Suggested future base point rules: +1 per run, +1 extra for a four, +2 extra for a six, +25 per credited wicket (excluding run-outs), +12 for maiden, +8 catch, +12 stumping, +12 direct run-out, +6 assisted run-out, mutually exclusive 30/50/100 run milestones (+4/+8/+16), and -2 for an eligible duck. Treat all of these as configurable proposals, not currently implemented source scoring.
 
 Automatic substitutions, real participation, multi-match rounds, late score corrections, cancelled games and captain absence require documented logic and tests before use with real scores.
+
+## Update 04: per-team tournament cap
+
+A 15-player fantasy squad may include a maximum of **three** registered players from any single participating cricket team by default, counted across starters **and** substitutes. The server uses stable `team_id` foreign keys, never free-text names. The browser disables a fourth teammate, the authenticated API rejects it, and a PostgreSQL trigger independently refuses persistence. This default may be changed only while the tournament is in Draft, with the chosen value stored per tournament. Published tournament structural rules are frozen.

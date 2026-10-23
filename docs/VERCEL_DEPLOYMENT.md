@@ -92,3 +92,7 @@ The Git integration is preferred because it automatically deploys future commits
 The interactive points calculation is client-side and does not require additional Vercel environment variables. The bundled file `lib/historical-players.json` is static application data. Deploy the modified source to the GitHub repo's `main` branch and Vercel will rebuild Next.js. Test these paths after deployment: `/points`, `/players`, `/match-centre`, `/leaderboard`, and `/api/health`.
 
 **Do not call the browser-local match entries a live public leaderboard.** The app has no backend authentication, authoritative match imports or persistent shared standings yet. A proper production release will require a secure database and server-side validation before scores are published globally.
+
+## Update 04: Supabase-backed tournaments
+
+The authenticated Tournament Management and public tournament selection features require a Supabase project, the SQL migration and the **public** `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` environment variables in Vercel. Read [TOURNAMENT_SETUP.md](TOURNAMENT_SETUP.md) first. Redeploy after configuring variables. No service-role key is required or permitted in the frontend.

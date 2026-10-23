@@ -12,14 +12,18 @@
   "dependencies": {
     "next": "^15.5.9",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "@supabase/supabase-js": "^2.57.0",
+    "papaparse": "^5.5.3",
+    "read-excel-file": "^9.3.12"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "@types/papaparse": "^5.3.16"
   },
   "engines": {
     "node": "22.x"

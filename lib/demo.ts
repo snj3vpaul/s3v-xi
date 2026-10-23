@@ -21,6 +21,6 @@ export const PLAYERS:Player[]=[
   ["p18","Kunal Puri","Northside CC","BAT",59],
   ["p19","Reyansh Sood","West End XI","AR",44],
   ["p20","Manav Khanna","Northside CC","BOWL",51]
-].map(row=>({id:row[0] as string,name:row[1] as string,team:row[2] as string,role:row[3] as Player["role"],points:row[4] as number}));
+].map((row,index)=>({id:row[0] as string,name:row[1] as string,team:["Northside CC", "Capital Strikers", "West End XI", "Ottawa Royals", "Riverside CC", "Maple XI", "Rideau Warriors"][index%7],role:row[3] as Player["role"],points:row[4] as number}));
 export const START_SQUAD=PLAYERS.slice(0,15).map(p=>p.id);
 export const START_BENCH=["p02","p07","p10","p15"];

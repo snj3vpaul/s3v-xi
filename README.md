@@ -75,3 +75,18 @@ Refer to [Update 02 documentation](docs/UPDATE_02.md) for exact formats, limitat
 - Corrected home-page language to make clear that player match data is not an official live feed.
 
 See [Product audit](docs/PRODUCT_AUDIT_03.md) for benchmark notes, unimplemented functionality and limitations. The application still lacks a shared database, legitimate fantasy-manager rankings, score verification and league lock rules.
+
+## Update 04 — Real multi-tournament administration (optional Supabase setup)
+
+- `/admin`: protected tournament creation and management.
+- `/tournaments`: published tournament selector and authenticated squad submissions.
+- CSV/XLSX team, player, and fixture importer with column mapping, preview, validation, manual drafting and protected edits.
+- **Maximum 3 players per real-world cricket team**, enforced in the fictional demo, UI, server endpoint, and PostgreSQL trigger for real tournament squads.
+- Supabase Auth, RLS and tournament-scoped tables ensure users do not mix cricket squads across competitions.
+- A future-ready match-performance table; **not yet a verified fantasy manager scoring engine or leaderboard**.
+
+See **[multi-tournament setup guide](docs/TOURNAMENT_SETUP.md)** to apply the migration, configure Supabase and grant the first admin role. The original fictional demonstration continues working without database credentials; real tournament pages need Supabase configuration.
+
+### Deployment warning
+
+After publishing the code on GitHub, Vercel can deploy the application, but **this does not automatically create Supabase tables or accounts**. Apply the SQL migration and configure the environment variables separately, then deploy again. Until then, database-dependent routes explicitly report a setup requirement.
