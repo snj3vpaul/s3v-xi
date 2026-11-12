@@ -11,3 +11,6 @@ next-env.d.ts
 
 # Machine-specific Vercel project link
 .vercel/
+
+# Predictor League local SQLite database
+.data/

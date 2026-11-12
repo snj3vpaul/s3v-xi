@@ -7,23 +7,25 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "league:reset": "node -e \"require('fs').rmSync('.data',{recursive:true,force:true});console.log('Local league data cleared; demo reseeds on next request.')\""
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
     "next": "^15.5.9",
+    "papaparse": "^5.5.3",
+    "postgres": "^3.4.9",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "@supabase/supabase-js": "^2.57.0",
-    "papaparse": "^5.5.3",
     "read-excel-file": "^9.3.12"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/papaparse": "^5.3.16",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/papaparse": "^5.3.16"
+    "vitest": "^3.2.0"
   },
   "engines": {
     "node": "22.x"

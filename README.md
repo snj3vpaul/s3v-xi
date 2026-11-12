@@ -2,6 +2,40 @@
 
 **Your League. Your Eleven.** A free fantasy cricket concept for local/community leagues, beginning with Ottawa.
 
+## ⚽ Predictor League (`/league`) — new
+
+A private, just-for-fun **scoreline prediction league for friends**: join with an invite link, predict exact scores before kick-off, and climb an animated leaderboard when the admin enters real results.
+
+> **For fun only. No gambling.** No money, deposits, wagers, stakes, odds, prizes or bookmaker links, ever. Points are virtual bragging rights with no value outside the group chat. Requests that drift toward wagering get a fun alternative instead (a new title, a bonus rule, a forfeit).
+
+**Try it in 30 seconds:**
+
+```bash
+npm install
+npm run dev        # open http://localhost:3000/league
+```
+
+The first launch seeds a demo league with 8 players, 2 scored matchweeks and 1 live matchweek, stored in a local SQLite file. Sign in as `commish@demo.league` (admin) or `priya@demo.league` with the password `demo-league`; the sign-in page has one-tap buttons for these. `npm run league:reset` clears the demo data, and it reseeds after you restart the dev server.
+
+**Scoring** (configurable in `lib/league/config.ts`):
+
+| Your pick vs the result | Points |
+|---|---|
+| Exact score | 3 |
+| Right outcome (win/draw/loss), wrong score | 1 |
+| Wrong outcome | 0 |
+
+Ties share a rank. ▲▼ arrows show movement since the previous round. Titles such as 🔮 Score Oracle, 📈 Consistent, 🤝 Draw Whisperer and 🌞 Optimist are earned automatically, and confetti fires when you nail an exact score.
+
+**Starting a real league:**
+
+1. Set `DATABASE_URL` (Postgres, e.g. the Supabase transaction-pooler URI) and `LEAGUE_ADMIN_EMAIL` in Vercel, then deploy. Tables are created automatically with RLS locked down.
+2. Sign up at `/league/join` with the admin email.
+3. In **Admin**, copy the invite link for your friends, create a round, and add fixtures in your local time.
+4. After each match, enter the score. Everyone's points and the table update instantly.
+
+Full guide, API reference and security notes: **[docs/PREDICTOR_LEAGUE.md](docs/PREDICTOR_LEAGUE.md)**.
+
 ## Milestone 1: interactive fictional demo
 
 - Next.js + React + TypeScript responsive landing page and brand identity.
