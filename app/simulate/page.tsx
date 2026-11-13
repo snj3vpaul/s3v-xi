@@ -26,7 +26,7 @@ const TEAM = { A: "White", B: "Red" } as const;
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 /**
- * A made-up Thursday, run through the real draw, scorecard and scoring code,
+ * A made-up Thursday, run through the real team sheet, scorecard and scoring code,
  * so the club can see exactly how points work before the first real match.
  */
 export default async function SimulatePage({ searchParams }: { searchParams: Promise<{ s?: string }> }) {
@@ -60,7 +60,7 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
         <Kicker label="Simulation" no={`#${seed}`} />
         <h1>A sample <em>Thursday.</em></h1>
         <p className="lede">
-          A made-up White vs Red, run through the real draw and scoring. Nothing here is saved or counts. It just shows how a night turns into points.
+          A made-up White vs Red, run through the real scoring. Nothing here is saved or counts. It just shows how a night turns into points.
         </p>
         <div className="row">
           <Link className="btn btn-primary" href={`/simulate?s=${randomSimSeed()}`}>Simulate another Thursday</Link>
@@ -70,11 +70,10 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
       </header>
 
       <section className="stack">
-        <h2>1 · The draw</h2>
+        <h2>1 · The team sheet</h2>
         <p className="muted" style={{ margin: 0 }}>
-          {m.attendees.length} turned up, so it&apos;s {d.perSide}v{d.perSide}
-          {d.rollingSubs ? ` with ${d.rollingSubs} rolling sub${d.rollingSubs > 1 ? "s" : ""} a side` : ""}.
-          {d.floater && ` Odd numbers, so ${playerName(d.floater)} floats: first half for ${TEAM[d.floaterFirstHalf ?? "A"]}, then swaps.`}
+          {m.attendees.length} turned up: {d.teamA.length} for White, {d.teamB.length} for Red. (In real life the captains pick the sides on
+          WhatsApp; here they&apos;re split at random.)
         </p>
         <TeamsView draw={d} score={score} />
       </section>
@@ -110,7 +109,7 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
             <li>
               <b>Result:</b>{" "}
               {win
-                ? `${TEAM[win]} won ${Math.max(score.A, score.B)}–${Math.min(score.A, score.B)}, so all ${winners.length} ${TEAM[win]} players get 🏆 +${POINTS.win}${d.floater ? `, and floater ${playerName(d.floater)} gets +${POINTS.floaterWin}` : ""}.`
+                ? `${TEAM[win]} won ${Math.max(score.A, score.B)}–${Math.min(score.A, score.B)}, so all ${winners.length} ${TEAM[win]} players get 🏆 +${POINTS.win}.`
                 : "A draw, so nobody gets the win bonus."}
             </li>
             <li>
@@ -168,7 +167,8 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
       <section className="stack">
         <h2>5 · What it means for Pick 7</h2>
         <p className="muted" style={{ margin: 0 }}>
-          Each Pick 7 player banks exactly what their seven scored. Here are tonight&apos;s best and worst of {entries.length} example teams.
+          Each Pick 7 player banks exactly what their seven scored, with their captain (C) counting double. Here are tonight&apos;s best and
+          worst of {entries.length} example teams.
           (Alex, Sam and the rest are made-up names.)
         </p>
         <div className="grid grid-2" style={{ alignItems: "start" }}>

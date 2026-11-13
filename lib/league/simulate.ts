@@ -1,7 +1,7 @@
 /**
  * Example data for the "Sample Thursday" page and the example season on Stats.
  *
- * Everything runs through the REAL ledger (signUp, setSquad, recordDraw,
+ * Everything runs through the REAL ledger (signUp, setSquad, setTeamSheet,
  * saveScorecard) on a throwaway in-memory league, so the points, breakdowns
  * and charts are exactly what the live site would show for the same night.
  * Nothing here is ever saved. Deterministic for a given seed.
@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { FORMATION, PICKABLE, POSITIONS, ROSTER } from "@/config/club";
 import { SERIES } from "@/config/schedule";
 import { SeededRandom } from "@/lib/draw/draw";
-import { DEFAULT_CONSTRAINTS, createMatchDay, initialState, recordDraw, saveScorecard, setSquad, signUp, type Ctx } from "./ledger";
+import { createMatchDay, initialState, saveScorecard, setSquad, setTeamSheet, signUp, type Ctx } from "./ledger";
 import { zonedToUtc } from "./schedule";
 import type { FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, LeagueState, RotationLapse, RotationMiss, Side } from "./types";
 
@@ -37,7 +37,8 @@ export interface Simulation {
 
 /**
  * Simulate `weeks` Thursdays from the first fixture. Each week:
- * 14–17 players turn up, the real seeded draw splits them, 2–9 goals are
+ * 14–17 players turn up and are split into White and Red (standing in for the
+ * captains' picks), 2–9 goals are
  * scored (open play, penalties, free kicks, own goals; most with an assist),
  * a Man of the Match is picked per team, and now and then someone loses
  * fair play or skips their goalkeeper / sub turn.
@@ -73,20 +74,20 @@ export function simulateSeason(seedText: string, weeks = 1, opts: { showcase?: b
     for (const id of selectors) {
       if (w === 0 || rng.int(3) === 0) {
         try {
-          state = setSquad(state, id, randomSeven(), ctxAt(before));
+          const seven = randomSeven();
+          state = setSquad(state, id, seven, ctxAt(before), pick(seven));
         } catch {
           /* over budget after a re-rating: they keep last week's seven */
         }
       }
     }
 
-    // Showcase nights have an odd headcount, so the floater rule shows up too.
-    const headcount = showcase ? 15 + 2 * rng.int(2) : 14 + rng.int(4);
-    const attendees = rng.shuffle(ROSTER.map((p) => p.id)).slice(0, headcount);
-    const c = createMatchDay(state, { date, attendees }, ctxAt(before));
-    state = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, ctxAt(new Date(kickoff.getTime() - 600_000).toISOString()), toSeed(`${seedText}:${w}`));
+    const attendees = rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 14 + rng.int(4));
+    const half = Math.ceil(attendees.length / 2);
+    const c = createMatchDay(state, { date }, ctxAt(before));
+    state = setTeamSheet(c.state, c.match.id, { teamA: attendees.slice(0, half), teamB: attendees.slice(half) }, ctxAt(before));
     const d = state.matchDays.find((m) => m.id === c.match.id)!.draw!;
-    const team = (s: Side) => [...(s === "A" ? d.teamA : d.teamB), ...(d.floater ? [d.floater] : [])];
+    const team = (s: Side) => (s === "A" ? d.teamA : d.teamB);
 
     const events: GoalEvent[] = [];
     const goals = showcase ? 5 + rng.int(4) : 2 + rng.int(8);

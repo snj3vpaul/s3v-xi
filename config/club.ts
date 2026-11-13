@@ -16,7 +16,7 @@ export interface Player {
   id: string;
   name: string;
   kind: PlayerKind;
-  /** Pick 7 position. `null` = on the roster (match history, draws) but not pickable in Pick 7. */
+  /** Pick 7 position. `null` = on the roster (team sheets, match history) but not pickable in Pick 7. */
   position: Position | null;
   /** Base star rating (1–3) for the Pick 7 budget. Ownership nudges it week to week. */
   stars: Stars;
@@ -26,7 +26,7 @@ export const CLUB = {
   name: "RSFC",
   leagueName: "RSFC League",
   tagline: "Your Club. Your Seven.",
-  strapline: "Turn up. Get drawn. Get on the scoresheet.",
+  strapline: "Turn up. Pull on a bib. Get on the scoresheet.",
   /** Default on-pitch format; shrinks automatically when fewer players turn up. */
   defaultMaxPerSide: 8,
   /** Fewest players per side the draw will produce (3 → needs at least 6 attendees). */
@@ -55,7 +55,7 @@ export const FORMATION: Record<Position, number> = { DEF: 2, CM: 2, CAM: 1, ATT:
 export const PICK7 = {
   /** Most stars a seven may total. With everyone at 2★ (14) there is no squeeze until ownership moves ratings. */
   starBudget: 14,
-  /** After each draw, a player in MORE than this share of teams goes up a star for following weeks… */
+  /** After each locked week, a player in MORE than this share of teams goes up a star for following weeks… */
   riseAbove: 0.6,
   /** …and one in FEWER than this share goes down a star. */
   fallBelow: 0.1,

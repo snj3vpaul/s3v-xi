@@ -21,13 +21,13 @@ describe("simulation", () => {
     }
   });
 
-  it("SIM03 a showcase night always has an own goal, a penalty, an assist, a floater, a fair-play loss and a missed rotation", () => {
+  it("SIM03 a showcase night always has an own goal, a penalty, an assist, a fair-play loss and a missed rotation", () => {
     for (const seed of ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]) {
       const m = simulateSeason(seed, 1, { showcase: true }).state.matchDays[0];
       expect(m.events.some((e) => e.kind === "own_goal")).toBe(true);
       expect(m.events.some((e) => e.kind === "penalty")).toBe(true);
       expect(m.events.some((e) => e.assistId)).toBe(true);
-      expect(m.draw?.floater).toBeTruthy();
+      expect(m.draw?.algorithm).toBe("manual");
       expect(m.fairPlayLost).toHaveLength(1);
       expect(m.rotationMissed).toHaveLength(1);
     }

@@ -13,6 +13,7 @@
  */
 import { getPlayer } from "@/config/club";
 import {
+  CAPTAIN_MULTIPLIER,
   buildSelectorStandings,
   matchItems,
   playedMatches,
@@ -126,6 +127,8 @@ export interface PickBreakdown {
   playerId: string;
   name: string;
   played: boolean;
+  /** Captain: their points count double (shown as an extra "Captain ×2" item). */
+  captain: boolean;
   items: PointItem[];
   total: number;
 }
@@ -162,13 +165,20 @@ export function selectorBreakdown(state: LeagueState, rules: ScoringRules, selec
     if (!sel) continue;
     const items = matchItems(m, rules);
     const score = scoreline(m.events);
+    const captain = sel.captain && sel.picks.includes(sel.captain) ? sel.captain : null;
     const picks = [...new Set(sel.picks)].map((id) => {
-      const list = items.get(id) ?? [];
+      const base = items.get(id) ?? [];
+      const own = base.reduce((t, it) => t + it.points, 0);
+      const isCaptain = id === captain;
+      // Captain: one extra line repeating their total, so the doubling is visible.
+      const list: PointItem[] =
+        isCaptain && own !== 0 ? [...base, { kind: "captain", points: own * (CAPTAIN_MULTIPLIER - 1), detail: "Captain: points doubled" }] : base;
       for (const it of list) byKind[it.kind] = (byKind[it.kind] ?? 0) + it.points;
       return {
         playerId: id,
         name: getPlayer(id)?.name ?? id,
         played: m.attendees.includes(id),
+        captain: isCaptain,
         items: list,
         total: list.reduce((t, it) => t + it.points, 0),
       };

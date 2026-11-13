@@ -38,7 +38,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         </div>
       </header>
 
-      {m.draw ? <TeamsView draw={m.draw} score={m.status === "played" ? score : undefined} /> : <p className="muted">Teams not drawn yet.</p>}
+      {m.draw ? <TeamsView draw={m.draw} score={m.status === "played" ? score : undefined} /> : <p className="muted">Teams not posted yet. The captains pick sides on WhatsApp.</p>}
 
       {m.status === "played" && (
         <div className="grid grid-2" style={{ alignItems: "start" }}>

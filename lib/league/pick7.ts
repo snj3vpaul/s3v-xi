@@ -5,7 +5,7 @@
  *   2. Star budget: the seven's stars may total at most PICK7.starBudget.
  *      A team pushed over budget by a re-rating stays legal; changes to it may
  *      only bring the total down until it fits again.
- *   3. Ownership re-rating: after each draw (from RULES_V2_FROM), a player in
+ *   3. Ownership re-rating: after each locked week (from RULES_V2_FROM), a player in
  *      more than 60% of locked sevens gains a star and one in fewer than 10%
  *      loses one, within 1–3. Ratings are derived from history, never stored.
  */
@@ -36,7 +36,8 @@ export function ownership(m: Pick<MatchDay, "selections">): Record<string, numbe
 /** Drawn v2 match days in kick-off order — the ones whose ownership re-rates players. */
 function ratingMatches(matchDays: readonly MatchDay[], beforeIso?: string): MatchDay[] {
   return matchDays
-    .filter((m) => m.draw && m.date >= RULES_V2_FROM && (!beforeIso || m.kickoffAt < beforeIso))
+    // Sevens are locked by a legacy draw, or stored with the scorecard (team-sheet weeks).
+    .filter((m) => m.selections.length > 0 && m.date >= RULES_V2_FROM && (!beforeIso || m.kickoffAt < beforeIso))
     .sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt) || a.createdAt.localeCompare(b.createdAt));
 }
 

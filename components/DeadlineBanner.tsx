@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CLUB } from "@/config/club";
 import { SERIES } from "@/config/schedule";
-import { currentSquad, nextDeadlineMatch } from "@/lib/league/ledger";
+import { currentCaptain, currentSquad, nextDeadlineMatch } from "@/lib/league/ledger";
 import { isFormationValid } from "@/lib/league/pick7";
 import { fmtKickoff } from "@/lib/league/schedule";
 import type { User } from "@/lib/league/types";
@@ -18,7 +18,8 @@ export async function DeadlineBanner({ user }: { user: User | null }) {
   const when = fmtKickoff(m.kickoffAt, SERIES.timeZone);
   const squad = user ? currentSquad(user) : null;
   const needsFix = !!squad && !isFormationValid(squad);
-  const warn = !user || !squad || needsFix;
+  const noCaptain = !!squad && !needsFix && !!user && !currentCaptain(user);
+  const warn = !user || !squad || needsFix || noCaptain;
   return (
     <div className={`deadline-bar ${warn ? "warn" : ""}`} role="status">
       <div className="wrap">
@@ -30,9 +31,11 @@ export async function DeadlineBanner({ user }: { user: User | null }) {
               ? `You haven't picked your ${CLUB.picksPerSelector} yet.`
               : needsFix
                 ? "New formation: update your team or it won't be entered."
-                : `Your ${CLUB.picksPerSelector} carries over — any changes?`}
+                : noCaptain
+                  ? "New: pick a captain. Their points count double."
+                  : `Your ${CLUB.picksPerSelector} carries over — any changes?`}
         </span>
-        <Link href={user ? "/team" : "/join"}>{!user ? "Join" : !squad ? "Pick now" : needsFix ? "Fix my 7" : "Make changes"}</Link>
+        <Link href={user ? "/team" : "/join"}>{!user ? "Join" : !squad ? "Pick now" : needsFix ? "Fix my 7" : noCaptain ? "Pick captain" : "Make changes"}</Link>
       </div>
     </div>
   );

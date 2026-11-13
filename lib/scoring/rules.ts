@@ -126,6 +126,7 @@ export const POINT_KIND_LABEL: Record<ContributionKind, { icon: string; label: s
   win: { icon: "🏆", label: "Wins" },
   fair_play: { icon: "🤝", label: "Fair play" },
   rotation: { icon: "🔄", label: "Missed rotation" },
+  captain: { icon: "©", label: "Captain ×2" },
 };
 
 /** Goal types the v2 scorecard offers (v1 also had header and deflection). */
@@ -165,7 +166,7 @@ export const GOAL_KIND_LABEL: Record<GoalKind, string> = {
 // Single event → contributions
 // ---------------------------------------------------------------------------
 
-export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play" | "win" | "rotation";
+export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play" | "win" | "rotation" | "captain";
 
 export interface Contribution {
   playerId: string;
@@ -546,26 +547,36 @@ export interface SelectionResult {
   hits: number;
   /** Picks who actually played. */
   picksPlayed: number;
-  perPick: { playerId: string; points: number; hit: boolean; played: boolean }[];
+  /** The captain (points doubled), if one was set. */
+  captain: string | null;
+  /** `points` is what the selector banks: the player's points, doubled for the captain. */
+  perPick: { playerId: string; points: number; hit: boolean; played: boolean; captain: boolean }[];
 }
 
+/** Pick 7 captain: their match points count this many times. */
+export const CAPTAIN_MULTIPLIER = 2;
+
 export function scoreSelection(
-  selection: { selectorId: string; picks: string[] },
+  selection: { selectorId: string; picks: string[]; captain?: string | null },
   match: ScorableMatch & Pick<MatchDay, "id">,
   rules: ScoringRules = DEFAULT_RULES,
   lines: Map<string, PlayerMatchLine> = scoreMatch(match, rules),
 ): SelectionResult {
   const picks = [...new Set(selection.picks)];
+  const captain = selection.captain && picks.includes(selection.captain) ? selection.captain : null;
   const perPick = picks.map((id) => {
     const l = lines.get(id);
     const played = match.attendees.includes(id);
     const hit = !!l && l.goals + l.assists + l.secondAssists > 0;
-    return { playerId: id, points: l?.points ?? 0, hit, played };
+    const isCaptain = id === captain;
+    // The captain's whole match line counts double — bonuses and penalties alike.
+    return { playerId: id, points: (l?.points ?? 0) * (isCaptain ? CAPTAIN_MULTIPLIER : 1), hit, played, captain: isCaptain };
   });
   return {
     selectorId: selection.selectorId,
     matchId: match.id,
     picks,
+    captain,
     points: perPick.reduce((s, p) => s + p.points, 0),
     hits: perPick.filter((p) => p.hit).length,
     picksPlayed: perPick.filter((p) => p.played).length,
@@ -748,10 +759,10 @@ export function validateScorecard(
       const t = e.scorerId ? teamOf(e.scorerId) : null;
       const expect = own ? other(e.side) : e.side;
       if (t && t !== "floater" && t !== expect)
-        warn(e.id, `${n}: ${own ? "own-goal scorer" : "scorer"} was drawn on Team ${t}, but the goal is credited to Team ${e.side}${own ? " (an own goal should benefit the other team)" : ""}.`);
+        warn(e.id, `${n}: ${own ? "own-goal scorer" : "scorer"} is on Team ${t}, but the goal is credited to Team ${e.side}${own ? " (an own goal should benefit the other team)" : ""}.`);
       if (e.assistId && !own) {
         const ta = teamOf(e.assistId);
-        if (ta && ta !== "floater" && ta !== e.side) warn(e.id, `${n}: assister was drawn on the other team.`);
+        if (ta && ta !== "floater" && ta !== e.side) warn(e.id, `${n}: assister is on the other team.`);
       }
       if (e.kind === "deflection" && e.deflectedById) {
         const td = teamOf(e.deflectedById);

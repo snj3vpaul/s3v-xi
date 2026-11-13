@@ -31,7 +31,7 @@ export function matchSummary(m: MatchDay, state: LeagueState) {
 }
 
 /**
- * The match day the Draw page should show: the earliest not-yet-played one
+ * The current match day: the earliest not-yet-played one
  * whose kick-off was less than 6 hours ago (so an unplayed past week doesn't
  * block the next one).
  */

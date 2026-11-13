@@ -24,6 +24,7 @@ const ACTION: Record<AuditEntry["action"], string> = {
   "matchday.attendance": "Attendance updated",
   "draw.create": "Teams drawn",
   "draw.reset": "Draw reset",
+  "teams.set": "Team sheet set",
   "selection.submit": "Pick 7 submitted",
   "squad.update": "Pick 7 team changed",
   "squad.clear": "Pick 7 team removed",
@@ -46,7 +47,7 @@ export default async function AdminPage() {
         <header className="stack">
           <Kicker label="Club admins" no="Admin" />
           <h1>Admin <em>mode.</em></h1>
-          <p className="lede">Create match days, draw teams and enter scorecards. Ask the club for the passcode.</p>
+          <p className="lede">Enter each week's team sheet and scorecard. Ask the club for the passcode.</p>
         </header>
         <AdminLogin />
       </main>
@@ -79,6 +80,16 @@ export default async function AdminPage() {
         </p>
       </header>
 
+      <section className="panel stack">
+        <div className="row spread">
+          <h2>Tonight&apos;s match</h2>
+          <Link className="btn btn-primary" href="/admin/update-match">Team sheet &amp; score →</Link>
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>
+          Bookmark <b>/admin/update-match</b> on your phone. It always opens the right match: tonight&apos;s after kick-off, otherwise the next one.
+        </p>
+      </section>
+
       <section className="panel">
         <h2>Extra match day</h2>
         <p className="muted small">
@@ -101,13 +112,14 @@ export default async function AdminPage() {
                       <div className="small muted">{fmtKickoff(m.kickoffAt, SERIES.timeZone)}{m.seriesId ? " · weekly" : ""}</div>
                     </td>
                     <td>
-                      {m.status === "played" ? `Played${m.scorecardVersion > 1 ? ` · v${m.scorecardVersion}` : ""}` : m.status === "drawn" ? "Drawn" : "Open"}
+                      {m.status === "played" ? `Played${m.scorecardVersion > 1 ? ` · v${m.scorecardVersion}` : ""}` : m.draw ? "Teams set" : "Open"}
                     </td>
                     <td className="r hide-sm">{m.attendees.length}</td>
                     <td>
                       <span className="row" style={{ justifyContent: "flex-end" }}>
-                        {m.status === "open" && <Link className="btn btn-sm" href="/draw">Draw</Link>}
-                        {m.draw && <Link className="btn btn-sm btn-primary" href={`/admin/match/${m.id}`}>{m.scorecardAt ? "Correct" : "Scorecard"}</Link>}
+                        <Link className={`btn btn-sm${m.draw ? " btn-primary" : ""}`} href={`/admin/match/${m.id}`}>
+                          {m.scorecardAt ? "Correct" : m.draw ? "Scorecard" : "Team sheet"}
+                        </Link>
                         {!m.scorecardAt && <DeleteMatchDay id={m.id} />}
                       </span>
                     </td>

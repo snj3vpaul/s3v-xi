@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtDate, selectorName, upcoming } from "@/lib/league/derive";
-import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
+import { currentCaptain, currentSquad, lockedSelections, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
 import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
 import { buildPick7Table, selectorBreakdown } from "@/lib/league/pick7Table";
 import { PointsBreakdown } from "@/components/PointsBreakdown";
@@ -24,7 +24,9 @@ export default async function TeamPage() {
   const now = new Date();
   const next = nextDeadlineMatch(state, now);
   const live = upcoming(state, now);
-  const lockedNow = live && live.status === "drawn" ? live : null;
+  // Kick-off has passed but the scorecard isn't in yet: this week's sevens are locked and revealed.
+  const lockedNow = live && now.getTime() >= new Date(live.kickoffAt).getTime() ? live : null;
+  const lockedSels = lockedNow ? lockedSelections(state, lockedNow, now) : [];
   const rules = rulesFrom(state.settings);
   const pick7 = buildPick7Table(state, rules);
   const rankedCount = pick7.filter((r) => r.rank !== null).length;
@@ -40,7 +42,7 @@ export default async function TeamPage() {
   const myRow = me ? pick7.find((r) => r.id === me.id && r.rank !== null) : undefined;
   const myBreakdown = me ? selectorBreakdown(state, rules, me.id) : null;
   const deadlineLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
-  const myLocked = me && lockedNow ? lockedNow.selections.find((s) => s.selectorId === me.id) : undefined;
+  const myLocked = me && lockedNow ? lockedSels.find((s) => s.selectorId === me.id) : undefined;
 
   return (
     <main className="wrap stack-lg">
@@ -72,9 +74,9 @@ export default async function TeamPage() {
             <section className="panel stack" style={{ borderColor: "var(--accent)" }}>
               <div className="row spread">
                 <h3>Locked for {fmtDate(lockedNow.date)}</h3>
-                <span className="badge badge-kit">Teams drawn</span>
+                <span className="badge badge-kit">Locked at kick-off</span>
               </div>
-              <p style={{ margin: 0 }}>{myLocked.picks.map(playerName).join(", ")}</p>
+              <p style={{ margin: 0 }}>{myLocked.picks.map((id) => (id === myLocked.captain ? `${playerName(id)} (C)` : playerName(id))).join(", ")}</p>
             </section>
           )}
 
@@ -83,7 +85,7 @@ export default async function TeamPage() {
               <div>
                 <div className="kicker" style={{ marginBottom: "0.3rem" }}><b>Next deadline</b></div>
                 <h2>{next ? `${TEAM_NAMES.A} vs ${TEAM_NAMES.B}` : "No fixture scheduled"}</h2>
-                {next && <div className="muted">{deadlineLabel} · Pick 7 locks at kick-off (or at the draw, if earlier)</div>}
+                {next && <div className="muted">{deadlineLabel} · Pick 7 locks at kick-off</div>}
               </div>
               {next && (
                 <div style={{ textAlign: "right" }}>
@@ -93,13 +95,19 @@ export default async function TeamPage() {
               )}
             </div>
             {!squad.length && <div className="alert alert-warn">You haven&apos;t picked a team yet — choose {CLUB.picksPerSelector} players below.</div>}
+            {!legacy && squad.length > 0 && me && !currentCaptain(me) && (
+              <div className="alert alert-warn">
+                New: choose a captain. Tap <b>C</b> on one of your seven and save. Their points count double. Until you do, your seven still
+                plays, just without a captain.
+              </div>
+            )}
             {legacy && (
               <div className="alert alert-warn">
                 New formation: your old seven doesn&apos;t fit it. We&apos;ve kept the players who do; fill the empty seats and save before the
                 deadline, or your team won&apos;t be entered this week.
               </div>
             )}
-            <TeamPicker initial={legacy ? fitToFormation(squad) : squad} saved={squad} stars={stars} ownership={ownership} deadlineLabel={deadlineLabel} />
+            <TeamPicker initial={legacy ? fitToFormation(squad) : squad} saved={squad} savedCaptain={me ? currentCaptain(me) : null} stars={stars} ownership={ownership} deadlineLabel={deadlineLabel} />
             {lockedNow && !next && <p className="small muted">This week is locked. Changes you make now count from next week.</p>}
           </section>
 
@@ -137,20 +145,20 @@ export default async function TeamPage() {
         <Pick7Table initial={pick7} meId={me?.id ?? null} />
       </section>
 
-      {lockedNow && lockedNow.selections.length > 0 && (
+      {lockedNow && lockedSels.length > 0 && (
         <section className="panel stack">
           <div className="panel-head">
             <h2>{fmtDate(lockedNow.date)} — picks revealed</h2>
-            <Link href="/draw">See the teams</Link>
+            <Link href={`/matches/${lockedNow.id}`}>See the teams</Link>
           </div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Selector</th><th>Their seven</th></tr></thead>
               <tbody>
-                {lockedNow.selections.map((s) => (
+                {lockedSels.map((s) => (
                   <tr key={s.selectorId}>
                     <td>{selectorName(state, s.selectorId)}</td>
-                    <td className="small">{s.picks.map(playerName).join(", ")}</td>
+                    <td className="small">{s.picks.map((id) => (id === s.captain ? `${playerName(id)} (C)` : playerName(id))).join(", ")}</td>
                   </tr>
                 ))}
               </tbody>

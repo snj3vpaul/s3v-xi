@@ -27,6 +27,8 @@ interface PickerProps {
   initial: string[];
   /** The user's saved seven exactly as stored (for "dirty" and the over-budget allowance). */
   saved: string[];
+  /** The saved captain (one of `saved`), if any. */
+  savedCaptain: string | null;
   /** Current star rating per player. */
   stars: StarMap;
   /** Last locked round's ownership share per player (0..1). */
@@ -36,9 +38,11 @@ interface PickerProps {
 
 const starStr = (n: number) => "★".repeat(n);
 
-export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: PickerProps) {
+export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, deadlineLabel }: PickerProps) {
   const router = useRouter();
   const [picks, setPicks] = useState<string[]>(initial);
+  /** Exactly one of the seven: their points count double. */
+  const [captain, setCaptain] = useState<string | null>(savedCaptain && initial.includes(savedCaptain) ? savedCaptain : null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [said, setSaid] = useState("");
@@ -47,7 +51,12 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
   /** Two-step removal: first tap arms it, second tap removes. */
   const [confirmRemove, setConfirmRemove] = useState(false);
   const need = CLUB.picksPerSelector;
-  const dirty = picks.length !== saved.length || picks.some((p) => !saved.includes(p));
+  const dirty = picks.length !== saved.length || picks.some((p) => !saved.includes(p)) || captain !== savedCaptain;
+  const toggleCaptain = (id: string) => {
+    const next = captain === id ? null : id;
+    setCaptain(next);
+    setSaid(next ? `${playerName(id)} is your captain: their points count double.` : "Captain removed. Choose one before saving.");
+  };
 
   const check = checkTeam(picks, stars, saved);
   const total = check.starsTotal;
@@ -109,7 +118,8 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
     snapshot();
     const next = picks.filter((x) => x !== id);
     setPicks(next);
-    setSaid(`Removed ${playerName(id)}. ${next.length} of ${need} picked.`);
+    if (captain === id) setCaptain(null);
+    setSaid(`Removed ${playerName(id)}. ${next.length} of ${need} picked.${captain === id ? " Choose a new captain." : ""}`);
   };
 
   /** Atomic swap, so the team is never shown half-changed. */
@@ -118,6 +128,7 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
     flyFromChip(inId);
     snapshot();
     setPicks(picks.map((x) => (x === outId ? inId : x)));
+    if (captain === outId) setCaptain(null);
     setSwapIn(null);
     setSaid(`Swapped ${playerName(outId)} for ${playerName(inId)}.`);
   };
@@ -210,7 +221,9 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
       ? `Pick ${missing.short} more ${missing.short === 1 ? POSITION_LABEL[missing.pos].one : POSITION_LABEL[missing.pos].many}`
       : !check.valid
         ? check.errors[0]
-        : saved.length
+        : !captain
+          ? "Tap C to choose your captain"
+          : saved.length
           ? "Save changes"
           : `Lock in my ${need}`;
 
@@ -245,10 +258,29 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
         </p>
       )}
 
+      <p className="small cap-hint" style={{ margin: 0 }}>
+        <span className="cap-badge" aria-hidden="true">C</span>
+        {captain ? (
+          <span><b>{playerName(captain)}</b> is your captain: their points count double. Tap another C to change.</span>
+        ) : (
+          <span className={complete ? "neg" : "muted"}>Tap <b>C</b> on one of your seven to make them captain. Their points count double.</span>
+        )}
+      </p>
+
       <div className="bench" ref={slotsRef}>
         {seats.map(({ pos, id, n }) =>
           id ? (
-            <div key={id} className="bench-slot" data-slot={id}>
+            <div key={id} className={`bench-slot${captain === id ? " is-captain" : ""}`} data-slot={id}>
+              <button
+                type="button"
+                className="bench-cap"
+                aria-pressed={captain === id}
+                aria-label={captain === id ? `${playerName(id)} is captain (double points)` : `Make ${playerName(id)} captain (double points)`}
+                title={captain === id ? "Captain: double points" : "Make captain (double points)"}
+                onClick={() => toggleCaptain(id)}
+              >
+                C
+              </button>
               <Mascot id={id} size={92} />
               <span className="bench-name">{playerName(id)}</span>
               <span className="bench-pos">{pos} · {starStr(stars[id] ?? 0)}</span>
@@ -343,13 +375,13 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
       <div className="row">
         <button
           className="btn btn-primary"
-          disabled={busy || !complete || !check.valid || !dirty}
+          disabled={busy || !complete || !check.valid || !captain || !dirty}
           onClick={async () => {
             setBusy(true);
             setMsg(null);
             emitPick7({ kind: "optimistic", status: "picked" }); // the table shows you on 0 right away
             try {
-              await api("/api/me/squad", "PUT", { picks });
+              await api("/api/me/squad", "PUT", { picks, captain });
               emitPick7({ kind: "settled", ok: true });
               setMsg({ ok: true, text: deadlineLabel ? `Saved. Locked in for ${deadlineLabel} — and every week after until you change it.` : "Saved." });
               router.refresh();
@@ -363,7 +395,9 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
         >
           {saveLabel}
         </button>
-        {dirty && saved.length > 0 && <button className="btn btn-sm" onClick={() => { setPicks(initial); setSwapIn(null); }}>Undo</button>}
+        {dirty && saved.length > 0 && (
+          <button className="btn btn-sm" onClick={() => { setPicks(initial); setCaptain(savedCaptain); setSwapIn(null); }}>Undo</button>
+        )}
         {saved.length > 0 && !dirty && (
           <button
             type="button"

@@ -8,11 +8,11 @@ import { isAdmin } from "@/lib/server/auth";
 import { getState } from "@/lib/server/store";
 import { AdminLogin } from "@/components/AdminLogin";
 import { ScorecardEditor } from "@/components/ScorecardEditor";
-import { TeamsView } from "@/components/TeamsView";
+import { TeamSheetEditor } from "@/components/TeamSheetEditor";
 import { Kicker } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Scorecard" };
+export const metadata: Metadata = { title: "Match day" };
 
 export default async function ScorecardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -32,25 +32,34 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
   return (
     <main className="wrap stack-lg">
       <header className="stack">
-        <Kicker label={m.scorecardAt ? "Correction" : "Scorecard entry"} no={fmtDate(m.date)} />
-        <h1>{m.scorecardAt ? <>Correct the <em>scoresheet.</em></> : <>Full time. <em>Who scored?</em></>}</h1>
+        <Kicker label={m.scorecardAt ? "Correction" : "Match day"} no={fmtDate(m.date)} />
+        <h1>
+          {m.scorecardAt ? <>Correct the <em>scoresheet.</em></> : !m.draw ? <>This week&apos;s <em>teams.</em></> : <>Full time. <em>Who scored?</em></>}
+        </h1>
         <p className="muted">
-          {version === 2
-            ? "Log each goal, pick a Man of the Match for each team, then check conduct: fair play and who did their goalkeeper and sub stints."
-            : "One entry per goal, in order. Pick the type first — it decides who can get an assist."}{" "}
+          {!m.draw
+            ? "Once the captains have picked sides on WhatsApp, enter the teams here. You can change them any time until the scorecard is in."
+            : version === 2
+              ? "Log each goal, pick a Man of the Match for each team, then check conduct: fair play and who did their goalkeeper and sub stints."
+              : "One entry per goal, in order. Pick the type first — it decides who can get an assist."}{" "}
           <Link href={`/matches/${m.id}`}>Match report →</Link>
         </p>
       </header>
-      {!m.draw ? (
-        <div className="panel">
-          Draw the teams first. <Link href="/draw">Go to the draw</Link>
+
+      <details className="panel" open={!m.draw}>
+        <summary className="display" style={{ cursor: "pointer", fontSize: "1.2rem" }}>
+          1 · Team sheet{m.draw ? ` (White ${m.draw.teamA.length} · Red ${m.draw.teamB.length})` : ""}
+        </summary>
+        <div style={{ marginTop: "0.75rem" }}>
+          <TeamSheetEditor matchId={m.id} initialA={m.draw?.teamA ?? []} initialB={m.draw?.teamB ?? []} locked={!!m.scorecardAt} />
         </div>
+      </details>
+
+      {!m.draw ? (
+        <div className="panel muted">2 · Scorecard: save the team sheet first.</div>
       ) : (
         <>
-          <details className="panel">
-            <summary className="display" style={{ cursor: "pointer", fontSize: "1.1rem" }}>Show the teams</summary>
-            <div style={{ marginTop: "0.75rem" }}><TeamsView draw={m.draw} /></div>
-          </details>
+          <h2 className="display" style={{ margin: 0, fontSize: "1.2rem" }}>2 · Scorecard</h2>
           <ScorecardEditor
             matchId={m.id}
             attendees={m.attendees}

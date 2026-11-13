@@ -61,8 +61,12 @@ export interface DrawConstraints {
 }
 
 export interface DrawResult {
-  /** Algorithm id — lets a future change of algorithm keep old draws verifiable. */
-  algorithm: "sha256-ctr-fisher-yates-v1";
+  /**
+   * How the teams were made. "manual" = the team sheet the admin entered
+   * (captains pick sides over WhatsApp); seed/attempt/constraints are then
+   * unused. "sha256-ctr-fisher-yates-v1" = the old random draw (legacy data).
+   */
+  algorithm: "sha256-ctr-fisher-yates-v1" | "manual";
   /** 256-bit hex seed from crypto.randomBytes. Publish it; anyone can re-run the draw. */
   seed: string;
   /** Which attempt (0-based) under this seed satisfied the constraints. */
@@ -86,6 +90,7 @@ export interface DrawResult {
   drawnAt: string;
 }
 
+/** "drawn" = teams are set (team sheet entered); the name is kept for stored data. */
 export type MatchStatus = "open" | "drawn" | "played";
 
 /** Scoring rule set. 1 = original (+5/+3, deflections, second assist). 2 = simplified (+3/+2, MOTM, fair play). */
@@ -115,6 +120,8 @@ export interface FairPlayLoss {
 export interface Selection {
   selectorId: string;
   picks: string[];
+  /** One of `picks`: their points count double. Missing on older sevens (no captain, no doubling). */
+  captain?: string | null;
   submittedAt: string;
 }
 
@@ -138,7 +145,7 @@ export interface User {
    * count from the next week — exactly like FPL. An entry with no picks means
    * the user removed their seven ("no pick" from then on).
    */
-  squadHistory: { picks: string[]; at: string }[];
+  squadHistory: { picks: string[]; at: string; captain?: string | null }[];
 }
 
 export interface ReminderLog {
@@ -201,6 +208,7 @@ export type AuditAction =
   | "matchday.attendance"
   | "draw.create"
   | "draw.reset"
+  | "teams.set"
   | "selection.submit"
   | "squad.update"
   | "squad.clear"

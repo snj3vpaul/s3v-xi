@@ -14,7 +14,7 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: { default: `${CLUB.leagueName} | ${CLUB.tagline}`, template: `%s · ${CLUB.leagueName}` },
-  description: "RSFC's in-house league: random teams every match day, points only from the scoresheet, and a pick-7 prediction game.",
+  description: "RSFC's in-house league: White vs Red every Thursday, points from the scoresheet, and a Pick 7 fantasy game with a double-points captain.",
   applicationName: CLUB.leagueName,
   robots: { index: false, follow: false },
 };

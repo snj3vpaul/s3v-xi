@@ -2,14 +2,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
-import { PlayerChips } from "./PlayerChips";
 
 export function NewMatchDay({ defaultDate }: { defaultDate: string }) {
   const router = useRouter();
   const [date, setDate] = useState(defaultDate);
   const [label, setLabel] = useState("");
   const [time, setTime] = useState("22:00");
-  const [att, setAtt] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
@@ -20,8 +18,7 @@ export function NewMatchDay({ defaultDate }: { defaultDate: string }) {
         setBusy(true);
         setErr(null);
         try {
-          await api("/api/matchdays", "POST", { date, time, label, attendees: att });
-          router.push("/draw");
+          await api("/api/matchdays", "POST", { date, time, label });
           router.refresh();
         } catch (e) {
           setErr((e as Error).message);
@@ -43,10 +40,6 @@ export function NewMatchDay({ defaultDate }: { defaultDate: string }) {
           <label htmlFor="md-label">Label (optional)</label>
           <input id="md-label" type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Season opener" />
         </div>
-      </div>
-      <div>
-        <label>Attendance — tick now, or leave empty and take it at the pitch ({att.length} selected)</label>
-        <PlayerChips selected={att} onToggle={(id) => setAtt((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))} />
       </div>
       <div className="row">
         <button className="btn btn-primary" disabled={busy}>Create extra match day</button>

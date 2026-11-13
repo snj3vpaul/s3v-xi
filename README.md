@@ -3,7 +3,7 @@
 **Your club. Your seven.** RSFC's in-house soccer league:
 
 - **Every Thursday, 10 pm: White vs Red**, until summer. The fixtures are created automatically and published as a calendar feed.
-- Every match day, a seeded random draw splits whoever turns up into the two teams.
+- The captains pick White and Red on WhatsApp; the admin enters the team sheet on the site.
 - Points come from the scorecard: goal +3, assist +2, own goal −2, Man of the Match +4 (one per team), winning side +3 each, fair play +1, missed GK/sub rotation −2. Match days before 19 Nov 2026 keep the original +5 / +3 / −2.
 - **Pick 7, FPL-style.** Anyone with an account (email and password) picks 7 of the 20 players in a fixed formation (2 DEF · 2 CM · 1 CAM · 2 ATT) within a star budget. The team carries over every week. Changes are free until the Thursday deadline, and reminders go out before each one.
 
@@ -22,10 +22,9 @@ npm run dev           # http://localhost:3000
 - **Local data:** stored in `.data/rsfc-league.json`. Delete that file to start a clean season.
 
 ```bash
-npm test              # 63 unit tests: scoring, draw, corrections, accounts, carry-over, fixtures, calendar, reminders
+npm test              # unit tests: scoring, team sheet, captain, corrections, accounts, carry-over, fixtures, calendar, reminders
 npm run lint          # type-check
 npm run build && npm start
-npm run verify-draw   # re-run every recorded draw from its seed
 ```
 
 ## Deploy to Vercel
@@ -48,7 +47,8 @@ Without Redis, the app still runs on Vercel, but it keeps data in memory and sho
 
 - **Join** (`/join`): name, email and password, with an optional link to your roster player (one account per player). Passwords are hashed with scrypt, and sessions are signed cookies that last 90 days.
 - **My Team** (`/team`): pick 7 of the 21 players. The seven carries over to every following week until you change it, with unlimited free changes.
-- **Deadline:** kick-off at 10 pm Thursday, or the moment the admin draws the teams if that's earlier. Each match day uses your seven as it stood at the deadline, so a change made after the deadline counts from next week.
+- **Deadline:** kick-off at 10 pm Thursday (posting the team sheet earlier doesn't close picks). Each match day uses your seven, and your captain, as they stood at kick-off, so a change made after that counts from next week.
+- **Captain:** one of your seven; their points for the night count double, bonuses and penalties alike.
 - **Reminders:**
   - A site-wide banner shows in the last 3 days before a deadline. It says "you haven't picked" or "your 7 carries over — any changes?"
   - Emails go out Wednesday evening and Thursday midday through Resend. Each user gets at most one per slot, and can switch them off under Account.
@@ -66,12 +66,13 @@ The weekly series is set in `config/schedule.ts`: Thursday 22:00 America/Toronto
 
 ## Match-day flow
 
-1. **The fixture already exists.** Players set their Pick 7 on My Team before the deadline, and picks stay hidden until the draw.
-2. **Draw** (admin, at the pitch):
-   - Finalise attendance, set the rules (split drop-ins, avoid repeat, keep together or apart, max per side) and press *Draw the teams*.
-   - The seed is published. Anyone can press *Verify draw*.
-   - Drawing locks every account's seven for that night.
-3. **Scorecard** (admin, after full time):
+Bookmark **/admin/update-match**: it opens tonight's match (after kick-off) or the next one.
+
+1. **The fixture already exists.** Players set their Pick 7 and captain on My Team before kick-off; picks stay hidden until then.
+2. **Team sheet** (admin, once the captains have picked on WhatsApp):
+   - Tap each player onto White, Red or Out, or paste the captains' lists (a "White" line, names, a "Red" line, names) and check the result.
+   - Saving sets who played. It can be changed until the scorecard is in.
+3. **Scorecard** (admin, after full time at 11 pm, on a phone):
    - Enter one entry per goal: team, type, scorer, and an optional assist or pre-assist.
    - Errors block saving. Warnings (for example, an assist on a free kick) are shown and then ignored.
    - Publishing updates the table, the charts and the Pick 7 results.
@@ -82,13 +83,13 @@ The weekly series is set in `config/schedule.ts`: Thursday 22:00 America/Toronto
 ```
 config/club.ts            roster (18 members + 3 drop-ins): the single source of truth
 lib/scoring/rules.ts      ALL scoring rules (pure) + rules.test.ts
-lib/draw/draw.ts          seeded crypto draw, constraints, verification + draw.test.ts
+lib/draw/draw.ts          legacy seeded draw (old data) + the seeded RNG used by the simulation
 lib/league/types.ts       data model
 lib/league/ledger.ts      pure state transitions + audit log + ledger.test.ts
 lib/league/derive.ts      standings, awards and summaries for the pages
 lib/server/store.ts       Redis (Upstash REST, compare-and-set) / file / memory storage
 lib/server/auth.ts        passcode → signed HttpOnly cookie
-app/                      pages: / draw pick matches table stats rules admin; app/api/* route handlers
+app/                      pages: / team matches table stats rules simulate admin; app/api/* route handlers
 components/charts/        season race, goal involvement, form sparklines, contribution matrix, selector gauges
 docs/SCORING.md           every rule mapped to its test
 docs/DATA_MODEL.md        the stored document, explained
@@ -99,7 +100,7 @@ MIGRATION.md              pivot summary + what to delete from the old cricket co
 
 - **Roster:** edit `config/club.ts`. Never change a player's `id` once they've played; add new players freely.
 - **Point values:** change `POINTS` in `lib/scoring/rules.ts`, update the tests, and every page follows.
-- **Rulings** (deflection default, second assist, excluding drop-ins from awards, correction window, draw defaults): change them in Admin → Settings.
+- **Rulings** (deflection default, second assist, excluding drop-ins from awards, correction window): change them in Admin → Settings.
 
 ## Design notes
 

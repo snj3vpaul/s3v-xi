@@ -32,7 +32,7 @@ export default async function MatchesPage() {
               <Link key={m.id} href={`/matches/${m.id}`} className="panel stack" style={{ color: "inherit", textDecoration: "none" }}>
                 <div className="row spread">
                   <h3>{m.label || fmtDate(m.date)}</h3>
-                  <span className="badge badge-muted">{m.status === "played" ? "Full time" : m.status === "drawn" ? "Teams drawn" : "Upcoming"}</span>
+                  <span className="badge badge-muted">{m.status === "played" ? "Full time" : m.draw ? "Teams posted" : "Upcoming"}</span>
                 </div>
                 {m.status === "played" ? (
                   <div className="row" style={{ gap: "1rem" }}>

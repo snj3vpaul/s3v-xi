@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { SelectorBreakdown } from "@/lib/league/pick7Table";
 import { POINT_KIND_LABEL, type ContributionKind } from "@/lib/scoring/rules";
 
-const ORDER: ContributionKind[] = ["goal", "assist", "second_assist", "win", "motm", "fair_play", "own_goal", "rotation"];
+const ORDER: ContributionKind[] = ["goal", "assist", "second_assist", "win", "motm", "fair_play", "captain", "own_goal", "rotation"];
 const fmtDate = (iso: string) =>
   new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
@@ -49,7 +49,10 @@ export function PointsBreakdown({ data, openFirst = true, example = false }: { d
           <ul className="breakdown-list">
             {r.picks.map((p) => (
               <li key={p.playerId}>
-                <span className="bd-name">{p.name}</span>
+                <span className="bd-name">
+                  {p.name}
+                  {p.captain && <span className="cap-badge" title="Captain: points count double">C</span>}
+                </span>
                 <span className="bd-items">
                   {!p.played ? (
                     <span className="bd-dnp">Didn&apos;t play</span>

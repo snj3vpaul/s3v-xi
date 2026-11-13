@@ -14,7 +14,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { FORMATION, MEMBERS, DROPINS, PICKABLE, POSITIONS, ROSTER } from "../config/club";
 import { SeededRandom } from "../lib/draw/draw";
-import { DEFAULT_CONSTRAINTS, createMatchDay, initialState, recordDraw, saveScorecard, setSquad, signUp, type Ctx } from "../lib/league/ledger";
+import { createMatchDay, initialState, saveScorecard, setSquad, setTeamSheet, signUp, type Ctx } from "../lib/league/ledger";
 import { scryptSync, randomBytes } from "node:crypto";
 import type { GoalEvent, GoalKind, LeagueState, Side } from "../lib/league/types";
 
@@ -57,16 +57,21 @@ const dates = ["2026-09-10", "2026-09-17", "2026-09-24", "2026-10-01", "2026-10-
 dates.forEach((date, di) => {
   const members = rng.shuffle(MEMBERS.map((p) => p.id)).slice(0, 13 + rng.int(5));
   const drops = rng.shuffle(DROPINS.map((p) => p.id)).slice(0, rng.int(3));
-  const attendees = [...members, ...drops];
-  const c = createMatchDay(state, { date, attendees, seriesId: "demo" }, ctxAt(`${date}T13:00:00Z`));
+  const attendees = rng.shuffle([...members, ...drops]);
+  const c = createMatchDay(state, { date, seriesId: "demo" }, ctxAt(`${date}T13:00:00Z`));
   state = c.state;
   // Some accounts tweak their seven each week; the rest carry over (FPL-style).
   for (const uid of userIds) {
-    if (di === 0 || rng.int(3) === 0) state = setSquad(state, uid, randomSeven(), ctxAt(`${date}T15:00:00Z`));
+    if (di === 0 || rng.int(3) === 0) {
+      const seven = randomSeven();
+      state = setSquad(state, uid, seven, ctxAt(`${date}T15:00:00Z`), seven[rng.int(seven.length)]);
+    }
   }
-  state = recordDraw(state, c.match.id, DEFAULT_CONSTRAINTS, ctxAt(`${date}T22:00:00-04:00`));
+  // The captains' picks, as the admin would enter them (here: a random split).
+  const half = Math.ceil(attendees.length / 2);
+  state = setTeamSheet(state, c.match.id, { teamA: attendees.slice(0, half), teamB: attendees.slice(half) }, ctxAt(`${date}T20:00:00-04:00`));
   const d = state.matchDays.find((m) => m.id === c.match.id)!.draw!;
-  const team = (s: Side) => [...(s === "A" ? d.teamA : d.teamB), ...(d.floater ? [d.floater] : [])];
+  const team = (s: Side) => (s === "A" ? d.teamA : d.teamB);
   const events: GoalEvent[] = [];
   const goals = 3 + rng.int(7);
   for (let g = 0; g < goals; g++) {

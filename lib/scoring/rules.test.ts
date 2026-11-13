@@ -250,7 +250,7 @@ describe("selections (pick 7)", () => {
     expect(r.points).toBe(5 + 3 + 5 + 3 - 2 + 0 + 0);
     expect(r.hits).toBe(4);
     expect(r.picksPlayed).toBe(6);
-    expect(r.perPick.find((p) => p.playerId === "zz")).toEqual({ playerId: "zz", points: 0, hit: false, played: false });
+    expect(r.perPick.find((p) => p.playerId === "zz")).toEqual({ playerId: "zz", points: 0, hit: false, played: false, captain: false });
   });
 
   it("R22 selector season table: points, hits, hit rate; ties on points+hits share a rank", () => {

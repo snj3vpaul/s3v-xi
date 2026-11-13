@@ -48,7 +48,7 @@ describe("match-day lifecycle", () => {
     s = setSquad(s, uid, B, at("2026-04-30T11:05:00Z"));
     expect(s.audit.filter((a) => a.action === "squad.update")).toHaveLength(2);
     s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-05-01T09:00:00Z"), SEED);
-    expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: B, submittedAt: "2026-04-30T11:05:00.000Z" }]);
+    expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: B, captain: null, submittedAt: "2026-04-30T11:05:00.000Z" }]);
   });
 
   it("L02 attendance locks at the draw; recorded draws verify", () => {

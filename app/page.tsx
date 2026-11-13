@@ -26,10 +26,9 @@ function Words({ text, from = 0 }: { text: string; from?: number }) {
 }
 
 const CHAPTERS: OrbChapter[] = [
-  { no: "01", name: "The draw", tag: "White vs Red, at random", href: "/draw", kind: "draw" },
-  { no: "02", name: "The scoresheet", tag: "Where every point comes from", href: "/rules", kind: "scoresheet" },
-  { no: "03", name: "Your seven", tag: "Pick 7, FPL-style", href: "/team", kind: "seven" },
-  { no: "04", name: "Thursday, 10\u00a0pm", tag: "Fixtures & results", href: "/matches", kind: "thursday" },
+  { no: "01", name: "The scoresheet", tag: "Where every point comes from", href: "/rules", kind: "scoresheet" },
+  { no: "02", name: "Your seven", tag: "Pick 7, FPL-style", href: "/team", kind: "seven" },
+  { no: "03", name: "Thursday, 10\u00a0pm", tag: "Fixtures & results", href: "/matches", kind: "thursday" },
 ];
 
 export default async function Home() {
@@ -71,7 +70,7 @@ export default async function Home() {
                   <span className="dot" aria-hidden="true" />
                   {next ? (
                     <>
-                      Next: <b>{TEAM_NAMES.A} vs {TEAM_NAMES.B}</b> · {nextLabel} · {next.status === "open" ? "Pick 7 open" : "teams drawn"}
+                      Next: <b>{TEAM_NAMES.A} vs {TEAM_NAMES.B}</b> · {nextLabel} · {next.draw ? "teams posted · Pick 7 open" : "Pick 7 open"}
                     </>
                   ) : (
                     <>Next fixture to be confirmed</>
@@ -86,22 +85,6 @@ export default async function Home() {
               <div className="chapter-copy" data-reveal>
                 <p className="kicker"><b>Chapter / 01</b></p>
                 <h2 id="ch-1-title" className="chapter-title">
-                  The draw <Link href="/draw" className="chapter-go" aria-label="See this week's draw">↗</Link>
-                </h2>
-                <p className="chapter-tag">{TEAM_NAMES.A} vs {TEAM_NAMES.B}, at random</p>
-                <p className="chapter-body">
-                  Nobody picks their mates. A seeded, crypto-random draw splits whoever of the {squad} turns up into two even sides, and
-                  anyone can re-run the seed to check it.
-                </p>
-              </div>
-            </div>
-          </article>
-
-          <article className="chapter" id="ch-2" aria-labelledby="ch-2-title">
-            <div className="wrap">
-              <div className="chapter-copy" data-reveal>
-                <p className="kicker"><b>Chapter / 02</b></p>
-                <h2 id="ch-2-title" className="chapter-title">
                   The scoresheet <Link href="/rules" className="chapter-go" aria-label="Read the scoring rules">↗</Link>
                 </h2>
                 <p className="chapter-tag">Where every point comes from</p>
@@ -119,11 +102,11 @@ export default async function Home() {
             </div>
           </article>
 
-          <article className="chapter" id="ch-3" aria-labelledby="ch-3-title">
+          <article className="chapter" id="ch-2" aria-labelledby="ch-2-title">
             <div className="wrap">
               <div className="chapter-copy" data-reveal>
-                <p className="kicker"><b>Chapter / 03</b></p>
-                <h2 id="ch-3-title" className="chapter-title">
+                <p className="kicker"><b>Chapter / 02</b></p>
+                <h2 id="ch-2-title" className="chapter-title">
                   Your seven <Link href="/team" className="chapter-go" aria-label="Pick your seven">↗</Link>
                 </h2>
                 <p className="chapter-tag">Pick {CLUB.picksPerSelector}, FPL-style</p>
@@ -143,17 +126,17 @@ export default async function Home() {
             </div>
           </article>
 
-          <article className="chapter" id="ch-4" aria-labelledby="ch-4-title">
+          <article className="chapter" id="ch-3" aria-labelledby="ch-3-title">
             <div className="wrap">
               <div className="chapter-copy" data-reveal>
-                <p className="kicker"><b>Chapter / 04</b></p>
-                <h2 id="ch-4-title" className="chapter-title">
+                <p className="kicker"><b>Chapter / 03</b></p>
+                <h2 id="ch-3-title" className="chapter-title">
                   Thursday, 10&nbsp;pm <Link href="/matches" className="chapter-go" aria-label="Fixtures and results">↗</Link>
                 </h2>
                 <p className="chapter-tag">{next ? <>Next: {nextLabel}</> : "Weekly until summer"}</p>
                 <p className="chapter-body">
-                  {TEAM_NAMES.A} vs {TEAM_NAMES.B}, weekly until summer. Pick 7 locks at kick-off; reminders go out Wednesday evening and
-                  Thursday midday.
+                  Captains draft {TEAM_NAMES.A} and {TEAM_NAMES.B} on WhatsApp, and the admin posts the official team sheet each week.
+                  Pick 7 locks at kick-off. The match ends at 11&nbsp;pm and the scores go up straight after.
                 </p>
                 <CalendarLinks />
               </div>
