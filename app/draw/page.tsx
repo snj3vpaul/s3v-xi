@@ -5,6 +5,7 @@ import { formatLabel } from "@/lib/draw/draw";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtKickoff } from "@/lib/league/schedule";
 import { fmtDate, upcoming } from "@/lib/league/derive";
+import { currentSquad } from "@/lib/league/ledger";
 import { isAdmin } from "@/lib/server/auth";
 import { getState } from "@/lib/server/store";
 import { AttendanceEditor } from "@/components/AttendanceEditor";
@@ -19,7 +20,7 @@ export const metadata: Metadata = { title: "Match-day draw" };
 export default async function DrawPage() {
   const [state, admin] = await Promise.all([getState(), isAdmin()]);
   const m = upcoming(state);
-  const withTeam = state.users.filter((u) => u.squadHistory.length).length;
+  const withTeam = state.users.filter((u) => currentSquad(u)).length;
 
   return (
     <main className="wrap stack-lg">

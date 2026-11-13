@@ -635,3 +635,20 @@ html.lenis, html.lenis body { height: auto; }
 .fair-row label { margin: 0; display: inline-flex; align-items: center; gap: 0.45rem; text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 0.92rem; color: var(--text); min-width: 9rem; }
 .fair-row .chips { gap: 0.3rem; }
 .fair-row .chip { padding: 0.2rem 0.65rem; font-size: 0.78rem; }
+
+/* Live Pick 7 table */
+.p7-status {
+  display: inline-block; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0.2rem 0.55rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+}
+.p7-picked { color: var(--accent); border-color: var(--accent); }
+.p7-fix { color: var(--danger); border-color: rgba(158, 59, 46, 0.45); }
+.p7-none { border-style: dashed; }
+.p7-saving { color: var(--bronze-deep); border-color: var(--champagne); animation: p7-pulse 1.1s ease-in-out infinite; }
+.p7-table tr.p7-me td { background: var(--surface-sunk); }
+.p7-table tr.p7-waiting td { color: var(--muted); }
+.p7-table tr.p7-flash td { animation: p7-flash 1.6s ease-out; }
+.p7-live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 0.3rem; vertical-align: middle; }
+@keyframes p7-pulse { 50% { opacity: 0.45; } }
+@keyframes p7-flash { from { background: rgba(201, 168, 92, 0.35); } }
+@media (prefers-reduced-motion: reduce) { .p7-saving, .p7-table tr.p7-flash td { animation: none; } }

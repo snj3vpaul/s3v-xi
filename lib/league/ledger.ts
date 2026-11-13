@@ -239,15 +239,17 @@ export function resetDraw(state: LeagueState, matchId: string, reason: string, c
 // Pick 7 — standing team (FPL-style carry-over)
 // ---------------------------------------------------------------------------
 
-/** The user's seven as it stood at `atIso` (latest change at or before it), or null. */
+/** The user's seven as it stood at `atIso` (latest change at or before it), or null (none / removed). */
 export function squadAt(user: Pick<User, "squadHistory">, atIso: string): string[] | null {
   let best: string[] | null = null;
   for (const h of user.squadHistory) if (h.at <= atIso) best = h.picks;
-  return best;
+  return best?.length ? best : null;
 }
 
+/** The user's current seven, or null if they never picked or removed it. */
 export function currentSquad(user: Pick<User, "squadHistory">): string[] | null {
-  return user.squadHistory.at(-1)?.picks ?? null;
+  const last = user.squadHistory.at(-1)?.picks;
+  return last?.length ? last : null;
 }
 
 /**
@@ -285,6 +287,23 @@ export function setSquad(state: LeagueState, userId: string, picks: string[], ct
     ...state,
     users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, entry] } : x)),
     audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "squad.update", before: prev, after: unique })],
+  };
+}
+
+/**
+ * Remove the standing seven: the user goes back to "no pick" for every match
+ * day whose deadline is still ahead. Weeks already locked keep their snapshot,
+ * and points already earned stay on the table.
+ */
+export function clearSquad(state: LeagueState, userId: string, ctx: Ctx): LeagueState {
+  const u = state.users.find((x) => x.id === userId);
+  if (!u) throw new LedgerError("Account not found.");
+  const prev = currentSquad(u);
+  if (!prev) return state; // nothing to remove
+  return {
+    ...state,
+    users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, { picks: [], at: ctx.now.toISOString() }] } : x)),
+    audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "squad.clear", before: prev })],
   };
 }
 

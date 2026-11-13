@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { CLUB, FORMATION, PICK7, PICKABLE, POSITIONS, POSITION_LABEL, getPlayer, playerName, type Position } from "@/config/club";
 import { checkTeam, isFormationValid, starsTotal, type StarMap } from "@/lib/league/pick7";
 import { api } from "./api";
+import { emitPick7 } from "./pick7Live";
 import { Mascot } from "./Mascot";
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -43,6 +44,8 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
   const [said, setSaid] = useState("");
   /** A player tapped while their position was full: choose who they replace. */
   const [swapIn, setSwapIn] = useState<string | null>(null);
+  /** Two-step removal: first tap arms it, second tap removes. */
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const need = CLUB.picksPerSelector;
   const dirty = picks.length !== saved.length || picks.some((p) => !saved.includes(p));
 
@@ -344,11 +347,14 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
           onClick={async () => {
             setBusy(true);
             setMsg(null);
+            emitPick7({ kind: "optimistic", status: "picked" }); // the table shows you on 0 right away
             try {
               await api("/api/me/squad", "PUT", { picks });
+              emitPick7({ kind: "settled", ok: true });
               setMsg({ ok: true, text: deadlineLabel ? `Saved. Locked in for ${deadlineLabel} — and every week after until you change it.` : "Saved." });
               router.refresh();
             } catch (e) {
+              emitPick7({ kind: "settled", ok: false });
               setMsg({ ok: false, text: (e as Error).message });
             } finally {
               setBusy(false);
@@ -358,6 +364,35 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: 
           {saveLabel}
         </button>
         {dirty && saved.length > 0 && <button className="btn btn-sm" onClick={() => { setPicks(initial); setSwapIn(null); }}>Undo</button>}
+        {saved.length > 0 && !dirty && (
+          <button
+            type="button"
+            className={`btn btn-sm${confirmRemove ? " btn-danger" : ""}`}
+            disabled={busy}
+            onBlur={() => setConfirmRemove(false)}
+            onClick={async () => {
+              if (!confirmRemove) return setConfirmRemove(true);
+              setConfirmRemove(false);
+              setBusy(true);
+              setMsg(null);
+              emitPick7({ kind: "optimistic", status: "no_pick" });
+              try {
+                await api("/api/me/squad", "DELETE");
+                emitPick7({ kind: "settled", ok: true });
+                setPicks([]);
+                setMsg({ ok: true, text: "Team removed. You won't be entered until you pick again." });
+                router.refresh();
+              } catch (e) {
+                emitPick7({ kind: "settled", ok: false });
+                setMsg({ ok: false, text: (e as Error).message });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {confirmRemove ? "Tap again to remove" : "Remove my team"}
+          </button>
+        )}
         {msg && <span className={`small ${msg.ok ? "" : "neg"}`} role="status">{msg.text}</span>}
       </div>
     </div>

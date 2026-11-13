@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
-import { deriveSeason, fmtDate, selectorName, upcoming } from "@/lib/league/derive";
+import { fmtDate, selectorName, upcoming } from "@/lib/league/derive";
 import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
 import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
+import { buildPick7Table } from "@/lib/league/pick7Table";
+import { Pick7Table } from "@/components/Pick7Table";
 import { fmtKickoff } from "@/lib/league/schedule";
 import { playedMatches, scoreSelection } from "@/lib/scoring/rules";
 import { currentUser } from "@/lib/server/session";
@@ -23,7 +25,8 @@ export default async function TeamPage() {
   const live = upcoming(state, now);
   const lockedNow = live && live.status === "drawn" ? live : null;
   const rules = rulesFrom(state.settings);
-  const { selectors } = deriveSeason(state);
+  const pick7 = buildPick7Table(state, rules);
+  const rankedCount = pick7.filter((r) => r.rank !== null).length;
   const played = playedMatches(state.matchDays);
   const last = played.at(-1);
   const lastResults = last
@@ -33,7 +36,7 @@ export default async function TeamPage() {
   const legacy = squad.length > 0 && !isFormationValid(squad);
   const stars = currentStars(state.matchDays);
   const ownership = lastOwnership(state.matchDays);
-  const myRow = me ? selectors.find((s) => s.selectorId === me.id) : undefined;
+  const myRow = me ? pick7.find((r) => r.id === me.id && r.rank !== null) : undefined;
   const myRounds = me
     ? played
         .map((m) => ({ m, sel: m.selections.find((s) => s.selectorId === me.id) }))
@@ -110,12 +113,12 @@ export default async function TeamPage() {
               <h3>My season</h3>
               {myRow ? (
                 <div className="grid grid-3" style={{ gap: "0.5rem" }}>
-                  <div className="stat-tile"><div className="v num">{myRow.rank}{myRow.sharedRank ? "=" : ""}</div><div className="l">of {selectors.length} selectors</div></div>
+                  <div className="stat-tile"><div className="v num">{myRow.rank}{myRow.sharedRank ? "=" : ""}</div><div className="l">of {rankedCount} selectors</div></div>
                   <div className="stat-tile"><div className="v num">{myRow.points}</div><div className="l">points</div></div>
-                  <div className="stat-tile"><div className="v num">{Math.round(myRow.hitRate * 100)}%</div><div className="l">hit rate</div></div>
+                  <div className="stat-tile"><div className="v num">{myRow.totalPicks ? Math.round((myRow.hits / myRow.totalPicks) * 100) : 0}%</div><div className="l">hit rate</div></div>
                 </div>
               ) : (
-                <p className="muted" style={{ margin: 0 }}>Your first round counts once a match you picked for is played.</p>
+                <p className="muted" style={{ margin: 0 }}>Pick your seven to join the table on 0 points.</p>
               )}
               {myRounds.length > 0 && (
                 <div className="table-wrap">
@@ -145,6 +148,14 @@ export default async function TeamPage() {
           </div>
         </>
       )}
+
+      <section className="panel stack" id="pick7-table">
+        <div className="panel-head">
+          <h2>Pick 7 table</h2>
+          <Link href="/table#pick7">Full table</Link>
+        </div>
+        <Pick7Table initial={pick7} meId={me?.id ?? null} />
+      </section>
 
       {lockedNow && lockedNow.selections.length > 0 && (
         <section className="panel stack">

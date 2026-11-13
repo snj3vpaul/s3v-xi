@@ -3,6 +3,10 @@ import type { Metadata } from "next";
 import { isDropIn, playerName } from "@/config/club";
 import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
+import { currentUser } from "@/lib/server/session";
+import { rulesFrom } from "@/lib/league/ledger";
+import { buildPick7Table } from "@/lib/league/pick7Table";
+import { Pick7Table } from "@/components/Pick7Table";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Empty, Kicker, Name } from "@/components/ui";
 
@@ -10,7 +14,8 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Table" };
 
 export default async function TablePage() {
-  const state = await getState();
+  const [state, me] = await Promise.all([getState(), currentUser()]);
+  const pick7 = buildPick7Table(state, rulesFrom(state.settings));
   const { played, standings, selectors, awards } = deriveSeason(state);
   const dateOf = Object.fromEntries(played.map((m) => [m.id, shortDate(m.date)]));
 
@@ -84,35 +89,16 @@ export default async function TablePage() {
             </p>
           </section>
 
-          <section className="panel">
-            <div className="panel-head">
-              <h2>Pick 7 selectors</h2>
-              <span className="small muted">Hit = a pick who scored or assisted</span>
-            </div>
-            {selectors.length ? (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>#</th><th>Selector</th><th className="r">Rounds</th><th className="r">Hits</th><th className="r hide-sm">Hit rate</th><th className="r">Pts</th></tr></thead>
-                  <tbody>
-                    {selectors.map((s) => (
-                      <tr key={s.selectorId}>
-                        <td className="rank">{s.rank}{s.sharedRank ? "=" : ""}</td>
-                        <td>{selectorName(state, s.selectorId)}</td>
-                        <td className="r">{s.rounds}</td>
-                        <td className="r">{s.hits}/{s.totalPicks}</td>
-                        <td className="r hide-sm">{Math.round(s.hitRate * 100)}%</td>
-                        <td className="r pts">{s.points}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="muted">No pick-7 entries on played match days yet.</p>
-            )}
-          </section>
         </>
       )}
+
+      <section className="panel" id="pick7">
+        <div className="panel-head">
+          <h2>Pick 7 table</h2>
+          <span className="small muted">Hit = a pick who scored or assisted</span>
+        </div>
+        <Pick7Table initial={pick7} meId={me?.id ?? null} />
+      </section>
     </main>
   );
 }

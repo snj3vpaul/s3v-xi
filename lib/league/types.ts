@@ -127,7 +127,8 @@ export interface User {
   /**
    * Every change to the standing seven, oldest first. A match day uses the
    * latest entry saved before its deadline, so changes made after a deadline
-   * count from the next week — exactly like FPL.
+   * count from the next week — exactly like FPL. An entry with no picks means
+   * the user removed their seven ("no pick" from then on).
    */
   squadHistory: { picks: string[]; at: string }[];
 }
@@ -188,6 +189,7 @@ export type AuditAction =
   | "draw.reset"
   | "selection.submit"
   | "squad.update"
+  | "squad.clear"
   | "fixtures.create"
   | "user.signup"
   | "user.update"

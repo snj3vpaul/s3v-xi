@@ -3,6 +3,7 @@ import Link from "next/link";
 import { playerName } from "@/config/club";
 import { fmtDate } from "@/lib/league/derive";
 import type { AuditEntry } from "@/lib/league/types";
+import { currentSquad } from "@/lib/league/ledger";
 import { isAdmin } from "@/lib/server/auth";
 import { getState, storageMode } from "@/lib/server/store";
 import { AdminLogin, AdminLogout } from "@/components/AdminLogin";
@@ -25,6 +26,7 @@ const ACTION: Record<AuditEntry["action"], string> = {
   "draw.reset": "Draw reset",
   "selection.submit": "Pick 7 submitted",
   "squad.update": "Pick 7 team changed",
+  "squad.clear": "Pick 7 team removed",
   "fixtures.create": "Weekly fixtures created",
   "user.signup": "Account created",
   "user.update": "Account updated",
@@ -132,7 +134,7 @@ export default async function AdminPage() {
             name: u.name,
             email: u.email,
             player: u.playerId ? playerName(u.playerId) : null,
-            hasTeam: u.squadHistory.length > 0,
+            hasTeam: currentSquad(u) !== null,
             reminders: u.emailReminders,
             createdAt: u.createdAt,
           }))}
