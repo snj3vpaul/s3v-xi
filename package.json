@@ -2,7 +2,7 @@
   "name": "rsfc-league",
   "version": "1.0.0",
   "private": true,
-  "description": "RSFC League — scorecard-only internal soccer league for RSFC.",
+  "description": "RSFC League \u2014 scorecard-only internal soccer league for RSFC.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -31,6 +31,6 @@
     "vitest": "^5.1.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   }
 }
