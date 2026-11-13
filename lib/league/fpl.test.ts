@@ -24,9 +24,10 @@ import { weeklyDates, zonedToUtc } from "./schedule";
 
 let n = 0;
 const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `id${++n}` });
-const SEVEN = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder"];
-const OTHER = ["vineet", "gurinder", "raunak", "sanjeev", "jedi", "tadas", "jaskaran"];
-const SQUAD16 = [...SEVEN, ...OTHER, "gurnaam", "harpreet"];
+// Both fit the Pick 7 formation (2 DEF · 2 CM · 1 CAM · 2 ATT) and the star budget.
+const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
+const OTHER = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
+const SQUAD16 = [...SEVEN, ...OTHER, "gurnaam", "tadas"];
 
 describe("weekly fixtures (Thursday 10 pm, White vs Red, until summer)", () => {
   it("F01 every Thursday from 19 Nov 2026 to 17 Jun 2027", () => {
@@ -154,7 +155,7 @@ describe("reminders", () => {
     expect(plan.map((p) => [p.name, p.kind])).toEqual([["Archit S", "carry_over"], ["Bea", "no_team"]]);
     const mail = reminderEmail(plan[0], "https://rsfc.example");
     expect(mail.subject).toMatch(/any changes to your 7/);
-    expect(mail.text).toContain("Navneet, Archit, Vikram");
+    expect(mail.text).toContain("Archit, Danial, Navneet");
     expect(mail.text).toContain("https://rsfc.example/team");
 
     s = recordReminders(s, plan[0].matchId, plan.map((p) => ({ userId: p.userId, slot: "eve-before" })), at(wed.toISOString()));

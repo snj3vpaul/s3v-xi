@@ -11,15 +11,18 @@ import { CLUB, ROSTER, isDropIn } from "@/config/club";
 import { SERIES } from "@/config/schedule";
 import { weeklyDates, zonedToUtc } from "./schedule";
 import { drawTeams, generateSeed } from "@/lib/draw/draw";
-import { DEFAULT_RULES, playedMatches, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
+import { DEFAULT_RULES, playedMatches, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
+import { checkTeam, currentStars, isFormationValid } from "./pick7";
 import type {
   AuditEntry,
   DrawConstraints,
+  FairPlayLoss,
   GoalEvent,
   LeagueSettings,
   LeagueState,
   MatchDay,
   Selection,
+  Side,
   User,
 } from "./types";
 
@@ -131,6 +134,7 @@ export function createMatchDay(
     createdAt: ctx.now.toISOString(),
     scorecardAt: null,
     scorecardVersion: 0,
+    rulesVersion: rulesVersionOf({ date: input.date }),
   };
   return {
     match,
@@ -246,11 +250,17 @@ export function currentSquad(user: Pick<User, "squadHistory">): string[] | null 
   return user.squadHistory.at(-1)?.picks ?? null;
 }
 
+/**
+ * Lock every user's seven as it stood at the deadline. Only sevens in the
+ * current formation are entered; an old pre-formation seven sits that week out
+ * (the user is reminded and keeps it to fix). Stars aren't re-checked here: a
+ * team saved within budget stays legal when ratings move.
+ */
 export function snapshotSelections(users: User[], deadlineIso: string): Selection[] {
   const out: Selection[] = [];
   for (const u of users) {
     const picks = squadAt(u, deadlineIso);
-    if (picks) {
+    if (picks && isFormationValid(picks)) {
       const at = [...u.squadHistory].reverse().find((h) => h.at <= deadlineIso)!.at;
       out.push({ selectorId: u.id, picks: [...picks], submittedAt: at });
     }
@@ -267,6 +277,8 @@ export function setSquad(state: LeagueState, userId: string, picks: string[], ct
     throw new LedgerError(`Pick exactly ${CLUB.picksPerSelector} different players.`);
   checkRoster(unique, "Picks");
   const prev = currentSquad(u);
+  const check = checkTeam(unique, currentStars(state.matchDays), prev);
+  if (!check.valid) throw new LedgerError(`That seven isn't valid: ${check.errors.join("; ")}.`, check.errors);
   if (prev && prev.length === unique.length && prev.every((x) => unique.includes(x))) return state; // no change
   const entry = { picks: unique, at: ctx.now.toISOString() };
   return {
@@ -445,22 +457,21 @@ export function saveScorecard(
   state: LeagueState,
   matchId: string,
   events: GoalEvent[],
-  input: { reason?: string },
+  input: { reason?: string; motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
   ctx: Ctx,
 ): LeagueState {
   const m = findMatch(state, matchId);
   if (!m.draw) throw new LedgerError("Draw the teams before entering a scorecard.");
-  const issues = validateScorecard(
-    events,
-    {
-      knownPlayers: ROSTER_IDS,
-      attendees: m.attendees,
-      teamA: m.draw.teamA,
-      teamB: m.draw.teamB,
-      floater: m.draw.floater,
-    },
-    rulesFrom(state.settings),
-  );
+  const version = rulesVersionOf(m);
+  const matchCtx = {
+    knownPlayers: ROSTER_IDS,
+    attendees: m.attendees,
+    teamA: m.draw.teamA,
+    teamB: m.draw.teamB,
+    floater: m.draw.floater,
+  };
+  const issues = validateScorecard(events, matchCtx, rulesFrom(state.settings), version);
+  if (version === 2) issues.push(...validateAwards(input, matchCtx));
   const errors = issues.filter((i) => i.level === "error");
   if (errors.length) throw new LedgerError("The scorecard has errors.", errors);
 
@@ -478,7 +489,19 @@ export function saveScorecard(
     events: events.map((e) => ({ ...e })),
     scorecardAt: m.scorecardAt ?? ctx.now.toISOString(),
     scorecardVersion: m.scorecardVersion + 1,
+    rulesVersion: version,
+    ...(version === 2
+      ? {
+          motm: { A: input.motm?.A ?? null, B: input.motm?.B ?? null },
+          fairPlayLost: (input.fairPlayLost ?? []).map((f) => ({ playerId: f.playerId, reason: f.reason })),
+        }
+      : {}),
   };
+  const snap = (x: MatchDay) => ({
+    version: x.scorecardVersion,
+    events: x.events,
+    ...(version === 2 ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [] } : {}),
+  });
   return replaceMatch(
     state,
     next,
@@ -487,8 +510,8 @@ export function saveScorecard(
       action: isCorrection ? "scorecard.correct" : "scorecard.create",
       matchId,
       reason: input.reason?.trim() || undefined,
-      before: isCorrection ? { version: m.scorecardVersion, events: m.events } : undefined,
-      after: { version: next.scorecardVersion, events: next.events },
+      before: isCorrection ? snap(m) : undefined,
+      after: snap(next),
     }),
   );
 }

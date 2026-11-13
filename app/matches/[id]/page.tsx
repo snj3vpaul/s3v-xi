@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { playerName } from "@/config/club";
 import { fmtDate, matchSummary, selectorName } from "@/lib/league/derive";
 import { correctionDeadline, rulesFrom } from "@/lib/league/ledger";
-import { scoreSelection } from "@/lib/scoring/rules";
+import { FAIR_PLAY_LABEL, rulesVersionOf, scoreSelection } from "@/lib/scoring/rules";
 import { isAdmin } from "@/lib/server/auth";
 import { getState } from "@/lib/server/store";
 import { EventLine } from "@/components/EventLine";
@@ -25,6 +25,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const sels = m.status === "played" ? m.selections.map((s) => scoreSelection(s, m, rules, lines)).sort((a, b) => b.points - a.points) : [];
   const history = state.audit.filter((a) => a.matchId === m.id && a.action.startsWith("scorecard"));
   const deadline = correctionDeadline(m, state.settings);
+  const v2 = rulesVersionOf(m) === 2;
 
   return (
     <main className="wrap stack-lg">
@@ -45,17 +46,33 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
             <h3>Scoresheet</h3>
             {m.events.length ? (
               <ul style={{ listStyle: "none", padding: 0, margin: "0.5rem 0 0" }}>
-                {m.events.map((e) => <EventLine key={e.id} e={e} rules={rules} />)}
+                {m.events.map((e) => <EventLine key={e.id} e={e} rules={rules} version={rulesVersionOf(m)} />)}
               </ul>
             ) : (
               <p className="muted">0–0. The keepers had a day.</p>
+            )}
+            {v2 && (m.motm?.A || m.motm?.B) && (
+              <p className="small" style={{ marginBottom: 0 }}>
+                <b>Man of the Match:</b> {[m.motm?.A && `${playerName(m.motm.A)} (White)`, m.motm?.B && `${playerName(m.motm.B)} (Red)`].filter(Boolean).join(" · ")}
+              </p>
+            )}
+            {v2 && (m.fairPlayLost?.length ?? 0) > 0 && (
+              <p className="small muted" style={{ marginBottom: 0 }}>
+                <b>Lost fair play:</b> {m.fairPlayLost!.map((f) => `${playerName(f.playerId)} (${FAIR_PLAY_LABEL[f.reason].short.toLowerCase()})`).join(", ")}
+              </p>
             )}
           </section>
           <section className="panel">
             <h3>Points on the day</h3>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Player</th><th className="r">G</th><th className="r">A</th><th className="r">OG</th><th className="r">Pts</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Player</th><th className="r">G</th><th className="r">A</th><th className="r">OG</th>
+                    {v2 && <><th className="r" title="Man of the Match">MOTM</th><th className="r" title="Fair play">FP</th></>}
+                    <th className="r">Pts</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {ranked.map((l) => (
                     <tr key={l.playerId}>
@@ -63,6 +80,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                       <td className="r">{l.goals}</td>
                       <td className="r">{l.assists + (rules.secondAssistEnabled ? l.secondAssists : 0)}</td>
                       <td className="r">{l.ownGoals}</td>
+                      {v2 && <><td className="r">{l.motm ? "★" : ""}</td><td className="r">{l.fairPlay ? "✓" : "–"}</td></>}
                       <td className="r pts"><Points v={l.points} /></td>
                     </tr>
                   ))}

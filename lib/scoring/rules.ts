@@ -5,7 +5,20 @@
  * no clock, no randomness. Pages, charts, the API and the tests all call these
  * functions, so a rule changed here changes everywhere at once.
  *
- * Scoring comes ONLY from the match scorecard (goals and assists):
+ * There are two rule sets, chosen per match (see rulesVersionOf):
+ *
+ * v2 — SIMPLIFIED, every match day on/after RULES_V2_FROM:
+ *
+ *   Goal (primary scorer)              +3
+ *   Assist (last pass, max one)        +2   — never on penalties or direct free kicks
+ *   Own goal                           −2
+ *   Man of the Match                   +4   — exactly one per team
+ *   Fair play                          +1   — everyone who played, unless the scorekeeper
+ *                                             records a breach: a foul conceded, a card or
+ *                                             sin-bin, a dissent warning, or a dangerous challenge
+ *   No second assists, no deflection rulings.
+ *
+ * v1 — ORIGINAL, kept so matches played under it never change:
  *
  *   Goal (any type)                    +5 to the scorer
  *   Assist                             +3 to the assister
@@ -38,18 +51,52 @@
  *   5. anyone still level shares the rank (competition ranking: 1, 2, 2, 4).
  */
 
-import type { DeflectionRuling, GoalEvent, GoalKind, MatchDay, Side } from "@/lib/league/types";
+import type { DeflectionRuling, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, MatchDay, RulesVersion, Side } from "@/lib/league/types";
 
 // ---------------------------------------------------------------------------
 // Point values & rule switches
 // ---------------------------------------------------------------------------
 
-export const POINTS = {
+/** Original rules (matches before RULES_V2_FROM). */
+export const POINTS_V1 = {
   goal: 5,
   assist: 3,
   ownGoal: -2,
   secondAssist: 1,
 } as const;
+
+/** Simplified rules (current). */
+export const POINTS_V2 = {
+  goal: 3,
+  assist: 2,
+  ownGoal: -2,
+  motm: 4,
+  fairPlay: 1,
+} as const;
+
+/** The current point values, for pages that show "the rules". */
+export const POINTS = POINTS_V2;
+
+/** First match day (club-local date) scored under v2. Earlier match days keep v1. */
+export const RULES_V2_FROM = "2026-11-19";
+
+/** Which rule set a match uses: pinned on the match, otherwise by date. Undated (tests) → v1. */
+export function rulesVersionOf(m: { date?: string; rulesVersion?: RulesVersion }): RulesVersion {
+  if (m.rulesVersion) return m.rulesVersion;
+  return m.date && m.date >= RULES_V2_FROM ? 2 : 1;
+}
+
+export const FAIR_PLAY_BREACHES: readonly FairPlayBreach[] = ["foul", "card", "dissent", "dangerous"];
+
+export const FAIR_PLAY_LABEL: Record<FairPlayBreach, { short: string; long: string }> = {
+  foul: { short: "Foul", long: "Conceded a foul: play was stopped and a free kick or penalty given against them" },
+  card: { short: "Card", long: "Shown a card or sent to the sin-bin" },
+  dissent: { short: "Dissent", long: "Formally warned for arguing with the ref, scorekeeper or an opponent" },
+  dangerous: { short: "Dangerous", long: "Called for a dangerous challenge: slide tackle, high foot, or contact from behind" },
+};
+
+/** Goal types the v2 scorecard offers (v1 also had header and deflection). */
+export const GOAL_KINDS_V2: readonly GoalKind[] = ["open_play", "penalty", "free_kick", "own_goal"];
 
 export interface ScoringRules {
   /** Pre-assist (+1). Default OFF. */
@@ -85,7 +132,7 @@ export const GOAL_KIND_LABEL: Record<GoalKind, string> = {
 // Single event → contributions
 // ---------------------------------------------------------------------------
 
-export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal";
+export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play";
 
 export interface Contribution {
   playerId: string;
@@ -106,7 +153,9 @@ export function deflectionRulingOf(e: GoalEvent, rules: ScoringRules): Deflectio
 }
 
 /** Score one scorecard entry. Pure. */
-export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES): EventScore {
+export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES, version: RulesVersion = 1): EventScore {
+  if (version === 2) return scoreEventV2(e, rules);
+  const POINTS = POINTS_V1;
   const out: Contribution[] = [];
   const ignored: string[] = [];
   const add = (playerId: string, kind: ContributionKind, points: number) =>
@@ -151,9 +200,36 @@ export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES): E
   return { contributions: out, ignored };
 }
 
+/** v2: goal +3, assist +2 (not on penalties / free kicks), own goal −2. Nothing else. */
+function scoreEventV2(e: GoalEvent, rules: ScoringRules): EventScore {
+  const out: Contribution[] = [];
+  const ignored: string[] = [];
+  const add = (playerId: string, kind: ContributionKind, points: number) => out.push({ playerId, kind, points, eventId: e.id });
+  if (e.secondAssistId) ignored.push("Second assists aren't scored any more.");
+
+  // Legacy deflection entries still honour their ruling, at v2 values.
+  const isOwnGoal = e.kind === "own_goal" || (e.kind === "deflection" && deflectionRulingOf(e, rules) === "own_goal");
+  if (isOwnGoal) {
+    const by = e.kind === "own_goal" ? e.scorerId : (e.deflectedById ?? null);
+    if (by) add(by, "own_goal", POINTS_V2.ownGoal);
+    if (e.assistId) ignored.push("Assists on an own goal earn nothing.");
+    return { contributions: out, ignored };
+  }
+  add(e.scorerId, "goal", POINTS_V2.goal);
+  if (!e.assistId) return { contributions: out, ignored };
+  if (e.kind === "penalty" || e.kind === "free_kick") ignored.push("Penalties and direct free kicks have no assist.");
+  else if (e.assistId === e.scorerId) ignored.push("A player cannot assist their own goal.");
+  else add(e.assistId, "assist", POINTS_V2.assist);
+  return { contributions: out, ignored };
+}
+
 // ---------------------------------------------------------------------------
 // Match → per-player lines
 // ---------------------------------------------------------------------------
+
+/** What scoring needs from a match. `date`/`rulesVersion` pick the rule set; v2 also reads MOTM and fair play. */
+export type ScorableMatch = Pick<MatchDay, "events" | "attendees"> &
+  Partial<Pick<MatchDay, "date" | "rulesVersion" | "motm" | "fairPlayLost">>;
 
 export interface PlayerMatchLine {
   playerId: string;
@@ -161,21 +237,23 @@ export interface PlayerMatchLine {
   assists: number;
   secondAssists: number;
   ownGoals: number;
+  /** v2: Man of the Match awards (0/1 per match). */
+  motm: number;
+  /** v2: fair-play points kept (0/1 per match). */
+  fairPlay: number;
   points: number;
 }
 
 export function emptyLine(playerId: string): PlayerMatchLine {
-  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, points: 0 };
+  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, points: 0 };
 }
 
 /**
  * Per-player lines for one match. Every attendee gets a line (0 if they didn't
  * score) so "played, no points" is distinguishable from "didn't play".
  */
-export function scoreMatch(
-  match: Pick<MatchDay, "events" | "attendees">,
-  rules: ScoringRules = DEFAULT_RULES,
-): Map<string, PlayerMatchLine> {
+export function scoreMatch(match: ScorableMatch, rules: ScoringRules = DEFAULT_RULES): Map<string, PlayerMatchLine> {
+  const version = rulesVersionOf(match);
   const lines = new Map<string, PlayerMatchLine>();
   const line = (id: string) => {
     let l = lines.get(id);
@@ -184,13 +262,28 @@ export function scoreMatch(
   };
   for (const id of match.attendees) line(id);
   for (const e of match.events) {
-    for (const c of scoreEvent(e, rules).contributions) {
+    for (const c of scoreEvent(e, rules, version).contributions) {
       const l = line(c.playerId);
       l.points += c.points;
       if (c.kind === "goal") l.goals += 1;
       else if (c.kind === "assist") l.assists += 1;
       else if (c.kind === "second_assist") l.secondAssists += 1;
       else if (c.kind === "own_goal") l.ownGoals += 1;
+    }
+  }
+  if (version === 2) {
+    for (const id of new Set([match.motm?.A, match.motm?.B])) {
+      if (!id) continue;
+      const l = line(id);
+      l.motm += 1;
+      l.points += POINTS_V2.motm;
+    }
+    const lost = new Set((match.fairPlayLost ?? []).map((f) => f.playerId));
+    for (const id of match.attendees) {
+      if (lost.has(id)) continue;
+      const l = line(id);
+      l.fairPlay += 1;
+      l.points += POINTS_V2.fairPlay;
     }
   }
   return lines;
@@ -263,6 +356,8 @@ export function buildStandings(
       r.assists += l.assists;
       r.secondAssists += l.secondAssists;
       r.ownGoals += l.ownGoals;
+      r.motm += l.motm;
+      r.fairPlay += l.fairPlay;
       r.points += l.points;
       r.perMatch[m.id] = l.points;
       if (m.attendees.includes(l.playerId)) r.played += 1;
@@ -357,7 +452,7 @@ export interface SelectionResult {
 
 export function scoreSelection(
   selection: { selectorId: string; picks: string[] },
-  match: Pick<MatchDay, "id" | "events" | "attendees">,
+  match: ScorableMatch & Pick<MatchDay, "id">,
   rules: ScoringRules = DEFAULT_RULES,
   lines: Map<string, PlayerMatchLine> = scoreMatch(match, rules),
 ): SelectionResult {
@@ -488,7 +583,12 @@ export interface MatchContext {
  * Errors block saving. Warnings are shown to the admin but allowed — e.g. a
  * player who swapped bibs at half-time scoring for the "wrong" team.
  */
-export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules: ScoringRules = DEFAULT_RULES): ValidationIssue[] {
+export function validateScorecard(
+  events: GoalEvent[],
+  ctx: MatchContext,
+  rules: ScoringRules = DEFAULT_RULES,
+  version: RulesVersion = 1,
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const err = (eventId: string, message: string) => issues.push({ level: "error", eventId, message });
   const warn = (eventId: string, message: string) => issues.push({ level: "warning", eventId, message });
@@ -505,6 +605,11 @@ export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules:
     seen.add(e.id);
     if (e.side !== "A" && e.side !== "B") err(e.id, `${n}: team must be A or B.`);
     if (!GOAL_KINDS.includes(e.kind)) err(e.id, `${n}: unknown goal type "${e.kind}".`);
+    if (version === 2) {
+      if (e.kind === "deflection") err(e.id, `${n}: deflections aren't recorded any more. Pick goal or own goal.`);
+      if (e.secondAssistId) warn(e.id, `${n}: second assists aren't scored any more; it will be ignored.`);
+      if (e.kind === "penalty" && e.assistId) warn(e.id, `${n}: penalties have no assist; it will be ignored.`);
+    }
 
     const people: [string, string | null | undefined][] = [
       ["scorer", e.scorerId],
@@ -535,7 +640,7 @@ export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules:
       warn(e.id, `${n}: assists on an own goal earn nothing and will be ignored.`);
     if (e.kind === "free_kick" && (e.assistId || e.secondAssistId))
       warn(e.id, `${n}: direct free kicks have no assist; it will be ignored.`);
-    if (e.secondAssistId && !rules.secondAssistEnabled)
+    if (version === 1 && e.secondAssistId && !rules.secondAssistEnabled)
       warn(e.id, `${n}: the second-assist rule is off, so this earns nothing.`);
 
     // Side sanity (warnings only).
@@ -555,5 +660,37 @@ export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules:
       }
     }
   });
+  return issues;
+}
+
+/**
+ * v2 Man of the Match and fair-play entries. MOTM is required for both teams
+ * and must be someone drawn on that team (or the floater). Fair-play breaches
+ * must name players who attended, once each, with a listed reason.
+ */
+export function validateAwards(
+  input: { motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
+  ctx: MatchContext,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const err = (message: string) => issues.push({ level: "error", message });
+  const names: Record<Side, string> = { A: "White", B: "Red" };
+  for (const side of ["A", "B"] as Side[]) {
+    const id = input.motm?.[side];
+    if (!id) {
+      err(`Choose Man of the Match for ${names[side]}.`);
+      continue;
+    }
+    const team = side === "A" ? ctx.teamA : ctx.teamB;
+    if (!ctx.knownPlayers.has(id)) err(`${names[side]} MOTM "${id}" is not on the RSFC roster.`);
+    else if (team && !team.includes(id) && ctx.floater !== id) err(`${names[side]} MOTM must be someone who played for ${names[side]}.`);
+  }
+  const seen = new Set<string>();
+  for (const f of input.fairPlayLost ?? []) {
+    if (!FAIR_PLAY_BREACHES.includes(f.reason)) err(`Unknown fair-play reason "${f.reason}".`);
+    if (!ctx.attendees.includes(f.playerId)) err(`Fair play: "${f.playerId}" didn't attend this match day.`);
+    if (seen.has(f.playerId)) err("Fair play: list each player once.");
+    seen.add(f.playerId);
+  }
   return issues;
 }

@@ -12,7 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { MEMBERS, DROPINS, ROSTER } from "../config/club";
+import { FORMATION, MEMBERS, DROPINS, PICKABLE, POSITIONS, ROSTER } from "../config/club";
 import { SeededRandom } from "../lib/draw/draw";
 import { DEFAULT_CONSTRAINTS, createMatchDay, initialState, recordDraw, saveScorecard, setSquad, signUp, type Ctx } from "../lib/league/ledger";
 import { scryptSync, randomBytes } from "node:crypto";
@@ -38,6 +38,9 @@ const weighted = (ids: string[], w: Record<string, number>) => {
   return pick(bag);
 };
 
+/** A random seven in the Pick 7 formation (2 DEF · 2 CM · 1 CAM · 2 ATT). */
+const randomSeven = () => POSITIONS.flatMap((pos) => rng.shuffle(PICKABLE.filter((p) => p.position === pos).map((p) => p.id)).slice(0, FORMATION[pos]));
+
 let state = initialState();
 // Demo accounts: password "demo-league" for all. Same hash format as lib/server/password.ts.
 const salt = randomBytes(16);
@@ -59,7 +62,7 @@ dates.forEach((date, di) => {
   state = c.state;
   // Some accounts tweak their seven each week; the rest carry over (FPL-style).
   for (const uid of userIds) {
-    if (di === 0 || rng.int(3) === 0) state = setSquad(state, uid, rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 7), ctxAt(`${date}T15:00:00Z`));
+    if (di === 0 || rng.int(3) === 0) state = setSquad(state, uid, randomSeven(), ctxAt(`${date}T15:00:00Z`));
   }
   state = recordDraw(state, c.match.id, DEFAULT_CONSTRAINTS, ctxAt(`${date}T22:00:00-04:00`));
   const d = state.matchDays.find((m) => m.id === c.match.id)!.draw!;

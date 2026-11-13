@@ -2,8 +2,20 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ROSTER, playerName } from "@/config/club";
-import type { DrawResult, GoalEvent, GoalKind, LeagueSettings, Side } from "@/lib/league/types";
-import { GOAL_KINDS, GOAL_KIND_LABEL, deflectionRulingOf, scoreMatch, scoreline, validateScorecard } from "@/lib/scoring/rules";
+import type { DrawResult, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, LeagueSettings, RulesVersion, Side } from "@/lib/league/types";
+import {
+  FAIR_PLAY_BREACHES,
+  FAIR_PLAY_LABEL,
+  GOAL_KINDS,
+  GOAL_KINDS_V2,
+  GOAL_KIND_LABEL,
+  POINTS_V2,
+  deflectionRulingOf,
+  scoreMatch,
+  scoreline,
+  validateAwards,
+  validateScorecard,
+} from "@/lib/scoring/rules";
 import { api } from "./api";
 
 const KNOWN = new Set(ROSTER.map((p) => p.id));
@@ -52,11 +64,17 @@ function PlayerSelect({
   );
 }
 
+/** v2 labels: "Open play" reads as just "Goal". */
+const V2_KIND_LABEL: Partial<Record<GoalKind, string>> = { open_play: "Goal", penalty: "Penalty", free_kick: "Direct free kick", own_goal: "Own goal" };
+
 export function ScorecardEditor({
   matchId,
   attendees,
   draw,
   initial,
+  initialMotm,
+  initialFairPlayLost,
+  version,
   settings,
   isCorrection,
   windowOpen,
@@ -66,26 +84,45 @@ export function ScorecardEditor({
   attendees: string[];
   draw: DrawResult;
   initial: GoalEvent[];
+  initialMotm: Record<Side, string | null> | null;
+  initialFairPlayLost: FairPlayLoss[];
+  version: RulesVersion;
   settings: LeagueSettings;
   isCorrection: boolean;
   windowOpen: boolean;
   deadline: string | null;
 }) {
   const router = useRouter();
+  const v2 = version === 2;
   const [events, setEvents] = useState<GoalEvent[]>(initial);
+  const [motm, setMotm] = useState<Record<Side, string | null>>(initialMotm ?? { A: null, B: null });
+  const [fairPlayLost, setFairPlayLost] = useState<FairPlayLoss[]>(initialFairPlayLost);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const rules = { secondAssistEnabled: settings.secondAssistEnabled, deflectionDefault: settings.deflectionDefault };
 
+  const matchCtx = { knownPlayers: KNOWN, attendees, teamA: draw.teamA, teamB: draw.teamB, floater: draw.floater };
   const issues = useMemo(
-    () => validateScorecard(events, { knownPlayers: KNOWN, attendees, teamA: draw.teamA, teamB: draw.teamB, floater: draw.floater }, rules),
+    () => validateScorecard(events, matchCtx, rules, version),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [events, attendees, draw, settings],
+    [events, attendees, draw, settings, version],
   );
-  const errors = issues.filter((i) => i.level === "error");
+  const awardIssues = useMemo(
+    () => (v2 ? validateAwards({ motm, fairPlayLost }, matchCtx) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [v2, motm, fairPlayLost, attendees, draw],
+  );
+  const errors = [...issues, ...awardIssues].filter((i) => i.level === "error");
   const score = scoreline(events);
-  const lines = [...scoreMatch({ attendees, events }, rules).values()].filter((l) => l.points !== 0 || l.goals || l.assists).sort((a, b) => b.points - a.points);
+  const lines = [...scoreMatch({ attendees, events, rulesVersion: version, motm, fairPlayLost }, rules).values()]
+    .filter((l) => l.points !== 0 || l.goals || l.assists)
+    .sort((a, b) => b.points - a.points || playerName(a.playerId).localeCompare(playerName(b.playerId)));
+  const lostBy = new Map(fairPlayLost.map((f) => [f.playerId, f.reason]));
+  const setBreach = (id: string, reason: FairPlayBreach | null) =>
+    setFairPlayLost((xs) => [...xs.filter((x) => x.playerId !== id), ...(reason ? [{ playerId: id, reason }] : [])]);
+  const teamOf = (side: Side) => [...(side === "A" ? draw.teamA : draw.teamB), ...(draw.floater ? [draw.floater] : [])];
+  const byName = (ids: string[]) => [...ids].sort((a, b) => playerName(a).localeCompare(playerName(b)));
   const locked = isCorrection && !windowOpen;
 
   const update = (id: string, patch: Partial<GoalEvent>) => setEvents((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -108,7 +145,8 @@ export function ScorecardEditor({
         const out: GoalEvent = { id: e.id, side: e.side, kind: e.kind, scorerId: e.scorerId };
         if (e.minute != null && !Number.isNaN(e.minute)) out.minute = e.minute;
         if (e.assistId) out.assistId = e.assistId;
-        if (e.secondAssistId) out.secondAssistId = e.secondAssistId;
+        if (e.secondAssistId && !v2) out.secondAssistId = e.secondAssistId;
+        if (v2 && (e.kind === "penalty" || e.kind === "free_kick" || e.kind === "own_goal")) delete out.assistId;
         if (e.kind === "deflection") {
           out.deflectedById = e.deflectedById ?? null;
           out.deflectionRuling = deflectionRulingOf(e, rules);
@@ -116,7 +154,11 @@ export function ScorecardEditor({
         if (e.note) out.note = e.note;
         return out;
       });
-      await api(`/api/matchdays/${matchId}/scorecard`, "PUT", { events: clean, reason: isCorrection ? reason : undefined });
+      await api(`/api/matchdays/${matchId}/scorecard`, "PUT", {
+        events: clean,
+        reason: isCorrection ? reason : undefined,
+        ...(v2 ? { motm, fairPlayLost } : {}),
+      });
       setMsg({ ok: true, text: isCorrection ? "Correction saved and logged. Standings recalculated." : "Scorecard published. The table is updated." });
       setReason("");
       router.refresh();
@@ -143,7 +185,7 @@ export function ScorecardEditor({
         {events.map((e, i) => {
           const own = e.kind === "own_goal";
           const ruling = e.kind === "deflection" ? deflectionRulingOf(e, rules) : null;
-          const noAssist = own || e.kind === "free_kick" || ruling === "own_goal";
+          const noAssist = own || e.kind === "free_kick" || ruling === "own_goal" || (v2 && e.kind === "penalty");
           const myIssues = issues.filter((x) => x.eventId === e.id);
           const other: Side = e.side === "A" ? "B" : "A";
           return (
@@ -180,7 +222,9 @@ export function ScorecardEditor({
                       });
                     }}
                   >
-                    {GOAL_KINDS.map((k) => <option key={k} value={k}>{GOAL_KIND_LABEL[k]}</option>)}
+                    {(v2 ? GOAL_KINDS_V2 : GOAL_KINDS).map((k) => (
+                      <option key={k} value={k}>{v2 ? V2_KIND_LABEL[k] : GOAL_KIND_LABEL[k]}</option>
+                    ))}
                   </select>
                 </div>
                 <PlayerSelect
@@ -204,7 +248,7 @@ export function ScorecardEditor({
                   </>
                 )}
                 <PlayerSelect
-                  label={e.kind === "penalty" ? "Assist (only if you're crediting one)" : "Assist"}
+                  label={!v2 && e.kind === "penalty" ? "Assist (only if you're crediting one)" : "Assist"}
                   value={noAssist ? null : e.assistId}
                   onChange={(v) => update(e.id, { assistId: v, secondAssistId: v ? e.secondAssistId : null })}
                   draw={draw}
@@ -212,7 +256,7 @@ export function ScorecardEditor({
                   optional
                   disabled={locked || noAssist}
                 />
-                {settings.secondAssistEnabled && !noAssist && (
+                {!v2 && settings.secondAssistEnabled && !noAssist && (
                   <PlayerSelect label="Second assist (+1)" value={e.secondAssistId} onChange={(v) => update(e.id, { secondAssistId: v })} draw={draw} prefer={e.side} optional disabled={locked || !e.assistId} />
                 )}
                 <div>
@@ -228,7 +272,11 @@ export function ScorecardEditor({
                   />
                 </div>
               </div>
-              {noAssist && <p className="small muted" style={{ margin: 0 }}>{own || ruling === "own_goal" ? "Own goals carry no assist." : "Direct free kicks carry no assist."}</p>}
+              {noAssist && (
+                <p className="small muted" style={{ margin: 0 }}>
+                  {own || ruling === "own_goal" ? "Own goals carry no assist." : e.kind === "penalty" ? "Penalties carry no assist." : "Direct free kicks carry no assist."}
+                </p>
+              )}
               {myIssues.map((x, k) => (
                 <div key={k} className={`alert ${x.level === "error" ? "alert-error" : "alert-warn"}`}>{x.message}</div>
               ))}
@@ -242,6 +290,81 @@ export function ScorecardEditor({
           <button type="button" className="btn" onClick={() => add("A")}>+ White goal</button>
           <button type="button" className="btn" onClick={() => add("B")}>+ Red goal</button>
         </div>
+      )}
+
+      {v2 && (
+        <>
+          <div className="panel stack">
+            <h3>Man of the Match <span className="muted small">+{POINTS_V2.motm} each</span></h3>
+            <div className="award-grid">
+              {(["A", "B"] as Side[]).map((side) => (
+                <div key={side} className="stack" style={{ gap: "0.4rem" }}>
+                  <label><span className={`bib bib-${side}`} /> {TEAM[side]}</label>
+                  <div className="chips" role="radiogroup" aria-label={`${TEAM[side]} Man of the Match`}>
+                    {byName(teamOf(side)).map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        role="radio"
+                        className="chip"
+                        aria-checked={motm[side] === id}
+                        aria-pressed={motm[side] === id}
+                        disabled={locked}
+                        onClick={() => setMotm((m) => ({ ...m, [side]: m[side] === id ? null : id }))}
+                      >
+                        {playerName(id)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel stack">
+            <h3>Fair play <span className="muted small">+{POINTS_V2.fairPlay} each, on by default</span></h3>
+            <p className="small muted" style={{ margin: 0 }}>
+              Untick anyone who broke a rule, and tap what happened:{" "}
+              {FAIR_PLAY_BREACHES.map((b, i) => (
+                <span key={b}>{i > 0 && " · "}<b>{FAIR_PLAY_LABEL[b].short}</b>: {FAIR_PLAY_LABEL[b].long.toLowerCase()}</span>
+              ))}
+              .
+            </p>
+            <div>
+              {byName(attendees).map((id) => {
+                const lost = lostBy.get(id);
+                const keeps = lost === undefined;
+                return (
+                  <div key={id} className="fair-row">
+                    <label>
+                      <input type="checkbox" checked={keeps} disabled={locked} onChange={(x) => setBreach(id, x.target.checked ? null : "foul")} />
+                      {playerName(id)}
+                    </label>
+                    {!keeps && (
+                      <div className="chips" role="radiogroup" aria-label={`Why ${playerName(id)} lost fair play`}>
+                        {FAIR_PLAY_BREACHES.map((b) => (
+                          <button
+                            key={b}
+                            type="button"
+                            role="radio"
+                            className="chip"
+                            aria-checked={lost === b}
+                            aria-pressed={lost === b}
+                            disabled={locked}
+                            title={FAIR_PLAY_LABEL[b].long}
+                            onClick={() => setBreach(id, b)}
+                          >
+                            {FAIR_PLAY_LABEL[b].short}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
 
       <div className="panel stack">
@@ -263,7 +386,12 @@ export function ScorecardEditor({
             <input id="reason" type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Assist was Vineet, not Vikram" />
           </div>
         )}
-        {errors.length > 0 && <div className="alert alert-error">Fix {errors.length} error{errors.length > 1 ? "s" : ""} above before saving.</div>}
+        {awardIssues.map((x, k) => (
+          <div key={k} className="alert alert-error">{x.message}</div>
+        ))}
+        {issues.some((i) => i.level === "error") && (
+          <div className="alert alert-error">Fix the goal errors above before saving.</div>
+        )}
         <div className="row">
           <button className="btn btn-primary" onClick={save} disabled={busy || locked || errors.length > 0 || (isCorrection && !reason.trim())}>
             {busy ? "Saving…" : isCorrection ? "Save correction" : "Publish scorecard"}

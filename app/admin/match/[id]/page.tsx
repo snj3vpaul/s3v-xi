@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fmtDate } from "@/lib/league/derive";
 import { canCorrect, correctionDeadline } from "@/lib/league/ledger";
+import { rulesVersionOf } from "@/lib/scoring/rules";
 import { isAdmin } from "@/lib/server/auth";
 import { getState } from "@/lib/server/store";
 import { AdminLogin } from "@/components/AdminLogin";
@@ -26,6 +27,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
   const m = state.matchDays.find((x) => x.id === id);
   if (!m) notFound();
   const deadline = correctionDeadline(m, state.settings);
+  const version = rulesVersionOf(m);
 
   return (
     <main className="wrap stack-lg">
@@ -33,7 +35,10 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
         <Kicker label={m.scorecardAt ? "Correction" : "Scorecard entry"} no={fmtDate(m.date)} />
         <h1>{m.scorecardAt ? <>Correct the <em>scoresheet.</em></> : <>Full time. <em>Who scored?</em></>}</h1>
         <p className="muted">
-          One entry per goal, in order. Pick the type first — it decides who can get an assist. <Link href={`/matches/${m.id}`}>Match report →</Link>
+          {version === 2
+            ? "Log each goal, pick a Man of the Match for each team, and untick anyone who lost their fair-play point."
+            : "One entry per goal, in order. Pick the type first — it decides who can get an assist."}{" "}
+          <Link href={`/matches/${m.id}`}>Match report →</Link>
         </p>
       </header>
       {!m.draw ? (
@@ -51,6 +56,9 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
             attendees={m.attendees}
             draw={m.draw}
             initial={m.events}
+            initialMotm={m.motm ?? null}
+            initialFairPlayLost={m.fairPlayLost ?? []}
+            version={version}
             settings={state.settings}
             isCorrection={m.scorecardAt !== null}
             windowOpen={canCorrect(m, state.settings, new Date())}

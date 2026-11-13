@@ -1,3 +1,4 @@
+import { POINTS } from "@/lib/scoring/rules";
 import type { Metadata } from "next";
 import { isDropIn, playerName } from "@/config/club";
 import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
@@ -18,7 +19,10 @@ export default async function TablePage() {
       <header className="stack">
         <Kicker label="Season standings" no={`${played.length} match day${played.length === 1 ? "" : "s"}`} />
         <h1>The <em>table.</em></h1>
-        <p className="lede">Goal +5 · Assist +3 · Own goal −2. Ties split by goals, then assists, then head-to-head, then shared.</p>
+        <p className="lede">
+          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Fair play +{POINTS.fairPlay}.
+          Ties split by goals, then assists, then head-to-head, then shared.
+        </p>
       </header>
 
       {played.length === 0 ? (
@@ -51,7 +55,7 @@ export default async function TablePage() {
                   <tr>
                     <th>#</th><th>Player</th><th className="r">P</th><th className="r">G</th><th className="r">A</th>
                     {state.settings.secondAssistEnabled && <th className="r hide-sm">2A</th>}
-                    <th className="r hide-sm">OG</th><th className="hide-sm">Form</th><th className="r">Pts</th>
+                    <th className="r hide-sm">OG</th><th className="r hide-sm" title="Man of the Match">MOTM</th><th className="hide-sm">Form</th><th className="r">Pts</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -64,6 +68,7 @@ export default async function TablePage() {
                       <td className="r">{r.assists}</td>
                       {state.settings.secondAssistEnabled && <td className="r hide-sm">{r.secondAssists}</td>}
                       <td className="r hide-sm">{r.ownGoals}</td>
+                      <td className="r hide-sm">{r.motm}</td>
                       <td className="hide-sm">
                         <Sparkline values={r.form} labels={played.filter((m) => m.id in r.perMatch).slice(-5).map((m) => dateOf[m.id])} />
                       </td>

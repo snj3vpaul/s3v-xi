@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CLUB, playerName } from "@/config/club";
+import { CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { deriveSeason, fmtDate, selectorName, upcoming } from "@/lib/league/derive";
 import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
+import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
 import { fmtKickoff } from "@/lib/league/schedule";
 import { playedMatches, scoreSelection } from "@/lib/scoring/rules";
 import { currentUser } from "@/lib/server/session";
@@ -29,6 +30,9 @@ export default async function TeamPage() {
     ? last.selections.map((s) => scoreSelection(s, last, rules)).sort((a, b) => b.points - a.points || b.hits - a.hits)
     : [];
   const squad = me ? (currentSquad(me) ?? []) : [];
+  const legacy = squad.length > 0 && !isFormationValid(squad);
+  const stars = currentStars(state.matchDays);
+  const ownership = lastOwnership(state.matchDays);
   const myRow = me ? selectors.find((s) => s.selectorId === me.id) : undefined;
   const myRounds = me
     ? played
@@ -48,9 +52,10 @@ export default async function TeamPage() {
           Back your <em>seven.</em>
         </h1>
         <p className="lede">
-          Every Thursday at 10 pm it&apos;s {TEAM_NAMES.A} vs {TEAM_NAMES.B}. Pick {CLUB.picksPerSelector} of the 21 before kick-off and bank
-          every point they score — whichever side the hat puts them on. Your seven carries over each week; change it whenever you like before
-          the deadline.
+          Every Thursday at 10 pm it&apos;s {TEAM_NAMES.A} vs {TEAM_NAMES.B}. Pick {CLUB.picksPerSelector} of the {PICKABLE.length} before kick-off and
+          bank every point they score — whichever side the hat puts them on. Your seven needs {FORMATION.DEF} defenders, {FORMATION.CM} CMs,{" "}
+          {FORMATION.CAM} CAM and {FORMATION.ATT} attackers, worth at most {PICK7.starBudget}★ in total. It carries over each week; change it
+          whenever you like before the deadline.
         </p>
       </header>
 
@@ -90,7 +95,13 @@ export default async function TeamPage() {
               )}
             </div>
             {!squad.length && <div className="alert alert-warn">You haven&apos;t picked a team yet — choose {CLUB.picksPerSelector} players below.</div>}
-            <TeamPicker initial={squad} deadlineLabel={deadlineLabel} />
+            {legacy && (
+              <div className="alert alert-warn">
+                New formation: your old seven doesn&apos;t fit it. We&apos;ve kept the players who do; fill the empty seats and save before the
+                deadline, or your team won&apos;t be entered this week.
+              </div>
+            )}
+            <TeamPicker initial={legacy ? fitToFormation(squad) : squad} saved={squad} stars={stars} ownership={ownership} deadlineLabel={deadlineLabel} />
             {lockedNow && !next && <p className="small muted">This week is locked. Changes you make now count from next week.</p>}
           </section>
 

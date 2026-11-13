@@ -88,6 +88,17 @@ export interface DrawResult {
 
 export type MatchStatus = "open" | "drawn" | "played";
 
+/** Scoring rule set. 1 = original (+5/+3, deflections, second assist). 2 = simplified (+3/+2, MOTM, fair play). */
+export type RulesVersion = 1 | 2;
+
+/** Why a player lost their fair-play point. Each is a yes/no thing someone saw happen. */
+export type FairPlayBreach = "foul" | "card" | "dissent" | "dangerous";
+
+export interface FairPlayLoss {
+  playerId: string;
+  reason: FairPlayBreach;
+}
+
 /**
  * A selector's seven for one match day. Snapshotted from the user's standing
  * team (as it stood at the deadline) when the teams are drawn.
@@ -150,6 +161,12 @@ export interface MatchDay {
   scorecardAt: string | null;
   /** Bumped on every scorecard correction. */
   scorecardVersion: number;
+  /** Pins the scoring rules. Unset: v2 for match days on/after RULES_V2_FROM, else v1. */
+  rulesVersion?: RulesVersion;
+  /** v2: Man of the Match for each team (+4). */
+  motm?: Record<Side, string | null>;
+  /** v2: everyone who played keeps +1 fair play unless listed here. */
+  fairPlayLost?: FairPlayLoss[];
 }
 
 export interface LeagueSettings {

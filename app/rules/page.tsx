@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { CLUB } from "@/config/club";
-import { POINTS } from "@/lib/scoring/rules";
+import { CLUB, FORMATION, PICK7, POSITIONS, POSITION_LABEL, PICKABLE } from "@/config/club";
+import { FAIR_PLAY_BREACHES, FAIR_PLAY_LABEL, POINTS, POINTS_V1, RULES_V2_FROM } from "@/lib/scoring/rules";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
@@ -11,33 +11,19 @@ export const metadata: Metadata = { title: "Rules" };
 
 export default async function RulesPage() {
   const { settings } = await getState();
-  const rows: [string, string][] = [
-    ["Goal (open play, header, penalty, free kick)", `+${POINTS.goal} to the scorer`],
-    ["Assist", `+${POINTS.assist} to the assister`],
-    ["Assisted goal", `Scorer +${POINTS.goal} and assister +${POINTS.assist}`],
-    ["Solo goal", `Scorer +${POINTS.goal}; nobody gets assist points`],
-    ["Header from a cross", "Normal goal + assist"],
-    ["Penalty", `+${POINTS.goal}. No assist unless an admin records one (a pass before the foul). Winning the penalty isn't an assist.`],
-    ["Direct free kick", `+${POINTS.goal}, never an assist`],
-    ["Own goal", `${POINTS.ownGoal} to the player who scored it. Not a goal in anyone's stats (it still counts on the scoreboard). Assists on own goals earn nothing.`],
-    [
-      "Deflected shot",
-      `Admin rules it an own goal (${POINTS.ownGoal} to the deflecting player; the shooter gets nothing) or the shooter's goal (+${POINTS.goal}, plus any assist). Current default: ${settings.deflectionDefault === "own_goal" ? "own goal" : "shooter's goal"}.`,
-    ],
-    [
-      "Second assist (pre-assist)",
-      settings.secondAssistEnabled ? `ON this season: +${POINTS.secondAssist}` : `OFF this season (would be +${POINTS.secondAssist})`,
-    ],
-    ["Scored and assisted in one match", "Both count — points stack"],
-    ["Drop-ins", `Identical points; shown with a drop-in badge.${settings.excludeDropInsFromAwards ? " Excluded from season awards this season." : ""}`],
-    ["Negative totals", "Allowed. Nothing floors at zero."],
+  const rows: [string, string, string][] = [
+    ["Goal", `+${POINTS.goal}`, "Primary scorer only. Penalties and free kicks count the same."],
+    ["Assist", `+${POINTS.assist}`, "The last pass before the goal. One per goal at most, and none on penalties or direct free kicks."],
+    ["Own goal", `${POINTS.ownGoal}`, "To the player who put it in. If in doubt, it's the attacker's goal. There are no deflection rulings."],
+    ["Man of the Match", `+${POINTS.motm}`, `Exactly one per team: one for ${TEAM_NAMES.A}, one for ${TEAM_NAMES.B}.`],
+    ["Fair play", `+${POINTS.fairPlay}`, "Everyone who plays starts with it, and keeps it unless the scorekeeper records one of the breaches below."],
   ];
   return (
     <main className="wrap stack-lg">
       <header className="stack">
         <Kicker label="The rulebook" no="Rules" />
-        <h1>Only the <em>scoresheet</em> counts.</h1>
-        <p className="lede">No ratings, no man-of-the-match votes. Points come from the match scorecard and nothing else.</p>
+        <h1>Five numbers. <em>That&apos;s it.</em></h1>
+        <p className="lede">Points come from the scoresheet: goals, assists, own goals, one Man of the Match per team, and a fair-play point.</p>
       </header>
 
       <section className="panel">
@@ -45,15 +31,26 @@ export default async function RulesPage() {
         <div className="table-wrap" style={{ marginTop: "0.75rem" }}>
           <table>
             <tbody>
-              {rows.map(([k, v]) => (
+              {rows.map(([k, pts, v]) => (
                 <tr key={k}>
-                  <td style={{ fontWeight: 600, width: "38%" }}>{k}</td>
+                  <td style={{ fontWeight: 600, width: "28%" }}>{k}</td>
+                  <td className="num" style={{ width: "4rem" }}>{pts}</td>
                   <td className="muted">{v}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <h3 style={{ marginTop: "1.25rem" }}>Losing the fair-play point</h3>
+        <p className="muted" style={{ margin: "0.25rem 0 0.5rem" }}>You keep it if none of these happened to you:</p>
+        <ol style={{ margin: 0, paddingLeft: "1.2rem" }}>
+          {FAIR_PLAY_BREACHES.map((b) => <li key={b}>{FAIR_PLAY_LABEL[b].long}.</li>)}
+        </ol>
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          Drop-ins score the same.{settings.excludeDropInsFromAwards ? " They're excluded from season awards this season." : ""} Totals can go negative.
+          Match days before {fmtDate(RULES_V2_FROM)} keep the original rules (goal +{POINTS_V1.goal}, assist +{POINTS_V1.assist}, own goal {POINTS_V1.ownGoal}),
+          so old results don&apos;t change.
+        </p>
       </section>
 
       <div className="grid grid-2" style={{ alignItems: "start" }}>
@@ -90,10 +87,18 @@ export default async function RulesPage() {
           </ul>
           <h2 style={{ marginTop: "1.5rem" }}>Pick 7</h2>
           <ul className="muted" style={{ margin: 0, paddingLeft: "1.2rem" }}>
-            <li>Create an account and pick {CLUB.picksPerSelector} different players from the 21 (yourself and drop-ins included).</li>
+            <li>
+              <b>Formation:</b> exactly {POSITIONS.map((p) => `${FORMATION[p]} ${FORMATION[p] === 1 ? POSITION_LABEL[p].one : POSITION_LABEL[p].many}`).join(", ")}, from the {PICKABLE.length} in the squad.
+            </li>
+            <li>
+              <b>Star budget:</b> every player is rated 1–3★, and your seven can total at most {PICK7.starBudget}★. After each draw, anyone in
+              more than {Math.round(PICK7.riseAbove * 100)}% of teams goes up a star and anyone in fewer than {Math.round(PICK7.fallBelow * 100)}% goes down one
+              (once at least {PICK7.minTeamsToRerate} teams are in). If a re-rating puts your saved seven over budget, it stays legal; changes can only
+              bring it down until it fits.
+            </li>
             <li>
               <b>Deadline:</b> kick-off, Thursday 10 pm — or the moment the teams are drawn, if that&apos;s earlier. Your seven as it stood at
-              the deadline is what counts.
+              the deadline is what counts. A seven that doesn&apos;t fit the formation isn&apos;t entered that week.
             </li>
             <li><b>Carry-over:</b> your seven rolls into every following week until you change it. Unlimited free changes before each deadline.</li>
             <li>You score exactly the points your seven earn that night, whichever team they&apos;re drawn on. A pick who doesn&apos;t play scores 0.</li>

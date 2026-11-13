@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CLUB, playerName } from "@/config/club";
+import { CLUB, FORMATION, PICK7, PICKABLE, POSITIONS, POSITION_LABEL, getPlayer, playerName, type Position } from "@/config/club";
+import { checkTeam, isFormationValid, starsTotal, type StarMap } from "@/lib/league/pick7";
 import { api } from "./api";
-import { PlayerChips } from "./PlayerChips";
 import { Mascot } from "./Mascot";
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -21,14 +21,39 @@ function ghostOf(svg: Element, rect: DOMRect): HTMLDivElement {
   return g;
 }
 
-export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; deadlineLabel: string | null }) {
+interface PickerProps {
+  /** Picks to start the editor with (an old seven already trimmed to what fits the formation). */
+  initial: string[];
+  /** The user's saved seven exactly as stored (for "dirty" and the over-budget allowance). */
+  saved: string[];
+  /** Current star rating per player. */
+  stars: StarMap;
+  /** Last locked round's ownership share per player (0..1). */
+  ownership: Record<string, number>;
+  deadlineLabel: string | null;
+}
+
+const starStr = (n: number) => "★".repeat(n);
+
+export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: PickerProps) {
   const router = useRouter();
   const [picks, setPicks] = useState<string[]>(initial);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [said, setSaid] = useState("");
+  /** A player tapped while their position was full: choose who they replace. */
+  const [swapIn, setSwapIn] = useState<string | null>(null);
   const need = CLUB.picksPerSelector;
-  const dirty = picks.length !== initial.length || picks.some((p) => !initial.includes(p));
+  const dirty = picks.length !== saved.length || picks.some((p) => !saved.includes(p));
+
+  const check = checkTeam(picks, stars, saved);
+  const total = check.starsTotal;
+  const savedTotal = isFormationValid(saved) ? starsTotal(saved, stars) : 0;
+  /** Over-budget teams may be changed, but never to a higher total. */
+  const cap = Math.max(PICK7.starBudget, savedTotal);
+  const complete = picks.length === need;
+  const posOf = (id: string) => getPlayer(id)?.position ?? null;
+  const picksIn = (pos: Position) => picks.filter((id) => posOf(id) === pos);
 
   const slotsRef = useRef<HTMLDivElement>(null);
   /** Where each slotted mascot was before the last change (for the FLIP shuffle). */
@@ -46,34 +71,73 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
     });
   };
 
-  const add = (id: string) => {
+  const tumble = (id: string) => {
+    const svg = slotMascot(id);
+    if (!svg || reducedMotion()) return;
+    // Tumble out: a little hop, then fall off the bench and spin away.
+    const g = ghostOf(svg, svg.getBoundingClientRect());
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    g.animate(
+      [
+        { transform: "translate(0,0) rotate(0deg)", opacity: 1 },
+        { transform: `translate(${dir * 14}px,-34px) rotate(${dir * -10}deg)`, opacity: 1, offset: 0.28 },
+        { transform: `translate(${dir * 60}px,240px) rotate(${dir * 220}deg)`, opacity: 0 },
+      ],
+      { duration: 760, easing: "cubic-bezier(.3,.1,.6,1)" },
+    ).finished.finally(() => g.remove());
+  };
+
+  const flyFromChip = (id: string) => {
     const chip = document.querySelector(`[data-chip="${id}"] .mascot`);
     if (chip && !reducedMotion()) incoming.current = { id, from: chip.getBoundingClientRect() };
+  };
+
+  const add = (id: string) => {
+    flyFromChip(id);
     snapshot();
     const next = [...picks, id];
     setPicks(next);
+    setSwapIn(null);
     setSaid(`Added ${playerName(id)}. ${next.length} of ${need} picked.`);
   };
 
   const remove = (id: string) => {
-    const svg = slotMascot(id);
-    if (svg && !reducedMotion()) {
-      // Tumble out: a little hop, then fall off the bench and spin away.
-      const g = ghostOf(svg, svg.getBoundingClientRect());
-      const dir = Math.random() < 0.5 ? -1 : 1;
-      g.animate(
-        [
-          { transform: "translate(0,0) rotate(0deg)", opacity: 1 },
-          { transform: `translate(${dir * 14}px,-34px) rotate(${dir * -10}deg)`, opacity: 1, offset: 0.28 },
-          { transform: `translate(${dir * 60}px,240px) rotate(${dir * 220}deg)`, opacity: 0 },
-        ],
-        { duration: 760, easing: "cubic-bezier(.3,.1,.6,1)" },
-      ).finished.finally(() => g.remove());
-    }
+    tumble(id);
     snapshot();
     const next = picks.filter((x) => x !== id);
     setPicks(next);
     setSaid(`Removed ${playerName(id)}. ${next.length} of ${need} picked.`);
+  };
+
+  /** Atomic swap, so the team is never shown half-changed. */
+  const swap = (outId: string, inId: string) => {
+    tumble(outId);
+    flyFromChip(inId);
+    snapshot();
+    setPicks(picks.map((x) => (x === outId ? inId : x)));
+    setSwapIn(null);
+    setSaid(`Swapped ${playerName(outId)} for ${playerName(inId)}.`);
+  };
+
+  /** Why a player can't be added right now (null = they can). Position-full is handled by the swap sheet. */
+  const blockReason = (id: string): string | null => {
+    const over = total + (stars[id] ?? 0) - cap;
+    return over > 0 ? `Over budget by ${over}★` : null;
+  };
+  const swapBlock = (outId: string, inId: string): string | null => {
+    const over = total - (stars[outId] ?? 0) + (stars[inId] ?? 0) - cap;
+    return over > 0 ? `Over budget by ${over}★` : null;
+  };
+
+  const toggle = (id: string) => {
+    if (picks.includes(id)) return remove(id);
+    const pos = posOf(id);
+    if (!pos) return;
+    if (picksIn(pos).length >= FORMATION[pos]) {
+      setSwapIn(swapIn === id ? null : id);
+      return;
+    }
+    if (!blockReason(id)) add(id);
   };
 
   useLayoutEffect(() => {
@@ -135,44 +199,148 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
   // Clean up any stray ghosts if the page navigates mid-flight.
   useEffect(() => () => document.querySelectorAll(".mascot-ghost").forEach((g) => g.remove()), []);
 
+  /** What the save button says when the team isn't ready yet. */
+  const missing = POSITIONS.map((pos) => ({ pos, short: FORMATION[pos] - picksIn(pos).length })).find((x) => x.short > 0);
+  const saveLabel = busy
+    ? "Saving…"
+    : missing
+      ? `Pick ${missing.short} more ${missing.short === 1 ? POSITION_LABEL[missing.pos].one : POSITION_LABEL[missing.pos].many}`
+      : !check.valid
+        ? check.errors[0]
+        : saved.length
+          ? "Save changes"
+          : `Lock in my ${need}`;
+
+  // Bench in formation order: each position's picks, then its empty seats.
+  const seats = POSITIONS.flatMap((pos) => {
+    const mine = picksIn(pos);
+    return Array.from({ length: FORMATION[pos] }, (_, i) => ({ pos, id: mine[i] ?? null, n: i }));
+  });
+  const pct = Math.min(100, (total / PICK7.starBudget) * 100);
+
   return (
     <div className="stack">
+      <div className="pick7-status" aria-label="Team status">
+        {POSITIONS.map((pos) => {
+          const have = picksIn(pos).length;
+          const done = have === FORMATION[pos];
+          return (
+            <span key={pos} className={`pos-pill${done ? " is-done" : ""}`}>
+              {pos} <b className="num">{have}/{FORMATION[pos]}</b>
+              {done && <span aria-hidden="true"> ✓</span>}
+            </span>
+          );
+        })}
+        <span className={`budget${total > PICK7.starBudget ? " is-over" : ""}`}>
+          <span className="budget-bar" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>
+          <span className="num">{total} / {PICK7.starBudget}★</span>
+        </span>
+      </div>
+      {check.grandfathered && (
+        <p className="small muted" style={{ margin: 0 }}>
+          Ratings moved and your seven is now over budget. It stays legal; changes can only bring it down until it fits.
+        </p>
+      )}
+
       <div className="bench" ref={slotsRef}>
-        {Array.from({ length: need }, (_, i) => {
-          const id = picks[i];
-          return id ? (
+        {seats.map(({ pos, id, n }) =>
+          id ? (
             <div key={id} className="bench-slot" data-slot={id}>
               <Mascot id={id} size={92} />
               <span className="bench-name">{playerName(id)}</span>
+              <span className="bench-pos">{pos} · {starStr(stars[id] ?? 0)}</span>
               <button type="button" className="bench-remove" aria-label={`Remove ${playerName(id)}`} onClick={() => remove(id)}>
                 <span aria-hidden="true">✕</span>
               </button>
             </div>
           ) : (
-            <div key={`empty-${i}`} className="bench-slot empty">
+            <div key={`empty-${pos}-${n}`} className="bench-slot empty">
               <svg className="bench-ghost" viewBox="0 0 100 124" aria-hidden="true">
                 <circle cx="50" cy="34" r="21" />
                 <path d="M31 63 q0 -9 9 -10 h20 q9 1 9 10 v30 h-38 z" />
                 <rect x="38" y="92" width="9" height="20" rx="3" />
                 <rect x="53" y="92" width="9" height="20" rx="3" />
               </svg>
-              <span className="bench-name muted">Pick {i + 1}</span>
+              <span className="bench-name muted">{POSITION_LABEL[pos].one}</span>
+            </div>
+          ),
+        )}
+      </div>
+
+      <div className="stack">
+        <h3>Choose from the squad</h3>
+        <p className="small muted" style={{ margin: 0 }}>
+          {FORMATION.DEF} defenders · {FORMATION.CM} CMs · {FORMATION.CAM} CAM · {FORMATION.ATT} attackers, at most {PICK7.starBudget}★ in total.
+          Tap a player in a full position to swap them in.
+        </p>
+        <p className="sr-only" aria-live="polite" aria-atomic="true">{said}</p>
+        {POSITIONS.map((pos) => {
+          const list = PICKABLE.filter((p) => p.position === pos);
+          const have = picksIn(pos);
+          const full = have.length >= FORMATION[pos];
+          const pendingSwap = swapIn && posOf(swapIn) === pos ? swapIn : null;
+          return (
+            <div key={pos} className="pos-group">
+              <div className="pos-head">
+                <span>{POSITION_LABEL[pos].many}</span>
+                <span className={`num${full ? " pos-full" : ""}`}>{have.length}/{FORMATION[pos]} selected</span>
+              </div>
+              <div className="chips">
+                {list.map((p) => {
+                  const on = picks.includes(p.id);
+                  const block = on || full ? null : blockReason(p.id);
+                  const own = ownership[p.id];
+                  return (
+                    <button
+                      type="button"
+                      key={p.id}
+                      className={`chip chip-face${full && !on ? " chip-swap" : ""}${pendingSwap === p.id ? " is-swapping" : ""}`}
+                      data-chip={p.id}
+                      aria-pressed={on}
+                      disabled={!!block}
+                      title={block ?? (full && !on ? `${POSITION_LABEL[pos].many} full: tap to swap` : undefined)}
+                      onClick={() => toggle(p.id)}
+                    >
+                      <Mascot id={p.id} variant="head" size={26} />
+                      {p.name}
+                      <span className="chip-stars" aria-label={`${stars[p.id]} stars`}>{starStr(stars[p.id] ?? 0)}</span>
+                      {own !== undefined && <span className="chip-own num">{Math.round(own * 100)}%</span>}
+                      {p.kind === "dropin" && (
+                        <span className="badge badge-dropin" style={{ color: on ? "inherit" : undefined }}>
+                          <span aria-hidden="true">D</span>
+                          <span className="sr-only">drop-in</span>
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {pendingSwap && (
+                <div className="swap-sheet" role="group" aria-label={`Swap ${playerName(pendingSwap)} in`}>
+                  <span className="small">
+                    {POSITION_LABEL[pos].many} full. Swap <b>{playerName(pendingSwap)}</b> in for:
+                  </span>
+                  {have.map((outId) => {
+                    const why = swapBlock(outId, pendingSwap);
+                    return (
+                      <button key={outId} type="button" className="btn btn-sm" disabled={!!why} title={why ?? undefined} onClick={() => swap(outId, pendingSwap)}>
+                        {playerName(outId)}{why ? ` (${why})` : ""}
+                      </button>
+                    );
+                  })}
+                  <button type="button" className="btn btn-sm" onClick={() => setSwapIn(null)}>Cancel</button>
+                </div>
+              )}
             </div>
           );
         })}
+        {Object.keys(ownership).length > 0 && <p className="small muted" style={{ margin: 0 }}>% = share of teams that picked them last round.</p>}
       </div>
-      <div>
-        <div className="row spread">
-          <h3>Choose from the squad</h3>
-          <span className="num" aria-hidden="true">{picks.length}/{need}</span>
-        </div>
-        <p className="sr-only" aria-live="polite" aria-atomic="true">{said}</p>
-        <PlayerChips selected={picks} max={need} withFaces onToggle={(id) => (picks.includes(id) ? remove(id) : add(id))} />
-      </div>
+
       <div className="row">
         <button
           className="btn btn-primary"
-          disabled={busy || picks.length !== need || !dirty}
+          disabled={busy || !complete || !check.valid || !dirty}
           onClick={async () => {
             setBusy(true);
             setMsg(null);
@@ -187,9 +355,9 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
             }
           }}
         >
-          {busy ? "Saving…" : initial.length ? "Save changes" : `Lock in my ${need}`}
+          {saveLabel}
         </button>
-        {dirty && initial.length > 0 && <button className="btn btn-sm" onClick={() => setPicks(initial)}>Undo</button>}
+        {dirty && saved.length > 0 && <button className="btn btn-sm" onClick={() => { setPicks(initial); setSwapIn(null); }}>Undo</button>}
         {msg && <span className={`small ${msg.ok ? "" : "neg"}`} role="status">{msg.text}</span>}
       </div>
     </div>

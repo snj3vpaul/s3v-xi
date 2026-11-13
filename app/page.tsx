@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import Link from "next/link";
-import { CLUB, MEMBERS, DROPINS, ROSTER } from "@/config/club";
+import { CLUB, PICKABLE, ROSTER } from "@/config/club";
 import { POINTS } from "@/lib/scoring/rules";
 import { deriveSeason, upcoming } from "@/lib/league/derive";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
@@ -38,7 +38,7 @@ export default async function Home() {
   const next = upcoming(state);
   const goals = standings.reduce((s, r) => s + r.goals, 0);
   const top3 = standings.filter((r) => r.played > 0).slice(0, 3);
-  const squad = MEMBERS.length + DROPINS.length;
+  const squad = PICKABLE.length;
   const nextLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
   // Chapter 03's line-up: the season's top seven so far, or seven from the squad before a ball is kicked.
   const ranked = standings.filter((r) => r.played > 0).map((r) => r.playerId);
@@ -109,8 +109,10 @@ export default async function Home() {
                   <div><dt>Goal</dt><dd className="num">+{POINTS.goal}</dd></div>
                   <div><dt>Assist</dt><dd className="num">+{POINTS.assist}</dd></div>
                   <div><dt>Own goal</dt><dd className="num neg">{POINTS.ownGoal}</dd></div>
+                  <div><dt>MOTM</dt><dd className="num">+{POINTS.motm}</dd></div>
+                  <div><dt>Fair play</dt><dd className="num">+{POINTS.fairPlay}</dd></div>
                 </dl>
-                <p className="chapter-body">No ratings, no opinions, fewer arguments.</p>
+                <p className="chapter-body">Five numbers. Easy to keep, hard to argue with.</p>
               </div>
             </div>
           </article>
@@ -124,8 +126,8 @@ export default async function Home() {
                 </h2>
                 <p className="chapter-tag">Pick {CLUB.picksPerSelector}, FPL-style</p>
                 <p className="chapter-body">
-                  Back {CLUB.picksPerSelector} of the {squad} before kick-off. Whichever side they land on, their points are yours, and
-                  your seven carries over until you change it.
+                  Back {CLUB.picksPerSelector} of the {squad} before kick-off: 2 defenders, 2 CMs, a CAM and 2 attackers, within a
+                  star budget. Whichever side they land on, their points are yours, and your seven carries over until you change it.
                 </p>
                 <ul className="chapter-lineup" aria-label={ranked.length ? "Top seven so far" : "Seven from the squad"}>
                   {lineup.map((id) => (

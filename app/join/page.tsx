@@ -19,7 +19,7 @@ export default async function JoinPage() {
         <Kicker label="Accounts" no="Join" />
         <h1>Join the <em>league.</em></h1>
         <p className="lede">
-          One account, one seven. Pick {CLUB.picksPerSelector} of the 21 before each Thursday deadline — it carries over every week until you change it.
+          One account, one seven. Pick {CLUB.picksPerSelector} before each Thursday deadline — it carries over every week until you change it.
         </p>
       </header>
       <SignupForm players={claimablePlayers(state)} codeRequired={!!process.env.SIGNUP_CODE} />

@@ -41,11 +41,14 @@ describe("match-day lifecycle", () => {
     expect(() => setSquad(u.state, uid, SQUAD.slice(0, 6), at("2026-04-30T11:00:00Z"))).toThrow(LedgerError);
     expect(() => setSquad(u.state, uid, [...SQUAD.slice(0, 6), "messi"], at("2026-04-30T11:00:00Z"))).toThrow(/unknown/);
     expect(() => setSquad(u.state, uid, [...SQUAD.slice(0, 6), SQUAD[0]], at("2026-04-30T11:00:00Z"))).toThrow(/different/);
-    let s = setSquad(u.state, uid, SQUAD.slice(0, 7), at("2026-04-30T11:00:00Z"));
-    s = setSquad(s, uid, SQUAD.slice(1, 8), at("2026-04-30T11:05:00Z"));
+    const A = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
+    const B = ["archit", "vineet", "navneet", "raunak", "ghous", "vikram", "karminder"];
+    expect(() => setSquad(u.state, uid, SQUAD.slice(0, 7), at("2026-04-30T11:00:00Z"))).toThrow(/isn't valid/);
+    let s = setSquad(u.state, uid, A, at("2026-04-30T11:00:00Z"));
+    s = setSquad(s, uid, B, at("2026-04-30T11:05:00Z"));
     expect(s.audit.filter((a) => a.action === "squad.update")).toHaveLength(2);
     s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-05-01T09:00:00Z"), SEED);
-    expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: SQUAD.slice(1, 8), submittedAt: "2026-04-30T11:05:00.000Z" }]);
+    expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: B, submittedAt: "2026-04-30T11:05:00.000Z" }]);
   });
 
   it("L02 attendance locks at the draw; recorded draws verify", () => {

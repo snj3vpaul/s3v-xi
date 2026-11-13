@@ -4,8 +4,8 @@
 
 - **Every Thursday, 10 pm: White vs Red**, until summer. The fixtures are created automatically and published as a calendar feed.
 - Every match day, a seeded random draw splits whoever turns up into the two teams.
-- Points come only from the scorecard: goal +5, assist +3, own goal −2.
-- **Pick 7, FPL-style.** Anyone with an account (email and password) picks 7 of the 21 players. The team carries over every week. Changes are free until the Thursday deadline, and reminders go out before each one.
+- Points come from the scorecard: goal +3, assist +2, own goal −2, Man of the Match +4 (one per team), fair play +1. Match days before 19 Nov 2026 keep the original +5 / +3 / −2.
+- **Pick 7, FPL-style.** Anyone with an account (email and password) picks 7 of the 20 players in a fixed formation (2 DEF · 2 CM · 1 CAM · 2 ATT) within a star budget. The team carries over every week. Changes are free until the Thursday deadline, and reminders go out before each one.
 
 Built with Next.js 16 (App Router), React 19, Recharts and TypeScript. It deploys on Vercel and stores data in Upstash Redis.
 
