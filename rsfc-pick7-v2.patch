@@ -1,0 +1,2326 @@
+From 223f910fa29d6dee9c8f1029547b32d0fda948c3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 11:41:28 -0500
+Subject: [PATCH] Pick 7 v2: formation, star budget, simplified scoring with
+ MOTM and fair play
+
+Pick 7
+- Fixed formation: exactly 2 DEF, 2 CM, 1 CAM, 2 ATT (positions in config/club.ts).
+  Gurinder has no position, so stays on the roster but can't be picked.
+- Star budget: 1-3 stars per player, at most 14 per seven. Ratings re-rate after
+  each draw from ownership (>60% +1, <10% -1, needs 4+ teams), derived not stored.
+  A seven pushed over budget stays legal; edits can't raise its total.
+- New picker: formation bench, per-position progress, budget meter, ownership %,
+  swap sheet when a position is full, save button says what's missing.
+- Old sevens that don't fit aren't entered at the draw; banner, picker and a
+  "fix your team" reminder email tell the user.
+
+Scoring (v2, match days from 19 Nov 2026; earlier matches keep v1)
+- Goal +3, assist +2 (none on penalties/free kicks), own goal -2,
+  Man of the Match +4 (one per team, required), fair play +1 (default on,
+  removed for a foul, card, dissent warning or dangerous challenge).
+- No second assists or deflection rulings. Rules version pinned per match.
+- Scorecard editor gains MOTM pickers and a fair-play list; match report,
+  table, rules and home pages updated.
+
+Tests: 77 (14 new in lib/league/pick7.test.ts).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PtuBR2yKPy8UddCaB5RWRB
+---
+ README.md                                 |   4 +-
+ app/admin/match/[id]/page.tsx             |  10 +-
+ app/api/matchdays/[id]/scorecard/route.ts |  19 +-
+ app/globals.css                           |  34 ++++
+ app/join/page.tsx                         |   2 +-
+ app/matches/[id]/page.tsx                 |  24 ++-
+ app/page.tsx                              |  12 +-
+ app/rules/page.tsx                        |  61 +++---
+ app/table/page.tsx                        |   9 +-
+ app/team/page.tsx                         |  21 +-
+ components/DeadlineBanner.tsx             |  14 +-
+ components/EventLine.tsx                  |  14 +-
+ components/ScorecardEditor.tsx            | 156 ++++++++++++--
+ components/TeamPicker.tsx                 | 238 ++++++++++++++++++----
+ config/club.ts                            |  89 +++++++-
+ docs/SCORING.md                           |  25 +++
+ lib/league/fpl.test.ts                    |   9 +-
+ lib/league/ledger.test.ts                 |   9 +-
+ lib/league/ledger.ts                      |  55 +++--
+ lib/league/pick7.test.ts                  | 220 ++++++++++++++++++++
+ lib/league/pick7.ts                       | 135 ++++++++++++
+ lib/league/reminders.ts                   |  18 +-
+ lib/league/types.ts                       |  17 ++
+ lib/scoring/rules.test.ts                 |   6 +-
+ lib/scoring/rules.ts                      | 165 +++++++++++++--
+ scripts/seed-demo.ts                      |   7 +-
+ 26 files changed, 1208 insertions(+), 165 deletions(-)
+ create mode 100644 lib/league/pick7.test.ts
+ create mode 100644 lib/league/pick7.ts
+
+diff --git a/README.md b/README.md
+index 666358d..49f8ed6 100644
+--- a/README.md
++++ b/README.md
+@@ -4,8 +4,8 @@
+ 
+ - **Every Thursday, 10 pm: White vs Red**, until summer. The fixtures are created automatically and published as a calendar feed.
+ - Every match day, a seeded random draw splits whoever turns up into the two teams.
+-- Points come only from the scorecard: goal +5, assist +3, own goal −2.
+-- **Pick 7, FPL-style.** Anyone with an account (email and password) picks 7 of the 21 players. The team carries over every week. Changes are free until the Thursday deadline, and reminders go out before each one.
++- Points come from the scorecard: goal +3, assist +2, own goal −2, Man of the Match +4 (one per team), fair play +1. Match days before 19 Nov 2026 keep the original +5 / +3 / −2.
++- **Pick 7, FPL-style.** Anyone with an account (email and password) picks 7 of the 20 players in a fixed formation (2 DEF · 2 CM · 1 CAM · 2 ATT) within a star budget. The team carries over every week. Changes are free until the Thursday deadline, and reminders go out before each one.
+ 
+ Built with Next.js 16 (App Router), React 19, Recharts and TypeScript. It deploys on Vercel and stores data in Upstash Redis.
+ 
+diff --git a/app/admin/match/[id]/page.tsx b/app/admin/match/[id]/page.tsx
+index 1ce4b3a..45adc2b 100644
+--- a/app/admin/match/[id]/page.tsx
++++ b/app/admin/match/[id]/page.tsx
+@@ -3,6 +3,7 @@ import Link from "next/link";
+ import { notFound } from "next/navigation";
+ import { fmtDate } from "@/lib/league/derive";
+ import { canCorrect, correctionDeadline } from "@/lib/league/ledger";
++import { rulesVersionOf } from "@/lib/scoring/rules";
+ import { isAdmin } from "@/lib/server/auth";
+ import { getState } from "@/lib/server/store";
+ import { AdminLogin } from "@/components/AdminLogin";
+@@ -26,6 +27,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id:
+   const m = state.matchDays.find((x) => x.id === id);
+   if (!m) notFound();
+   const deadline = correctionDeadline(m, state.settings);
++  const version = rulesVersionOf(m);
+ 
+   return (
+     <main className="wrap stack-lg">
+@@ -33,7 +35,10 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id:
+         <Kicker label={m.scorecardAt ? "Correction" : "Scorecard entry"} no={fmtDate(m.date)} />
+         <h1>{m.scorecardAt ? <>Correct the <em>scoresheet.</em></> : <>Full time. <em>Who scored?</em></>}</h1>
+         <p className="muted">
+-          One entry per goal, in order. Pick the type first — it decides who can get an assist. <Link href={`/matches/${m.id}`}>Match report →</Link>
++          {version === 2
++            ? "Log each goal, pick a Man of the Match for each team, and untick anyone who lost their fair-play point."
++            : "One entry per goal, in order. Pick the type first — it decides who can get an assist."}{" "}
++          <Link href={`/matches/${m.id}`}>Match report →</Link>
+         </p>
+       </header>
+       {!m.draw ? (
+@@ -51,6 +56,9 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id:
+             attendees={m.attendees}
+             draw={m.draw}
+             initial={m.events}
++            initialMotm={m.motm ?? null}
++            initialFairPlayLost={m.fairPlayLost ?? []}
++            version={version}
+             settings={state.settings}
+             isCorrection={m.scorecardAt !== null}
+             windowOpen={canCorrect(m, state.settings, new Date())}
+diff --git a/app/api/matchdays/[id]/scorecard/route.ts b/app/api/matchdays/[id]/scorecard/route.ts
+index e2cfdd3..8ecdfae 100644
+--- a/app/api/matchdays/[id]/scorecard/route.ts
++++ b/app/api/matchdays/[id]/scorecard/route.ts
+@@ -1,10 +1,23 @@
+ import { saveScorecard } from "@/lib/league/ledger";
+-import type { GoalEvent } from "@/lib/league/types";
++import type { FairPlayLoss, GoalEvent, Side } from "@/lib/league/types";
+ import { body, handle, requireAdmin } from "@/lib/server/http";
+ import { ctx, mutate } from "@/lib/server/store";
+ 
+ export const PUT = handle<{ id: string }>(async (req, { id }) => {
+   await requireAdmin();
+-  const { events, reason } = await body<{ events: GoalEvent[]; reason?: string }>(req);
+-  await mutate((s) => saveScorecard(s, id, Array.isArray(events) ? events : [], { reason }, ctx()));
++  const { events, reason, motm, fairPlayLost } = await body<{
++    events: GoalEvent[];
++    reason?: string;
++    motm?: Partial<Record<Side, string | null>>;
++    fairPlayLost?: FairPlayLoss[];
++  }>(req);
++  await mutate((s) =>
++    saveScorecard(
++      s,
++      id,
++      Array.isArray(events) ? events : [],
++      { reason, motm: motm ?? null, fairPlayLost: Array.isArray(fairPlayLost) ? fairPlayLost : [] },
++      ctx(),
++    ),
++  );
+ });
+diff --git a/app/globals.css b/app/globals.css
+index 4768223..33750c7 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -601,3 +601,37 @@ html.lenis, html.lenis body { height: auto; }
+   .chapter-lineup li { width: 14.28%; font-size: 0.66rem; }
+   .chapter-lineup .mascot { height: 58px !important; width: auto !important; }
+ }
++
++/* Pick 7 v2: formation + star budget */
++.pick7-status { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
++.pos-pill {
++  font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
++  padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted);
++}
++.pos-pill b { font-weight: 500; color: var(--text); }
++.pos-pill.is-done { border-color: var(--accent); color: var(--accent); }
++.pos-pill.is-done b { color: var(--accent); }
++.budget { display: inline-flex; align-items: center; gap: 0.5rem; margin-left: auto; font-family: var(--mono); font-size: 0.8rem; }
++.budget-bar { width: 120px; height: 6px; border-radius: 999px; background: var(--surface-sunk); overflow: hidden; }
++.budget-bar > span { display: block; height: 100%; background: var(--champagne); transition: width 0.3s ease; }
++.budget.is-over { color: var(--danger); }
++.budget.is-over .budget-bar > span { background: var(--danger); }
++.bench-pos { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em; color: var(--muted); }
++.pos-group { display: grid; gap: 0.45rem; }
++.pos-head { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
++.pos-head .pos-full { color: var(--accent); }
++.chip-stars { color: var(--bronze-deep); font-size: 0.72rem; letter-spacing: -0.05em; }
++.chip[aria-pressed="true"] .chip-stars { color: var(--champagne); }
++.chip-own { font-size: 0.7rem; color: var(--muted); }
++.chip[aria-pressed="true"] .chip-own { color: inherit; opacity: 0.75; }
++.chip-swap { border-style: dashed; }
++.chip.is-swapping { border-color: var(--accent); border-style: solid; box-shadow: 0 0 0 2px rgba(47, 90, 68, 0.18); }
++.swap-sheet { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding: 0.6rem 0.75rem; border-radius: var(--radius-sm); background: var(--surface-sunk); }
++@media (max-width: 560px) { .budget { margin-left: 0; width: 100%; } .budget-bar { flex: 1; } }
++
++/* Scorecard v2: MOTM + fair play */
++.award-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.75rem; }
++.fair-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.35rem 0; border-bottom: 1px dashed var(--line-soft); }
++.fair-row label { margin: 0; display: inline-flex; align-items: center; gap: 0.45rem; text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 0.92rem; color: var(--text); min-width: 9rem; }
++.fair-row .chips { gap: 0.3rem; }
++.fair-row .chip { padding: 0.2rem 0.65rem; font-size: 0.78rem; }
+diff --git a/app/join/page.tsx b/app/join/page.tsx
+index e055d72..718ce0b 100644
+--- a/app/join/page.tsx
++++ b/app/join/page.tsx
+@@ -19,7 +19,7 @@ export default async function JoinPage() {
+         <Kicker label="Accounts" no="Join" />
+         <h1>Join the <em>league.</em></h1>
+         <p className="lede">
+-          One account, one seven. Pick {CLUB.picksPerSelector} of the 21 before each Thursday deadline — it carries over every week until you change it.
++          One account, one seven. Pick {CLUB.picksPerSelector} before each Thursday deadline — it carries over every week until you change it.
+         </p>
+       </header>
+       <SignupForm players={claimablePlayers(state)} codeRequired={!!process.env.SIGNUP_CODE} />
+diff --git a/app/matches/[id]/page.tsx b/app/matches/[id]/page.tsx
+index e874e32..33dd39e 100644
+--- a/app/matches/[id]/page.tsx
++++ b/app/matches/[id]/page.tsx
+@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
+ import { playerName } from "@/config/club";
+ import { fmtDate, matchSummary, selectorName } from "@/lib/league/derive";
+ import { correctionDeadline, rulesFrom } from "@/lib/league/ledger";
+-import { scoreSelection } from "@/lib/scoring/rules";
++import { FAIR_PLAY_LABEL, rulesVersionOf, scoreSelection } from "@/lib/scoring/rules";
+ import { isAdmin } from "@/lib/server/auth";
+ import { getState } from "@/lib/server/store";
+ import { EventLine } from "@/components/EventLine";
+@@ -25,6 +25,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
+   const sels = m.status === "played" ? m.selections.map((s) => scoreSelection(s, m, rules, lines)).sort((a, b) => b.points - a.points) : [];
+   const history = state.audit.filter((a) => a.matchId === m.id && a.action.startsWith("scorecard"));
+   const deadline = correctionDeadline(m, state.settings);
++  const v2 = rulesVersionOf(m) === 2;
+ 
+   return (
+     <main className="wrap stack-lg">
+@@ -45,17 +46,33 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
+             <h3>Scoresheet</h3>
+             {m.events.length ? (
+               <ul style={{ listStyle: "none", padding: 0, margin: "0.5rem 0 0" }}>
+-                {m.events.map((e) => <EventLine key={e.id} e={e} rules={rules} />)}
++                {m.events.map((e) => <EventLine key={e.id} e={e} rules={rules} version={rulesVersionOf(m)} />)}
+               </ul>
+             ) : (
+               <p className="muted">0–0. The keepers had a day.</p>
+             )}
++            {v2 && (m.motm?.A || m.motm?.B) && (
++              <p className="small" style={{ marginBottom: 0 }}>
++                <b>Man of the Match:</b> {[m.motm?.A && `${playerName(m.motm.A)} (White)`, m.motm?.B && `${playerName(m.motm.B)} (Red)`].filter(Boolean).join(" · ")}
++              </p>
++            )}
++            {v2 && (m.fairPlayLost?.length ?? 0) > 0 && (
++              <p className="small muted" style={{ marginBottom: 0 }}>
++                <b>Lost fair play:</b> {m.fairPlayLost!.map((f) => `${playerName(f.playerId)} (${FAIR_PLAY_LABEL[f.reason].short.toLowerCase()})`).join(", ")}
++              </p>
++            )}
+           </section>
+           <section className="panel">
+             <h3>Points on the day</h3>
+             <div className="table-wrap">
+               <table>
+-                <thead><tr><th>Player</th><th className="r">G</th><th className="r">A</th><th className="r">OG</th><th className="r">Pts</th></tr></thead>
++                <thead>
++                  <tr>
++                    <th>Player</th><th className="r">G</th><th className="r">A</th><th className="r">OG</th>
++                    {v2 && <><th className="r" title="Man of the Match">MOTM</th><th className="r" title="Fair play">FP</th></>}
++                    <th className="r">Pts</th>
++                  </tr>
++                </thead>
+                 <tbody>
+                   {ranked.map((l) => (
+                     <tr key={l.playerId}>
+@@ -63,6 +80,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
+                       <td className="r">{l.goals}</td>
+                       <td className="r">{l.assists + (rules.secondAssistEnabled ? l.secondAssists : 0)}</td>
+                       <td className="r">{l.ownGoals}</td>
++                      {v2 && <><td className="r">{l.motm ? "★" : ""}</td><td className="r">{l.fairPlay ? "✓" : "–"}</td></>}
+                       <td className="r pts"><Points v={l.points} /></td>
+                     </tr>
+                   ))}
+diff --git a/app/page.tsx b/app/page.tsx
+index 02d8b65..d4d61f1 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -1,6 +1,6 @@
+ import { Fragment } from "react";
+ import Link from "next/link";
+-import { CLUB, MEMBERS, DROPINS, ROSTER } from "@/config/club";
++import { CLUB, PICKABLE, ROSTER } from "@/config/club";
+ import { POINTS } from "@/lib/scoring/rules";
+ import { deriveSeason, upcoming } from "@/lib/league/derive";
+ import { SERIES, TEAM_NAMES } from "@/config/schedule";
+@@ -38,7 +38,7 @@ export default async function Home() {
+   const next = upcoming(state);
+   const goals = standings.reduce((s, r) => s + r.goals, 0);
+   const top3 = standings.filter((r) => r.played > 0).slice(0, 3);
+-  const squad = MEMBERS.length + DROPINS.length;
++  const squad = PICKABLE.length;
+   const nextLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
+   // Chapter 03's line-up: the season's top seven so far, or seven from the squad before a ball is kicked.
+   const ranked = standings.filter((r) => r.played > 0).map((r) => r.playerId);
+@@ -109,8 +109,10 @@ export default async function Home() {
+                   <div><dt>Goal</dt><dd className="num">+{POINTS.goal}</dd></div>
+                   <div><dt>Assist</dt><dd className="num">+{POINTS.assist}</dd></div>
+                   <div><dt>Own goal</dt><dd className="num neg">{POINTS.ownGoal}</dd></div>
++                  <div><dt>MOTM</dt><dd className="num">+{POINTS.motm}</dd></div>
++                  <div><dt>Fair play</dt><dd className="num">+{POINTS.fairPlay}</dd></div>
+                 </dl>
+-                <p className="chapter-body">No ratings, no opinions, fewer arguments.</p>
++                <p className="chapter-body">Five numbers. Easy to keep, hard to argue with.</p>
+               </div>
+             </div>
+           </article>
+@@ -124,8 +126,8 @@ export default async function Home() {
+                 </h2>
+                 <p className="chapter-tag">Pick {CLUB.picksPerSelector}, FPL-style</p>
+                 <p className="chapter-body">
+-                  Back {CLUB.picksPerSelector} of the {squad} before kick-off. Whichever side they land on, their points are yours, and
+-                  your seven carries over until you change it.
++                  Back {CLUB.picksPerSelector} of the {squad} before kick-off: 2 defenders, 2 CMs, a CAM and 2 attackers, within a
++                  star budget. Whichever side they land on, their points are yours, and your seven carries over until you change it.
+                 </p>
+                 <ul className="chapter-lineup" aria-label={ranked.length ? "Top seven so far" : "Seven from the squad"}>
+                   {lineup.map((id) => (
+diff --git a/app/rules/page.tsx b/app/rules/page.tsx
+index 0610608..7e69892 100644
+--- a/app/rules/page.tsx
++++ b/app/rules/page.tsx
+@@ -1,6 +1,6 @@
+ import type { Metadata } from "next";
+-import { CLUB } from "@/config/club";
+-import { POINTS } from "@/lib/scoring/rules";
++import { CLUB, FORMATION, PICK7, POSITIONS, POSITION_LABEL, PICKABLE } from "@/config/club";
++import { FAIR_PLAY_BREACHES, FAIR_PLAY_LABEL, POINTS, POINTS_V1, RULES_V2_FROM } from "@/lib/scoring/rules";
+ import { SERIES, TEAM_NAMES } from "@/config/schedule";
+ import { fmtDate } from "@/lib/league/derive";
+ import { getState } from "@/lib/server/store";
+@@ -11,33 +11,19 @@ export const metadata: Metadata = { title: "Rules" };
+ 
+ export default async function RulesPage() {
+   const { settings } = await getState();
+-  const rows: [string, string][] = [
+-    ["Goal (open play, header, penalty, free kick)", `+${POINTS.goal} to the scorer`],
+-    ["Assist", `+${POINTS.assist} to the assister`],
+-    ["Assisted goal", `Scorer +${POINTS.goal} and assister +${POINTS.assist}`],
+-    ["Solo goal", `Scorer +${POINTS.goal}; nobody gets assist points`],
+-    ["Header from a cross", "Normal goal + assist"],
+-    ["Penalty", `+${POINTS.goal}. No assist unless an admin records one (a pass before the foul). Winning the penalty isn't an assist.`],
+-    ["Direct free kick", `+${POINTS.goal}, never an assist`],
+-    ["Own goal", `${POINTS.ownGoal} to the player who scored it. Not a goal in anyone's stats (it still counts on the scoreboard). Assists on own goals earn nothing.`],
+-    [
+-      "Deflected shot",
+-      `Admin rules it an own goal (${POINTS.ownGoal} to the deflecting player; the shooter gets nothing) or the shooter's goal (+${POINTS.goal}, plus any assist). Current default: ${settings.deflectionDefault === "own_goal" ? "own goal" : "shooter's goal"}.`,
+-    ],
+-    [
+-      "Second assist (pre-assist)",
+-      settings.secondAssistEnabled ? `ON this season: +${POINTS.secondAssist}` : `OFF this season (would be +${POINTS.secondAssist})`,
+-    ],
+-    ["Scored and assisted in one match", "Both count — points stack"],
+-    ["Drop-ins", `Identical points; shown with a drop-in badge.${settings.excludeDropInsFromAwards ? " Excluded from season awards this season." : ""}`],
+-    ["Negative totals", "Allowed. Nothing floors at zero."],
++  const rows: [string, string, string][] = [
++    ["Goal", `+${POINTS.goal}`, "Primary scorer only. Penalties and free kicks count the same."],
++    ["Assist", `+${POINTS.assist}`, "The last pass before the goal. One per goal at most, and none on penalties or direct free kicks."],
++    ["Own goal", `${POINTS.ownGoal}`, "To the player who put it in. If in doubt, it's the attacker's goal. There are no deflection rulings."],
++    ["Man of the Match", `+${POINTS.motm}`, `Exactly one per team: one for ${TEAM_NAMES.A}, one for ${TEAM_NAMES.B}.`],
++    ["Fair play", `+${POINTS.fairPlay}`, "Everyone who plays starts with it, and keeps it unless the scorekeeper records one of the breaches below."],
+   ];
+   return (
+     <main className="wrap stack-lg">
+       <header className="stack">
+         <Kicker label="The rulebook" no="Rules" />
+-        <h1>Only the <em>scoresheet</em> counts.</h1>
+-        <p className="lede">No ratings, no man-of-the-match votes. Points come from the match scorecard and nothing else.</p>
++        <h1>Five numbers. <em>That&apos;s it.</em></h1>
++        <p className="lede">Points come from the scoresheet: goals, assists, own goals, one Man of the Match per team, and a fair-play point.</p>
+       </header>
+ 
+       <section className="panel">
+@@ -45,15 +31,26 @@ export default async function RulesPage() {
+         <div className="table-wrap" style={{ marginTop: "0.75rem" }}>
+           <table>
+             <tbody>
+-              {rows.map(([k, v]) => (
++              {rows.map(([k, pts, v]) => (
+                 <tr key={k}>
+-                  <td style={{ fontWeight: 600, width: "38%" }}>{k}</td>
++                  <td style={{ fontWeight: 600, width: "28%" }}>{k}</td>
++                  <td className="num" style={{ width: "4rem" }}>{pts}</td>
+                   <td className="muted">{v}</td>
+                 </tr>
+               ))}
+             </tbody>
+           </table>
+         </div>
++        <h3 style={{ marginTop: "1.25rem" }}>Losing the fair-play point</h3>
++        <p className="muted" style={{ margin: "0.25rem 0 0.5rem" }}>You keep it if none of these happened to you:</p>
++        <ol style={{ margin: 0, paddingLeft: "1.2rem" }}>
++          {FAIR_PLAY_BREACHES.map((b) => <li key={b}>{FAIR_PLAY_LABEL[b].long}.</li>)}
++        </ol>
++        <p className="small muted" style={{ marginBottom: 0 }}>
++          Drop-ins score the same.{settings.excludeDropInsFromAwards ? " They're excluded from season awards this season." : ""} Totals can go negative.
++          Match days before {fmtDate(RULES_V2_FROM)} keep the original rules (goal +{POINTS_V1.goal}, assist +{POINTS_V1.assist}, own goal {POINTS_V1.ownGoal}),
++          so old results don&apos;t change.
++        </p>
+       </section>
+ 
+       <div className="grid grid-2" style={{ alignItems: "start" }}>
+@@ -90,10 +87,18 @@ export default async function RulesPage() {
+           </ul>
+           <h2 style={{ marginTop: "1.5rem" }}>Pick 7</h2>
+           <ul className="muted" style={{ margin: 0, paddingLeft: "1.2rem" }}>
+-            <li>Create an account and pick {CLUB.picksPerSelector} different players from the 21 (yourself and drop-ins included).</li>
++            <li>
++              <b>Formation:</b> exactly {POSITIONS.map((p) => `${FORMATION[p]} ${FORMATION[p] === 1 ? POSITION_LABEL[p].one : POSITION_LABEL[p].many}`).join(", ")}, from the {PICKABLE.length} in the squad.
++            </li>
++            <li>
++              <b>Star budget:</b> every player is rated 1–3★, and your seven can total at most {PICK7.starBudget}★. After each draw, anyone in
++              more than {Math.round(PICK7.riseAbove * 100)}% of teams goes up a star and anyone in fewer than {Math.round(PICK7.fallBelow * 100)}% goes down one
++              (once at least {PICK7.minTeamsToRerate} teams are in). If a re-rating puts your saved seven over budget, it stays legal; changes can only
++              bring it down until it fits.
++            </li>
+             <li>
+               <b>Deadline:</b> kick-off, Thursday 10 pm — or the moment the teams are drawn, if that&apos;s earlier. Your seven as it stood at
+-              the deadline is what counts.
++              the deadline is what counts. A seven that doesn&apos;t fit the formation isn&apos;t entered that week.
+             </li>
+             <li><b>Carry-over:</b> your seven rolls into every following week until you change it. Unlimited free changes before each deadline.</li>
+             <li>You score exactly the points your seven earn that night, whichever team they&apos;re drawn on. A pick who doesn&apos;t play scores 0.</li>
+diff --git a/app/table/page.tsx b/app/table/page.tsx
+index 44ae7e9..fe40af5 100644
+--- a/app/table/page.tsx
++++ b/app/table/page.tsx
+@@ -1,3 +1,4 @@
++import { POINTS } from "@/lib/scoring/rules";
+ import type { Metadata } from "next";
+ import { isDropIn, playerName } from "@/config/club";
+ import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
+@@ -18,7 +19,10 @@ export default async function TablePage() {
+       <header className="stack">
+         <Kicker label="Season standings" no={`${played.length} match day${played.length === 1 ? "" : "s"}`} />
+         <h1>The <em>table.</em></h1>
+-        <p className="lede">Goal +5 · Assist +3 · Own goal −2. Ties split by goals, then assists, then head-to-head, then shared.</p>
++        <p className="lede">
++          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Fair play +{POINTS.fairPlay}.
++          Ties split by goals, then assists, then head-to-head, then shared.
++        </p>
+       </header>
+ 
+       {played.length === 0 ? (
+@@ -51,7 +55,7 @@ export default async function TablePage() {
+                   <tr>
+                     <th>#</th><th>Player</th><th className="r">P</th><th className="r">G</th><th className="r">A</th>
+                     {state.settings.secondAssistEnabled && <th className="r hide-sm">2A</th>}
+-                    <th className="r hide-sm">OG</th><th className="hide-sm">Form</th><th className="r">Pts</th>
++                    <th className="r hide-sm">OG</th><th className="r hide-sm" title="Man of the Match">MOTM</th><th className="hide-sm">Form</th><th className="r">Pts</th>
+                   </tr>
+                 </thead>
+                 <tbody>
+@@ -64,6 +68,7 @@ export default async function TablePage() {
+                       <td className="r">{r.assists}</td>
+                       {state.settings.secondAssistEnabled && <td className="r hide-sm">{r.secondAssists}</td>}
+                       <td className="r hide-sm">{r.ownGoals}</td>
++                      <td className="r hide-sm">{r.motm}</td>
+                       <td className="hide-sm">
+                         <Sparkline values={r.form} labels={played.filter((m) => m.id in r.perMatch).slice(-5).map((m) => dateOf[m.id])} />
+                       </td>
+diff --git a/app/team/page.tsx b/app/team/page.tsx
+index 0c03f81..9e1e10c 100644
+--- a/app/team/page.tsx
++++ b/app/team/page.tsx
+@@ -1,9 +1,10 @@
+ import type { Metadata } from "next";
+ import Link from "next/link";
+-import { CLUB, playerName } from "@/config/club";
++import { CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
+ import { SERIES, TEAM_NAMES } from "@/config/schedule";
+ import { deriveSeason, fmtDate, selectorName, upcoming } from "@/lib/league/derive";
+ import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
++import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
+ import { fmtKickoff } from "@/lib/league/schedule";
+ import { playedMatches, scoreSelection } from "@/lib/scoring/rules";
+ import { currentUser } from "@/lib/server/session";
+@@ -29,6 +30,9 @@ export default async function TeamPage() {
+     ? last.selections.map((s) => scoreSelection(s, last, rules)).sort((a, b) => b.points - a.points || b.hits - a.hits)
+     : [];
+   const squad = me ? (currentSquad(me) ?? []) : [];
++  const legacy = squad.length > 0 && !isFormationValid(squad);
++  const stars = currentStars(state.matchDays);
++  const ownership = lastOwnership(state.matchDays);
+   const myRow = me ? selectors.find((s) => s.selectorId === me.id) : undefined;
+   const myRounds = me
+     ? played
+@@ -48,9 +52,10 @@ export default async function TeamPage() {
+           Back your <em>seven.</em>
+         </h1>
+         <p className="lede">
+-          Every Thursday at 10 pm it&apos;s {TEAM_NAMES.A} vs {TEAM_NAMES.B}. Pick {CLUB.picksPerSelector} of the 21 before kick-off and bank
+-          every point they score — whichever side the hat puts them on. Your seven carries over each week; change it whenever you like before
+-          the deadline.
++          Every Thursday at 10 pm it&apos;s {TEAM_NAMES.A} vs {TEAM_NAMES.B}. Pick {CLUB.picksPerSelector} of the {PICKABLE.length} before kick-off and
++          bank every point they score — whichever side the hat puts them on. Your seven needs {FORMATION.DEF} defenders, {FORMATION.CM} CMs,{" "}
++          {FORMATION.CAM} CAM and {FORMATION.ATT} attackers, worth at most {PICK7.starBudget}★ in total. It carries over each week; change it
++          whenever you like before the deadline.
+         </p>
+       </header>
+ 
+@@ -90,7 +95,13 @@ export default async function TeamPage() {
+               )}
+             </div>
+             {!squad.length && <div className="alert alert-warn">You haven&apos;t picked a team yet — choose {CLUB.picksPerSelector} players below.</div>}
+-            <TeamPicker initial={squad} deadlineLabel={deadlineLabel} />
++            {legacy && (
++              <div className="alert alert-warn">
++                New formation: your old seven doesn&apos;t fit it. We&apos;ve kept the players who do; fill the empty seats and save before the
++                deadline, or your team won&apos;t be entered this week.
++              </div>
++            )}
++            <TeamPicker initial={legacy ? fitToFormation(squad) : squad} saved={squad} stars={stars} ownership={ownership} deadlineLabel={deadlineLabel} />
+             {lockedNow && !next && <p className="small muted">This week is locked. Changes you make now count from next week.</p>}
+           </section>
+ 
+diff --git a/components/DeadlineBanner.tsx b/components/DeadlineBanner.tsx
+index a87f62c..a23ebbe 100644
+--- a/components/DeadlineBanner.tsx
++++ b/components/DeadlineBanner.tsx
+@@ -2,6 +2,7 @@ import Link from "next/link";
+ import { CLUB } from "@/config/club";
+ import { SERIES } from "@/config/schedule";
+ import { currentSquad, nextDeadlineMatch } from "@/lib/league/ledger";
++import { isFormationValid } from "@/lib/league/pick7";
+ import { fmtKickoff } from "@/lib/league/schedule";
+ import type { User } from "@/lib/league/types";
+ import { getState } from "@/lib/server/store";
+@@ -16,15 +17,22 @@ export async function DeadlineBanner({ user }: { user: User | null }) {
+   if (left > 3 * 86_400_000) return null;
+   const when = fmtKickoff(m.kickoffAt, SERIES.timeZone);
+   const squad = user ? currentSquad(user) : null;
+-  const warn = !user || !squad;
++  const needsFix = !!squad && !isFormationValid(squad);
++  const warn = !user || !squad || needsFix;
+   return (
+     <div className={`deadline-bar ${warn ? "warn" : ""}`} role="status">
+       <div className="wrap">
+         <span>
+           <b>Pick 7 deadline: {when}.</b>{" "}
+-          {!user ? "Create an account to play." : !squad ? `You haven't picked your ${CLUB.picksPerSelector} yet.` : `Your ${CLUB.picksPerSelector} carries over — any changes?`}
++          {!user
++            ? "Create an account to play."
++            : !squad
++              ? `You haven't picked your ${CLUB.picksPerSelector} yet.`
++              : needsFix
++                ? "New formation: update your team or it won't be entered."
++                : `Your ${CLUB.picksPerSelector} carries over — any changes?`}
+         </span>
+-        <Link href={user ? "/team" : "/join"}>{!user ? "Join" : !squad ? "Pick now" : "Make changes"}</Link>
++        <Link href={user ? "/team" : "/join"}>{!user ? "Join" : !squad ? "Pick now" : needsFix ? "Fix my 7" : "Make changes"}</Link>
+       </div>
+     </div>
+   );
+diff --git a/components/EventLine.tsx b/components/EventLine.tsx
+index cbd61b6..348cdb0 100644
+--- a/components/EventLine.tsx
++++ b/components/EventLine.tsx
+@@ -1,9 +1,9 @@
+ import { playerName } from "@/config/club";
+-import type { GoalEvent } from "@/lib/league/types";
++import type { GoalEvent, RulesVersion } from "@/lib/league/types";
+ import { GOAL_KIND_LABEL, deflectionRulingOf, scoreEvent, type ScoringRules } from "@/lib/scoring/rules";
+ import { Points } from "./ui";
+ 
+-export function describeEvent(e: GoalEvent, rules: ScoringRules): string {
++export function describeEvent(e: GoalEvent, rules: ScoringRules, version: RulesVersion = 1): string {
+   const s = playerName(e.scorerId);
+   if (e.kind === "own_goal") return `Own goal — ${s}`;
+   if (e.kind === "deflection") {
+@@ -13,19 +13,19 @@ export function describeEvent(e: GoalEvent, rules: ScoringRules): string {
+       : `${s} — deflected off ${d}, ruled ${s}'s goal${e.assistId ? ` · assist ${playerName(e.assistId)}` : ""}`;
+   }
+   const parts = [`${s}${e.kind !== "open_play" ? ` (${GOAL_KIND_LABEL[e.kind].toLowerCase()})` : ""}`];
+-  if (e.assistId && e.kind !== "free_kick") parts.push(`assist ${playerName(e.assistId)}`);
+-  if (e.secondAssistId && rules.secondAssistEnabled) parts.push(`pre-assist ${playerName(e.secondAssistId)}`);
++  if (e.assistId && e.kind !== "free_kick" && !(version === 2 && e.kind === "penalty")) parts.push(`assist ${playerName(e.assistId)}`);
++  if (version === 1 && e.secondAssistId && rules.secondAssistEnabled) parts.push(`pre-assist ${playerName(e.secondAssistId)}`);
+   return parts.join(" · ");
+ }
+ 
+-export function EventLine({ e, rules }: { e: GoalEvent; rules: ScoringRules }) {
+-  const sc = scoreEvent(e, rules);
++export function EventLine({ e, rules, version = 1 }: { e: GoalEvent; rules: ScoringRules; version?: RulesVersion }) {
++  const sc = scoreEvent(e, rules, version);
+   return (
+     <li className="row spread" style={{ padding: "0.45rem 0", borderBottom: "1px dashed var(--line-soft)" }}>
+       <span className="row" style={{ gap: "0.5rem" }}>
+         <span className={`bib bib-${e.side}`} aria-label={`Team ${e.side === "A" ? "White" : "Red"}`} />
+         {e.minute != null && <span className="muted num small">{e.minute}&apos;</span>}
+-        <span>{describeEvent(e, rules)}</span>
++        <span>{describeEvent(e, rules, version)}</span>
+       </span>
+       <span className="small muted num">
+         {sc.contributions.map((c, i) => (
+diff --git a/components/ScorecardEditor.tsx b/components/ScorecardEditor.tsx
+index 90a23bf..b6f3b3c 100644
+--- a/components/ScorecardEditor.tsx
++++ b/components/ScorecardEditor.tsx
+@@ -2,8 +2,20 @@
+ import { useMemo, useState } from "react";
+ import { useRouter } from "next/navigation";
+ import { ROSTER, playerName } from "@/config/club";
+-import type { DrawResult, GoalEvent, GoalKind, LeagueSettings, Side } from "@/lib/league/types";
+-import { GOAL_KINDS, GOAL_KIND_LABEL, deflectionRulingOf, scoreMatch, scoreline, validateScorecard } from "@/lib/scoring/rules";
++import type { DrawResult, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, LeagueSettings, RulesVersion, Side } from "@/lib/league/types";
++import {
++  FAIR_PLAY_BREACHES,
++  FAIR_PLAY_LABEL,
++  GOAL_KINDS,
++  GOAL_KINDS_V2,
++  GOAL_KIND_LABEL,
++  POINTS_V2,
++  deflectionRulingOf,
++  scoreMatch,
++  scoreline,
++  validateAwards,
++  validateScorecard,
++} from "@/lib/scoring/rules";
+ import { api } from "./api";
+ 
+ const KNOWN = new Set(ROSTER.map((p) => p.id));
+@@ -52,11 +64,17 @@ function PlayerSelect({
+   );
+ }
+ 
++/** v2 labels: "Open play" reads as just "Goal". */
++const V2_KIND_LABEL: Partial<Record<GoalKind, string>> = { open_play: "Goal", penalty: "Penalty", free_kick: "Direct free kick", own_goal: "Own goal" };
++
+ export function ScorecardEditor({
+   matchId,
+   attendees,
+   draw,
+   initial,
++  initialMotm,
++  initialFairPlayLost,
++  version,
+   settings,
+   isCorrection,
+   windowOpen,
+@@ -66,26 +84,45 @@ export function ScorecardEditor({
+   attendees: string[];
+   draw: DrawResult;
+   initial: GoalEvent[];
++  initialMotm: Record<Side, string | null> | null;
++  initialFairPlayLost: FairPlayLoss[];
++  version: RulesVersion;
+   settings: LeagueSettings;
+   isCorrection: boolean;
+   windowOpen: boolean;
+   deadline: string | null;
+ }) {
+   const router = useRouter();
++  const v2 = version === 2;
+   const [events, setEvents] = useState<GoalEvent[]>(initial);
++  const [motm, setMotm] = useState<Record<Side, string | null>>(initialMotm ?? { A: null, B: null });
++  const [fairPlayLost, setFairPlayLost] = useState<FairPlayLoss[]>(initialFairPlayLost);
+   const [reason, setReason] = useState("");
+   const [busy, setBusy] = useState(false);
+   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+   const rules = { secondAssistEnabled: settings.secondAssistEnabled, deflectionDefault: settings.deflectionDefault };
+ 
++  const matchCtx = { knownPlayers: KNOWN, attendees, teamA: draw.teamA, teamB: draw.teamB, floater: draw.floater };
+   const issues = useMemo(
+-    () => validateScorecard(events, { knownPlayers: KNOWN, attendees, teamA: draw.teamA, teamB: draw.teamB, floater: draw.floater }, rules),
++    () => validateScorecard(events, matchCtx, rules, version),
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++    [events, attendees, draw, settings, version],
++  );
++  const awardIssues = useMemo(
++    () => (v2 ? validateAwards({ motm, fairPlayLost }, matchCtx) : []),
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+-    [events, attendees, draw, settings],
++    [v2, motm, fairPlayLost, attendees, draw],
+   );
+-  const errors = issues.filter((i) => i.level === "error");
++  const errors = [...issues, ...awardIssues].filter((i) => i.level === "error");
+   const score = scoreline(events);
+-  const lines = [...scoreMatch({ attendees, events }, rules).values()].filter((l) => l.points !== 0 || l.goals || l.assists).sort((a, b) => b.points - a.points);
++  const lines = [...scoreMatch({ attendees, events, rulesVersion: version, motm, fairPlayLost }, rules).values()]
++    .filter((l) => l.points !== 0 || l.goals || l.assists)
++    .sort((a, b) => b.points - a.points || playerName(a.playerId).localeCompare(playerName(b.playerId)));
++  const lostBy = new Map(fairPlayLost.map((f) => [f.playerId, f.reason]));
++  const setBreach = (id: string, reason: FairPlayBreach | null) =>
++    setFairPlayLost((xs) => [...xs.filter((x) => x.playerId !== id), ...(reason ? [{ playerId: id, reason }] : [])]);
++  const teamOf = (side: Side) => [...(side === "A" ? draw.teamA : draw.teamB), ...(draw.floater ? [draw.floater] : [])];
++  const byName = (ids: string[]) => [...ids].sort((a, b) => playerName(a).localeCompare(playerName(b)));
+   const locked = isCorrection && !windowOpen;
+ 
+   const update = (id: string, patch: Partial<GoalEvent>) => setEvents((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+@@ -108,7 +145,8 @@ export function ScorecardEditor({
+         const out: GoalEvent = { id: e.id, side: e.side, kind: e.kind, scorerId: e.scorerId };
+         if (e.minute != null && !Number.isNaN(e.minute)) out.minute = e.minute;
+         if (e.assistId) out.assistId = e.assistId;
+-        if (e.secondAssistId) out.secondAssistId = e.secondAssistId;
++        if (e.secondAssistId && !v2) out.secondAssistId = e.secondAssistId;
++        if (v2 && (e.kind === "penalty" || e.kind === "free_kick" || e.kind === "own_goal")) delete out.assistId;
+         if (e.kind === "deflection") {
+           out.deflectedById = e.deflectedById ?? null;
+           out.deflectionRuling = deflectionRulingOf(e, rules);
+@@ -116,7 +154,11 @@ export function ScorecardEditor({
+         if (e.note) out.note = e.note;
+         return out;
+       });
+-      await api(`/api/matchdays/${matchId}/scorecard`, "PUT", { events: clean, reason: isCorrection ? reason : undefined });
++      await api(`/api/matchdays/${matchId}/scorecard`, "PUT", {
++        events: clean,
++        reason: isCorrection ? reason : undefined,
++        ...(v2 ? { motm, fairPlayLost } : {}),
++      });
+       setMsg({ ok: true, text: isCorrection ? "Correction saved and logged. Standings recalculated." : "Scorecard published. The table is updated." });
+       setReason("");
+       router.refresh();
+@@ -143,7 +185,7 @@ export function ScorecardEditor({
+         {events.map((e, i) => {
+           const own = e.kind === "own_goal";
+           const ruling = e.kind === "deflection" ? deflectionRulingOf(e, rules) : null;
+-          const noAssist = own || e.kind === "free_kick" || ruling === "own_goal";
++          const noAssist = own || e.kind === "free_kick" || ruling === "own_goal" || (v2 && e.kind === "penalty");
+           const myIssues = issues.filter((x) => x.eventId === e.id);
+           const other: Side = e.side === "A" ? "B" : "A";
+           return (
+@@ -180,7 +222,9 @@ export function ScorecardEditor({
+                       });
+                     }}
+                   >
+-                    {GOAL_KINDS.map((k) => <option key={k} value={k}>{GOAL_KIND_LABEL[k]}</option>)}
++                    {(v2 ? GOAL_KINDS_V2 : GOAL_KINDS).map((k) => (
++                      <option key={k} value={k}>{v2 ? V2_KIND_LABEL[k] : GOAL_KIND_LABEL[k]}</option>
++                    ))}
+                   </select>
+                 </div>
+                 <PlayerSelect
+@@ -204,7 +248,7 @@ export function ScorecardEditor({
+                   </>
+                 )}
+                 <PlayerSelect
+-                  label={e.kind === "penalty" ? "Assist (only if you're crediting one)" : "Assist"}
++                  label={!v2 && e.kind === "penalty" ? "Assist (only if you're crediting one)" : "Assist"}
+                   value={noAssist ? null : e.assistId}
+                   onChange={(v) => update(e.id, { assistId: v, secondAssistId: v ? e.secondAssistId : null })}
+                   draw={draw}
+@@ -212,7 +256,7 @@ export function ScorecardEditor({
+                   optional
+                   disabled={locked || noAssist}
+                 />
+-                {settings.secondAssistEnabled && !noAssist && (
++                {!v2 && settings.secondAssistEnabled && !noAssist && (
+                   <PlayerSelect label="Second assist (+1)" value={e.secondAssistId} onChange={(v) => update(e.id, { secondAssistId: v })} draw={draw} prefer={e.side} optional disabled={locked || !e.assistId} />
+                 )}
+                 <div>
+@@ -228,7 +272,11 @@ export function ScorecardEditor({
+                   />
+                 </div>
+               </div>
+-              {noAssist && <p className="small muted" style={{ margin: 0 }}>{own || ruling === "own_goal" ? "Own goals carry no assist." : "Direct free kicks carry no assist."}</p>}
++              {noAssist && (
++                <p className="small muted" style={{ margin: 0 }}>
++                  {own || ruling === "own_goal" ? "Own goals carry no assist." : e.kind === "penalty" ? "Penalties carry no assist." : "Direct free kicks carry no assist."}
++                </p>
++              )}
+               {myIssues.map((x, k) => (
+                 <div key={k} className={`alert ${x.level === "error" ? "alert-error" : "alert-warn"}`}>{x.message}</div>
+               ))}
+@@ -244,6 +292,81 @@ export function ScorecardEditor({
+         </div>
+       )}
+ 
++      {v2 && (
++        <>
++          <div className="panel stack">
++            <h3>Man of the Match <span className="muted small">+{POINTS_V2.motm} each</span></h3>
++            <div className="award-grid">
++              {(["A", "B"] as Side[]).map((side) => (
++                <div key={side} className="stack" style={{ gap: "0.4rem" }}>
++                  <label><span className={`bib bib-${side}`} /> {TEAM[side]}</label>
++                  <div className="chips" role="radiogroup" aria-label={`${TEAM[side]} Man of the Match`}>
++                    {byName(teamOf(side)).map((id) => (
++                      <button
++                        key={id}
++                        type="button"
++                        role="radio"
++                        className="chip"
++                        aria-checked={motm[side] === id}
++                        aria-pressed={motm[side] === id}
++                        disabled={locked}
++                        onClick={() => setMotm((m) => ({ ...m, [side]: m[side] === id ? null : id }))}
++                      >
++                        {playerName(id)}
++                      </button>
++                    ))}
++                  </div>
++                </div>
++              ))}
++            </div>
++          </div>
++
++          <div className="panel stack">
++            <h3>Fair play <span className="muted small">+{POINTS_V2.fairPlay} each, on by default</span></h3>
++            <p className="small muted" style={{ margin: 0 }}>
++              Untick anyone who broke a rule, and tap what happened:{" "}
++              {FAIR_PLAY_BREACHES.map((b, i) => (
++                <span key={b}>{i > 0 && " · "}<b>{FAIR_PLAY_LABEL[b].short}</b>: {FAIR_PLAY_LABEL[b].long.toLowerCase()}</span>
++              ))}
++              .
++            </p>
++            <div>
++              {byName(attendees).map((id) => {
++                const lost = lostBy.get(id);
++                const keeps = lost === undefined;
++                return (
++                  <div key={id} className="fair-row">
++                    <label>
++                      <input type="checkbox" checked={keeps} disabled={locked} onChange={(x) => setBreach(id, x.target.checked ? null : "foul")} />
++                      {playerName(id)}
++                    </label>
++                    {!keeps && (
++                      <div className="chips" role="radiogroup" aria-label={`Why ${playerName(id)} lost fair play`}>
++                        {FAIR_PLAY_BREACHES.map((b) => (
++                          <button
++                            key={b}
++                            type="button"
++                            role="radio"
++                            className="chip"
++                            aria-checked={lost === b}
++                            aria-pressed={lost === b}
++                            disabled={locked}
++                            title={FAIR_PLAY_LABEL[b].long}
++                            onClick={() => setBreach(id, b)}
++                          >
++                            {FAIR_PLAY_LABEL[b].short}
++                          </button>
++                        ))}
++                      </div>
++                    )}
++                  </div>
++                );
++              })}
++            </div>
++          </div>
++        </>
++      )}
++
+       <div className="panel stack">
+         <h3>Points preview</h3>
+         {lines.length ? (
+@@ -263,7 +386,12 @@ export function ScorecardEditor({
+             <input id="reason" type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Assist was Vineet, not Vikram" />
+           </div>
+         )}
+-        {errors.length > 0 && <div className="alert alert-error">Fix {errors.length} error{errors.length > 1 ? "s" : ""} above before saving.</div>}
++        {awardIssues.map((x, k) => (
++          <div key={k} className="alert alert-error">{x.message}</div>
++        ))}
++        {issues.some((i) => i.level === "error") && (
++          <div className="alert alert-error">Fix the goal errors above before saving.</div>
++        )}
+         <div className="row">
+           <button className="btn btn-primary" onClick={save} disabled={busy || locked || errors.length > 0 || (isCorrection && !reason.trim())}>
+             {busy ? "Saving…" : isCorrection ? "Save correction" : "Publish scorecard"}
+diff --git a/components/TeamPicker.tsx b/components/TeamPicker.tsx
+index 84b6a39..124c9c8 100644
+--- a/components/TeamPicker.tsx
++++ b/components/TeamPicker.tsx
+@@ -1,9 +1,9 @@
+ "use client";
+ import { useEffect, useLayoutEffect, useRef, useState } from "react";
+ import { useRouter } from "next/navigation";
+-import { CLUB, playerName } from "@/config/club";
++import { CLUB, FORMATION, PICK7, PICKABLE, POSITIONS, POSITION_LABEL, getPlayer, playerName, type Position } from "@/config/club";
++import { checkTeam, isFormationValid, starsTotal, type StarMap } from "@/lib/league/pick7";
+ import { api } from "./api";
+-import { PlayerChips } from "./PlayerChips";
+ import { Mascot } from "./Mascot";
+ 
+ const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+@@ -21,14 +21,39 @@ function ghostOf(svg: Element, rect: DOMRect): HTMLDivElement {
+   return g;
+ }
+ 
+-export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; deadlineLabel: string | null }) {
++interface PickerProps {
++  /** Picks to start the editor with (an old seven already trimmed to what fits the formation). */
++  initial: string[];
++  /** The user's saved seven exactly as stored (for "dirty" and the over-budget allowance). */
++  saved: string[];
++  /** Current star rating per player. */
++  stars: StarMap;
++  /** Last locked round's ownership share per player (0..1). */
++  ownership: Record<string, number>;
++  deadlineLabel: string | null;
++}
++
++const starStr = (n: number) => "★".repeat(n);
++
++export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }: PickerProps) {
+   const router = useRouter();
+   const [picks, setPicks] = useState<string[]>(initial);
+   const [busy, setBusy] = useState(false);
+   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+   const [said, setSaid] = useState("");
++  /** A player tapped while their position was full: choose who they replace. */
++  const [swapIn, setSwapIn] = useState<string | null>(null);
+   const need = CLUB.picksPerSelector;
+-  const dirty = picks.length !== initial.length || picks.some((p) => !initial.includes(p));
++  const dirty = picks.length !== saved.length || picks.some((p) => !saved.includes(p));
++
++  const check = checkTeam(picks, stars, saved);
++  const total = check.starsTotal;
++  const savedTotal = isFormationValid(saved) ? starsTotal(saved, stars) : 0;
++  /** Over-budget teams may be changed, but never to a higher total. */
++  const cap = Math.max(PICK7.starBudget, savedTotal);
++  const complete = picks.length === need;
++  const posOf = (id: string) => getPlayer(id)?.position ?? null;
++  const picksIn = (pos: Position) => picks.filter((id) => posOf(id) === pos);
+ 
+   const slotsRef = useRef<HTMLDivElement>(null);
+   /** Where each slotted mascot was before the last change (for the FLIP shuffle). */
+@@ -46,36 +71,75 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
+     });
+   };
+ 
+-  const add = (id: string) => {
++  const tumble = (id: string) => {
++    const svg = slotMascot(id);
++    if (!svg || reducedMotion()) return;
++    // Tumble out: a little hop, then fall off the bench and spin away.
++    const g = ghostOf(svg, svg.getBoundingClientRect());
++    const dir = Math.random() < 0.5 ? -1 : 1;
++    g.animate(
++      [
++        { transform: "translate(0,0) rotate(0deg)", opacity: 1 },
++        { transform: `translate(${dir * 14}px,-34px) rotate(${dir * -10}deg)`, opacity: 1, offset: 0.28 },
++        { transform: `translate(${dir * 60}px,240px) rotate(${dir * 220}deg)`, opacity: 0 },
++      ],
++      { duration: 760, easing: "cubic-bezier(.3,.1,.6,1)" },
++    ).finished.finally(() => g.remove());
++  };
++
++  const flyFromChip = (id: string) => {
+     const chip = document.querySelector(`[data-chip="${id}"] .mascot`);
+     if (chip && !reducedMotion()) incoming.current = { id, from: chip.getBoundingClientRect() };
++  };
++
++  const add = (id: string) => {
++    flyFromChip(id);
+     snapshot();
+     const next = [...picks, id];
+     setPicks(next);
++    setSwapIn(null);
+     setSaid(`Added ${playerName(id)}. ${next.length} of ${need} picked.`);
+   };
+ 
+   const remove = (id: string) => {
+-    const svg = slotMascot(id);
+-    if (svg && !reducedMotion()) {
+-      // Tumble out: a little hop, then fall off the bench and spin away.
+-      const g = ghostOf(svg, svg.getBoundingClientRect());
+-      const dir = Math.random() < 0.5 ? -1 : 1;
+-      g.animate(
+-        [
+-          { transform: "translate(0,0) rotate(0deg)", opacity: 1 },
+-          { transform: `translate(${dir * 14}px,-34px) rotate(${dir * -10}deg)`, opacity: 1, offset: 0.28 },
+-          { transform: `translate(${dir * 60}px,240px) rotate(${dir * 220}deg)`, opacity: 0 },
+-        ],
+-        { duration: 760, easing: "cubic-bezier(.3,.1,.6,1)" },
+-      ).finished.finally(() => g.remove());
+-    }
++    tumble(id);
+     snapshot();
+     const next = picks.filter((x) => x !== id);
+     setPicks(next);
+     setSaid(`Removed ${playerName(id)}. ${next.length} of ${need} picked.`);
+   };
+ 
++  /** Atomic swap, so the team is never shown half-changed. */
++  const swap = (outId: string, inId: string) => {
++    tumble(outId);
++    flyFromChip(inId);
++    snapshot();
++    setPicks(picks.map((x) => (x === outId ? inId : x)));
++    setSwapIn(null);
++    setSaid(`Swapped ${playerName(outId)} for ${playerName(inId)}.`);
++  };
++
++  /** Why a player can't be added right now (null = they can). Position-full is handled by the swap sheet. */
++  const blockReason = (id: string): string | null => {
++    const over = total + (stars[id] ?? 0) - cap;
++    return over > 0 ? `Over budget by ${over}★` : null;
++  };
++  const swapBlock = (outId: string, inId: string): string | null => {
++    const over = total - (stars[outId] ?? 0) + (stars[inId] ?? 0) - cap;
++    return over > 0 ? `Over budget by ${over}★` : null;
++  };
++
++  const toggle = (id: string) => {
++    if (picks.includes(id)) return remove(id);
++    const pos = posOf(id);
++    if (!pos) return;
++    if (picksIn(pos).length >= FORMATION[pos]) {
++      setSwapIn(swapIn === id ? null : id);
++      return;
++    }
++    if (!blockReason(id)) add(id);
++  };
++
+   useLayoutEffect(() => {
+     const root = slotsRef.current;
+     if (!root || reducedMotion()) {
+@@ -135,44 +199,148 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
+   // Clean up any stray ghosts if the page navigates mid-flight.
+   useEffect(() => () => document.querySelectorAll(".mascot-ghost").forEach((g) => g.remove()), []);
+ 
++  /** What the save button says when the team isn't ready yet. */
++  const missing = POSITIONS.map((pos) => ({ pos, short: FORMATION[pos] - picksIn(pos).length })).find((x) => x.short > 0);
++  const saveLabel = busy
++    ? "Saving…"
++    : missing
++      ? `Pick ${missing.short} more ${missing.short === 1 ? POSITION_LABEL[missing.pos].one : POSITION_LABEL[missing.pos].many}`
++      : !check.valid
++        ? check.errors[0]
++        : saved.length
++          ? "Save changes"
++          : `Lock in my ${need}`;
++
++  // Bench in formation order: each position's picks, then its empty seats.
++  const seats = POSITIONS.flatMap((pos) => {
++    const mine = picksIn(pos);
++    return Array.from({ length: FORMATION[pos] }, (_, i) => ({ pos, id: mine[i] ?? null, n: i }));
++  });
++  const pct = Math.min(100, (total / PICK7.starBudget) * 100);
++
+   return (
+     <div className="stack">
++      <div className="pick7-status" aria-label="Team status">
++        {POSITIONS.map((pos) => {
++          const have = picksIn(pos).length;
++          const done = have === FORMATION[pos];
++          return (
++            <span key={pos} className={`pos-pill${done ? " is-done" : ""}`}>
++              {pos} <b className="num">{have}/{FORMATION[pos]}</b>
++              {done && <span aria-hidden="true"> ✓</span>}
++            </span>
++          );
++        })}
++        <span className={`budget${total > PICK7.starBudget ? " is-over" : ""}`}>
++          <span className="budget-bar" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>
++          <span className="num">{total} / {PICK7.starBudget}★</span>
++        </span>
++      </div>
++      {check.grandfathered && (
++        <p className="small muted" style={{ margin: 0 }}>
++          Ratings moved and your seven is now over budget. It stays legal; changes can only bring it down until it fits.
++        </p>
++      )}
++
+       <div className="bench" ref={slotsRef}>
+-        {Array.from({ length: need }, (_, i) => {
+-          const id = picks[i];
+-          return id ? (
++        {seats.map(({ pos, id, n }) =>
++          id ? (
+             <div key={id} className="bench-slot" data-slot={id}>
+               <Mascot id={id} size={92} />
+               <span className="bench-name">{playerName(id)}</span>
++              <span className="bench-pos">{pos} · {starStr(stars[id] ?? 0)}</span>
+               <button type="button" className="bench-remove" aria-label={`Remove ${playerName(id)}`} onClick={() => remove(id)}>
+                 <span aria-hidden="true">✕</span>
+               </button>
+             </div>
+           ) : (
+-            <div key={`empty-${i}`} className="bench-slot empty">
++            <div key={`empty-${pos}-${n}`} className="bench-slot empty">
+               <svg className="bench-ghost" viewBox="0 0 100 124" aria-hidden="true">
+                 <circle cx="50" cy="34" r="21" />
+                 <path d="M31 63 q0 -9 9 -10 h20 q9 1 9 10 v30 h-38 z" />
+                 <rect x="38" y="92" width="9" height="20" rx="3" />
+                 <rect x="53" y="92" width="9" height="20" rx="3" />
+               </svg>
+-              <span className="bench-name muted">Pick {i + 1}</span>
++              <span className="bench-name muted">{POSITION_LABEL[pos].one}</span>
+             </div>
+-          );
+-        })}
++          ),
++        )}
+       </div>
+-      <div>
+-        <div className="row spread">
+-          <h3>Choose from the squad</h3>
+-          <span className="num" aria-hidden="true">{picks.length}/{need}</span>
+-        </div>
++
++      <div className="stack">
++        <h3>Choose from the squad</h3>
++        <p className="small muted" style={{ margin: 0 }}>
++          {FORMATION.DEF} defenders · {FORMATION.CM} CMs · {FORMATION.CAM} CAM · {FORMATION.ATT} attackers, at most {PICK7.starBudget}★ in total.
++          Tap a player in a full position to swap them in.
++        </p>
+         <p className="sr-only" aria-live="polite" aria-atomic="true">{said}</p>
+-        <PlayerChips selected={picks} max={need} withFaces onToggle={(id) => (picks.includes(id) ? remove(id) : add(id))} />
++        {POSITIONS.map((pos) => {
++          const list = PICKABLE.filter((p) => p.position === pos);
++          const have = picksIn(pos);
++          const full = have.length >= FORMATION[pos];
++          const pendingSwap = swapIn && posOf(swapIn) === pos ? swapIn : null;
++          return (
++            <div key={pos} className="pos-group">
++              <div className="pos-head">
++                <span>{POSITION_LABEL[pos].many}</span>
++                <span className={`num${full ? " pos-full" : ""}`}>{have.length}/{FORMATION[pos]} selected</span>
++              </div>
++              <div className="chips">
++                {list.map((p) => {
++                  const on = picks.includes(p.id);
++                  const block = on || full ? null : blockReason(p.id);
++                  const own = ownership[p.id];
++                  return (
++                    <button
++                      type="button"
++                      key={p.id}
++                      className={`chip chip-face${full && !on ? " chip-swap" : ""}${pendingSwap === p.id ? " is-swapping" : ""}`}
++                      data-chip={p.id}
++                      aria-pressed={on}
++                      disabled={!!block}
++                      title={block ?? (full && !on ? `${POSITION_LABEL[pos].many} full: tap to swap` : undefined)}
++                      onClick={() => toggle(p.id)}
++                    >
++                      <Mascot id={p.id} variant="head" size={26} />
++                      {p.name}
++                      <span className="chip-stars" aria-label={`${stars[p.id]} stars`}>{starStr(stars[p.id] ?? 0)}</span>
++                      {own !== undefined && <span className="chip-own num">{Math.round(own * 100)}%</span>}
++                      {p.kind === "dropin" && (
++                        <span className="badge badge-dropin" style={{ color: on ? "inherit" : undefined }}>
++                          <span aria-hidden="true">D</span>
++                          <span className="sr-only">drop-in</span>
++                        </span>
++                      )}
++                    </button>
++                  );
++                })}
++              </div>
++              {pendingSwap && (
++                <div className="swap-sheet" role="group" aria-label={`Swap ${playerName(pendingSwap)} in`}>
++                  <span className="small">
++                    {POSITION_LABEL[pos].many} full. Swap <b>{playerName(pendingSwap)}</b> in for:
++                  </span>
++                  {have.map((outId) => {
++                    const why = swapBlock(outId, pendingSwap);
++                    return (
++                      <button key={outId} type="button" className="btn btn-sm" disabled={!!why} title={why ?? undefined} onClick={() => swap(outId, pendingSwap)}>
++                        {playerName(outId)}{why ? ` (${why})` : ""}
++                      </button>
++                    );
++                  })}
++                  <button type="button" className="btn btn-sm" onClick={() => setSwapIn(null)}>Cancel</button>
++                </div>
++              )}
++            </div>
++          );
++        })}
++        {Object.keys(ownership).length > 0 && <p className="small muted" style={{ margin: 0 }}>% = share of teams that picked them last round.</p>}
+       </div>
++
+       <div className="row">
+         <button
+           className="btn btn-primary"
+-          disabled={busy || picks.length !== need || !dirty}
++          disabled={busy || !complete || !check.valid || !dirty}
+           onClick={async () => {
+             setBusy(true);
+             setMsg(null);
+@@ -187,9 +355,9 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
+             }
+           }}
+         >
+-          {busy ? "Saving…" : initial.length ? "Save changes" : `Lock in my ${need}`}
++          {saveLabel}
+         </button>
+-        {dirty && initial.length > 0 && <button className="btn btn-sm" onClick={() => setPicks(initial)}>Undo</button>}
++        {dirty && saved.length > 0 && <button className="btn btn-sm" onClick={() => { setPicks(initial); setSwapIn(null); }}>Undo</button>}
+         {msg && <span className={`small ${msg.ok ? "" : "neg"}`} role="status">{msg.text}</span>}
+       </div>
+     </div>
+diff --git a/config/club.ts b/config/club.ts
+index dfa1a6f..9cab094 100644
+--- a/config/club.ts
++++ b/config/club.ts
+@@ -8,10 +8,18 @@
+ 
+ export type PlayerKind = "member" | "dropin";
+ 
++/** Pick 7 positions. Every pickable player has exactly one. */
++export type Position = "DEF" | "CM" | "CAM" | "ATT";
++export type Stars = 1 | 2 | 3;
++
+ export interface Player {
+   id: string;
+   name: string;
+   kind: PlayerKind;
++  /** Pick 7 position. `null` = on the roster (match history, draws) but not pickable in Pick 7. */
++  position: Position | null;
++  /** Base star rating (1–3) for the Pick 7 budget. Ownership nudges it week to week. */
++  stars: Stars;
+ }
+ 
+ export const CLUB = {
+@@ -27,6 +35,66 @@ export const CLUB = {
+   picksPerSelector: 7,
+ } as const;
+ 
++// ---------------------------------------------------------------------------
++// Pick 7 balance rules
++// ---------------------------------------------------------------------------
++
++/** Positions in display order. */
++export const POSITIONS: readonly Position[] = ["DEF", "CM", "CAM", "ATT"];
++
++export const POSITION_LABEL: Record<Position, { one: string; many: string }> = {
++  DEF: { one: "Defender", many: "Defenders" },
++  CM: { one: "CM", many: "CMs" },
++  CAM: { one: "CAM", many: "CAMs" },
++  ATT: { one: "Attacker", many: "Attackers" },
++};
++
++/** Exactly this many picks per position (must add up to picksPerSelector). */
++export const FORMATION: Record<Position, number> = { DEF: 2, CM: 2, CAM: 1, ATT: 2 };
++
++export const PICK7 = {
++  /** Most stars a seven may total. With everyone at 2★ (14) there is no squeeze until ownership moves ratings. */
++  starBudget: 14,
++  /** After each draw, a player in MORE than this share of teams goes up a star for following weeks… */
++  riseAbove: 0.6,
++  /** …and one in FEWER than this share goes down a star. */
++  fallBelow: 0.1,
++  /** Ownership only re-rates players once at least this many sevens were locked (avoids noise early on). */
++  minTeamsToRerate: 4,
++} as const;
++
++/**
++ * Position and base stars for every player.
++ *
++ * STARS: everyone starts at 2★. Set real ratings here when the club agrees them
++ * (roughly the top quarter 3★, the bottom quarter 1★), and consider lowering
++ * PICK7.starBudget to 13 once some players are 1★.
++ *
++ * A player missing from this map stays on the roster but can't be picked in Pick 7.
++ */
++const PICK7_META: Record<string, { position: Position; stars?: Stars }> = {
++  vineet: { position: "DEF" },
++  jaskaran: { position: "DEF" },
++  gurnaam: { position: "DEF" },
++  archit: { position: "DEF" },
++  danial: { position: "DEF" },
++  tadas: { position: "CM" },
++  jedi: { position: "CM" },
++  raunak: { position: "CM" },
++  sanjeev: { position: "CM" },
++  navneet: { position: "CM" },
++  savi: { position: "CM" },
++  robin: { position: "CAM" },
++  danish: { position: "CAM" },
++  ghous: { position: "CAM" },
++  abrar: { position: "CAM" },
++  vikram: { position: "ATT" },
++  karminder: { position: "ATT" },
++  harpreet: { position: "ATT" },
++  nakul: { position: "ATT" },
++  inder: { position: "ATT" },
++};
++
+ const MEMBER_NAMES = [
+   "Navneet",
+   "Archit",
+@@ -52,17 +120,15 @@ const DROPIN_NAMES = ["Savi", "Abrar", "Inder"] as const;
+ 
+ const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+ 
+-export const MEMBERS: readonly Player[] = MEMBER_NAMES.map((name) => ({
+-  id: slug(name),
+-  name,
+-  kind: "member" as const,
+-}));
++const make = (name: string, kind: PlayerKind): Player => {
++  const id = slug(name);
++  const meta = PICK7_META[id];
++  return { id, name, kind, position: meta?.position ?? null, stars: meta?.stars ?? 2 };
++};
++
++export const MEMBERS: readonly Player[] = MEMBER_NAMES.map((name) => make(name, "member"));
+ 
+-export const DROPINS: readonly Player[] = DROPIN_NAMES.map((name) => ({
+-  id: slug(name),
+-  name,
+-  kind: "dropin" as const,
+-}));
++export const DROPINS: readonly Player[] = DROPIN_NAMES.map((name) => make(name, "dropin"));
+ 
+ export const ROSTER: readonly Player[] = [...MEMBERS, ...DROPINS];
+ 
+@@ -79,3 +145,6 @@ export function playerName(id: string): string {
+ export function isDropIn(id: string): boolean {
+   return BY_ID.get(id)?.kind === "dropin";
+ }
++
++/** Players who can be picked in Pick 7 (they have a position). */
++export const PICKABLE: readonly Player[] = ROSTER.filter((p) => p.position !== null);
+diff --git a/docs/SCORING.md b/docs/SCORING.md
+index a842cdb..610d273 100644
+--- a/docs/SCORING.md
++++ b/docs/SCORING.md
+@@ -9,6 +9,31 @@ Test files:
+ - `lib/draw/draw.test.ts`: the match-day draw
+ - `lib/league/ledger.test.ts`: lifecycle, corrections and recalculation
+ - `lib/league/fpl.test.ts`: accounts, weekly fixtures, carry-over, calendar feed, reminders
++- `lib/league/pick7.test.ts`: Pick 7 formation, star budget, ownership re-rating, and v2 scoring
++
++## Two rule sets
++
++Each match day is scored under one rule set, chosen by `rulesVersionOf` (pinned on the match as
++`rulesVersion`, otherwise by date against `RULES_V2_FROM` = 2026-11-19):
++
++| | v1 (before 19 Nov 2026) | v2 (from 19 Nov 2026) |
++|---|---|---|
++| Goal | +5 | +3 |
++| Assist | +3 (penalty only if recorded; never free kick) | +2 (never on penalties or free kicks) |
++| Own goal | −2 | −2 |
++| Second assist | +1 if enabled | not scored |
++| Deflections | admin ruling | not recorded (own goal or goal) |
++| Man of the Match | — | +4, one per team (required to save) |
++| Fair play | — | +1 to every attendee unless a breach is recorded: foul, card/sin-bin, dissent warning, dangerous challenge |
++
++The edge-case table below documents v1; the v2 cases are tests S01–S06 and Pick 7 cases P01–P08.
++
++## Pick 7 balance (`lib/league/pick7.ts`)
++
++- Formation `FORMATION` in `config/club.ts`: exactly 2 DEF · 2 CM · 1 CAM · 2 ATT. Players without a position stay on the roster but can't be picked.
++- Star budget `PICK7.starBudget` over each player's 1–3★ rating. Ratings start at the base stars in `config/club.ts` and move after each v2 draw: >60% ownership +1★, <10% −1★ (needs ≥4 locked teams). Derived from history, never stored.
++- A saved seven pushed over budget by a re-rating stays legal; edits may not raise its total.
++- At the draw only formation-valid sevens are entered; older sevens get a "fix your team" reminder and banner.
+ 
+ ## Edge-case table
+ 
+diff --git a/lib/league/fpl.test.ts b/lib/league/fpl.test.ts
+index 7e1012e..ce165a2 100644
+--- a/lib/league/fpl.test.ts
++++ b/lib/league/fpl.test.ts
+@@ -24,9 +24,10 @@ import { weeklyDates, zonedToUtc } from "./schedule";
+ 
+ let n = 0;
+ const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `id${++n}` });
+-const SEVEN = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder"];
+-const OTHER = ["vineet", "gurinder", "raunak", "sanjeev", "jedi", "tadas", "jaskaran"];
+-const SQUAD16 = [...SEVEN, ...OTHER, "gurnaam", "harpreet"];
++// Both fit the Pick 7 formation (2 DEF · 2 CM · 1 CAM · 2 ATT) and the star budget.
++const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
++const OTHER = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
++const SQUAD16 = [...SEVEN, ...OTHER, "gurnaam", "tadas"];
+ 
+ describe("weekly fixtures (Thursday 10 pm, White vs Red, until summer)", () => {
+   it("F01 every Thursday from 19 Nov 2026 to 17 Jun 2027", () => {
+@@ -154,7 +155,7 @@ describe("reminders", () => {
+     expect(plan.map((p) => [p.name, p.kind])).toEqual([["Archit S", "carry_over"], ["Bea", "no_team"]]);
+     const mail = reminderEmail(plan[0], "https://rsfc.example");
+     expect(mail.subject).toMatch(/any changes to your 7/);
+-    expect(mail.text).toContain("Navneet, Archit, Vikram");
++    expect(mail.text).toContain("Archit, Danial, Navneet");
+     expect(mail.text).toContain("https://rsfc.example/team");
+ 
+     s = recordReminders(s, plan[0].matchId, plan.map((p) => ({ userId: p.userId, slot: "eve-before" })), at(wed.toISOString()));
+diff --git a/lib/league/ledger.test.ts b/lib/league/ledger.test.ts
+index d5b7bcd..2cb32e8 100644
+--- a/lib/league/ledger.test.ts
++++ b/lib/league/ledger.test.ts
+@@ -41,11 +41,14 @@ describe("match-day lifecycle", () => {
+     expect(() => setSquad(u.state, uid, SQUAD.slice(0, 6), at("2026-04-30T11:00:00Z"))).toThrow(LedgerError);
+     expect(() => setSquad(u.state, uid, [...SQUAD.slice(0, 6), "messi"], at("2026-04-30T11:00:00Z"))).toThrow(/unknown/);
+     expect(() => setSquad(u.state, uid, [...SQUAD.slice(0, 6), SQUAD[0]], at("2026-04-30T11:00:00Z"))).toThrow(/different/);
+-    let s = setSquad(u.state, uid, SQUAD.slice(0, 7), at("2026-04-30T11:00:00Z"));
+-    s = setSquad(s, uid, SQUAD.slice(1, 8), at("2026-04-30T11:05:00Z"));
++    const A = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
++    const B = ["archit", "vineet", "navneet", "raunak", "ghous", "vikram", "karminder"];
++    expect(() => setSquad(u.state, uid, SQUAD.slice(0, 7), at("2026-04-30T11:00:00Z"))).toThrow(/isn't valid/);
++    let s = setSquad(u.state, uid, A, at("2026-04-30T11:00:00Z"));
++    s = setSquad(s, uid, B, at("2026-04-30T11:05:00Z"));
+     expect(s.audit.filter((a) => a.action === "squad.update")).toHaveLength(2);
+     s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-05-01T09:00:00Z"), SEED);
+-    expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: SQUAD.slice(1, 8), submittedAt: "2026-04-30T11:05:00.000Z" }]);
++    expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: B, submittedAt: "2026-04-30T11:05:00.000Z" }]);
+   });
+ 
+   it("L02 attendance locks at the draw; recorded draws verify", () => {
+diff --git a/lib/league/ledger.ts b/lib/league/ledger.ts
+index bd20736..90eef1f 100644
+--- a/lib/league/ledger.ts
++++ b/lib/league/ledger.ts
+@@ -11,15 +11,18 @@ import { CLUB, ROSTER, isDropIn } from "@/config/club";
+ import { SERIES } from "@/config/schedule";
+ import { weeklyDates, zonedToUtc } from "./schedule";
+ import { drawTeams, generateSeed } from "@/lib/draw/draw";
+-import { DEFAULT_RULES, playedMatches, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
++import { DEFAULT_RULES, playedMatches, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
++import { checkTeam, currentStars, isFormationValid } from "./pick7";
+ import type {
+   AuditEntry,
+   DrawConstraints,
++  FairPlayLoss,
+   GoalEvent,
+   LeagueSettings,
+   LeagueState,
+   MatchDay,
+   Selection,
++  Side,
+   User,
+ } from "./types";
+ 
+@@ -131,6 +134,7 @@ export function createMatchDay(
+     createdAt: ctx.now.toISOString(),
+     scorecardAt: null,
+     scorecardVersion: 0,
++    rulesVersion: rulesVersionOf({ date: input.date }),
+   };
+   return {
+     match,
+@@ -246,11 +250,17 @@ export function currentSquad(user: Pick<User, "squadHistory">): string[] | null
+   return user.squadHistory.at(-1)?.picks ?? null;
+ }
+ 
++/**
++ * Lock every user's seven as it stood at the deadline. Only sevens in the
++ * current formation are entered; an old pre-formation seven sits that week out
++ * (the user is reminded and keeps it to fix). Stars aren't re-checked here: a
++ * team saved within budget stays legal when ratings move.
++ */
+ export function snapshotSelections(users: User[], deadlineIso: string): Selection[] {
+   const out: Selection[] = [];
+   for (const u of users) {
+     const picks = squadAt(u, deadlineIso);
+-    if (picks) {
++    if (picks && isFormationValid(picks)) {
+       const at = [...u.squadHistory].reverse().find((h) => h.at <= deadlineIso)!.at;
+       out.push({ selectorId: u.id, picks: [...picks], submittedAt: at });
+     }
+@@ -267,6 +277,8 @@ export function setSquad(state: LeagueState, userId: string, picks: string[], ct
+     throw new LedgerError(`Pick exactly ${CLUB.picksPerSelector} different players.`);
+   checkRoster(unique, "Picks");
+   const prev = currentSquad(u);
++  const check = checkTeam(unique, currentStars(state.matchDays), prev);
++  if (!check.valid) throw new LedgerError(`That seven isn't valid: ${check.errors.join("; ")}.`, check.errors);
+   if (prev && prev.length === unique.length && prev.every((x) => unique.includes(x))) return state; // no change
+   const entry = { picks: unique, at: ctx.now.toISOString() };
+   return {
+@@ -445,22 +457,21 @@ export function saveScorecard(
+   state: LeagueState,
+   matchId: string,
+   events: GoalEvent[],
+-  input: { reason?: string },
++  input: { reason?: string; motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
+   ctx: Ctx,
+ ): LeagueState {
+   const m = findMatch(state, matchId);
+   if (!m.draw) throw new LedgerError("Draw the teams before entering a scorecard.");
+-  const issues = validateScorecard(
+-    events,
+-    {
+-      knownPlayers: ROSTER_IDS,
+-      attendees: m.attendees,
+-      teamA: m.draw.teamA,
+-      teamB: m.draw.teamB,
+-      floater: m.draw.floater,
+-    },
+-    rulesFrom(state.settings),
+-  );
++  const version = rulesVersionOf(m);
++  const matchCtx = {
++    knownPlayers: ROSTER_IDS,
++    attendees: m.attendees,
++    teamA: m.draw.teamA,
++    teamB: m.draw.teamB,
++    floater: m.draw.floater,
++  };
++  const issues = validateScorecard(events, matchCtx, rulesFrom(state.settings), version);
++  if (version === 2) issues.push(...validateAwards(input, matchCtx));
+   const errors = issues.filter((i) => i.level === "error");
+   if (errors.length) throw new LedgerError("The scorecard has errors.", errors);
+ 
+@@ -478,7 +489,19 @@ export function saveScorecard(
+     events: events.map((e) => ({ ...e })),
+     scorecardAt: m.scorecardAt ?? ctx.now.toISOString(),
+     scorecardVersion: m.scorecardVersion + 1,
++    rulesVersion: version,
++    ...(version === 2
++      ? {
++          motm: { A: input.motm?.A ?? null, B: input.motm?.B ?? null },
++          fairPlayLost: (input.fairPlayLost ?? []).map((f) => ({ playerId: f.playerId, reason: f.reason })),
++        }
++      : {}),
+   };
++  const snap = (x: MatchDay) => ({
++    version: x.scorecardVersion,
++    events: x.events,
++    ...(version === 2 ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [] } : {}),
++  });
+   return replaceMatch(
+     state,
+     next,
+@@ -487,8 +510,8 @@ export function saveScorecard(
+       action: isCorrection ? "scorecard.correct" : "scorecard.create",
+       matchId,
+       reason: input.reason?.trim() || undefined,
+-      before: isCorrection ? { version: m.scorecardVersion, events: m.events } : undefined,
+-      after: { version: next.scorecardVersion, events: next.events },
++      before: isCorrection ? snap(m) : undefined,
++      after: snap(next),
+     }),
+   );
+ }
+diff --git a/lib/league/pick7.test.ts b/lib/league/pick7.test.ts
+new file mode 100644
+index 0000000..b5b7ef2
+--- /dev/null
++++ b/lib/league/pick7.test.ts
+@@ -0,0 +1,220 @@
++/** Pick 7 v2 (formation + star budget + ownership re-rating) and v2 scoring (MOTM, fair play). */
++import { describe, expect, it } from "vitest";
++import { FORMATION, PICK7, PICKABLE, ROSTER } from "@/config/club";
++import { POINTS_V1, POINTS_V2, rulesVersionOf, scoreMatch, scoreSelection } from "@/lib/scoring/rules";
++import {
++  DEFAULT_CONSTRAINTS,
++  LedgerError,
++  createMatchDay,
++  initialState,
++  recordDraw,
++  saveScorecard,
++  setSquad,
++  signUp,
++  type Ctx,
++} from "./ledger";
++import { baseStars, checkTeam, currentStars, fitToFormation, isFormationValid, ownership } from "./pick7";
++import { planReminders } from "./reminders";
++import type { LeagueState, User } from "./types";
++
++let n = 0;
++const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `p7-${++n}` });
++const SEED = "a".repeat(64);
++const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
++const ALT = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
++const ATTEND = [...SEVEN, ...ALT, "gurnaam", "tadas"];
++
++function withUsers(count: number, s: LeagueState = initialState()) {
++  const ids: string[] = [];
++  for (let i = 0; i < count; i++) {
++    const r = signUp(s, { email: `u${i}@x.co`, name: `U${i}`, passwordHash: "h" }, at("2026-11-12T00:00:00Z"));
++    s = r.state;
++    ids.push(r.user.id);
++  }
++  return { s, ids };
++}
++
++describe("formation", () => {
++  it("P01 the formation adds up to 7, and the 20 named players are pickable (Gurinder isn't)", () => {
++    expect(Object.values(FORMATION).reduce((a, b) => a + b, 0)).toBe(7);
++    expect(PICKABLE).toHaveLength(20);
++    expect(PICKABLE.some((p) => p.id === "gurinder")).toBe(false);
++    expect(ROSTER.find((p) => p.id === "gurinder")?.position).toBeNull();
++    const per = (pos: string) => PICKABLE.filter((p) => p.position === pos).length;
++    expect([per("DEF"), per("CM"), per("CAM"), per("ATT")]).toEqual([5, 6, 4, 5]);
++  });
++
++  it("P02 exactly 2 DEF · 2 CM · 1 CAM · 2 ATT, no duplicates, no unpositioned players", () => {
++    expect(isFormationValid(SEVEN)).toBe(true);
++    expect(isFormationValid(["vikram", "karminder", "harpreet", "nakul", "inder", "ghous", "robin"])).toBe(false); // 5 attackers
++    expect(isFormationValid([...SEVEN.slice(0, 6), "gurinder"])).toBe(false);
++    expect(isFormationValid([...SEVEN.slice(0, 6), "archit"])).toBe(false);
++    const c = checkTeam(["archit", "danial", "vineet", "raunak", "ghous", "vikram", "karminder"], baseStars());
++    expect(c.valid).toBe(false);
++    expect(c.errors).toContain("Defenders: 3/2");
++    expect(c.errors).toContain("CMs: 1/2");
++  });
++
++  it("P03 an old seven is trimmed to the players who still fit", () => {
++    const old = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder"];
++    expect(fitToFormation(old)).toEqual(["navneet", "archit", "vikram", "ghous", "danial", "karminder"]);
++  });
++});
++
++describe("star budget and ownership re-rating", () => {
++  it("P04 a seven over the star budget is rejected", () => {
++    const stars = { ...baseStars(), vikram: 3, karminder: 3, ghous: 3 } as const;
++    const c = checkTeam(SEVEN, stars);
++    expect(c.starsTotal).toBe(17);
++    expect(c.valid).toBe(false);
++    expect(c.errors).toContain(`Over budget by ${17 - PICK7.starBudget}★`);
++  });
++
++  it("P05 after a draw, players in >60% of teams gain a star and those in <10% lose one", () => {
++    let { s, ids } = withUsers(4);
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    s = c.state;
++    for (const id of ids.slice(0, 3)) s = setSquad(s, id, SEVEN, at("2026-11-13T00:00:00Z"));
++    s = setSquad(s, ids[3], ALT, at("2026-11-13T00:00:00Z"));
++    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    const own = ownership(s.matchDays[0]);
++    expect(own.vikram).toBe(0.75);
++    expect(own.vineet).toBe(0.25);
++    const stars = currentStars(s.matchDays);
++    expect(stars.vikram).toBe(3); // 75% > 60%
++    expect(stars.vineet).toBe(2); // 25%: unchanged
++    expect(stars.inder).toBe(1); // 0% < 10%
++    expect(stars.gurinder).toBe(2); // not pickable: never re-rated
++    // Ratings that apply before that draw are unaffected.
++    expect(currentStars(s.matchDays, s.matchDays[0].kickoffAt).vikram).toBe(2);
++  });
++
++  it("P06 with fewer teams than the minimum, nobody is re-rated", () => {
++    let { s, ids } = withUsers(PICK7.minTeamsToRerate - 1);
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    s = c.state;
++    for (const id of ids) s = setSquad(s, id, SEVEN, at("2026-11-13T00:00:00Z"));
++    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    expect(currentStars(s.matchDays)).toEqual(baseStars());
++  });
++
++  it("P07 a team pushed over budget by a re-rating stays legal; changes may only bring the total down", () => {
++    let { s, ids } = withUsers(4);
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    s = c.state;
++    for (const id of ids) s = setSquad(s, id, SEVEN, at("2026-11-13T00:00:00Z"));
++    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    // Everyone owned SEVEN → all seven are now 3★ (21★, over the 14★ budget).
++    const stars = currentStars(s.matchDays);
++    expect(SEVEN.every((id) => stars[id] === 3)).toBe(true);
++    const u0 = s.users.find((u) => u.id === ids[0])!;
++    expect(checkTeam(SEVEN, stars, SEVEN).grandfathered).toBe(true);
++    // Swapping a 3★ for a 1★ lowers the total: allowed.
++    const cheaper = SEVEN.map((x) => (x === "vikram" ? "inder" : x));
++    s = setSquad(s, u0.id, cheaper, at("2026-11-21T00:00:00Z"));
++    // A brand-new account can't pick the over-budget seven.
++    const fresh = signUp(s, { email: "new@x.co", name: "New", passwordHash: "h" }, at("2026-11-21T00:00:00Z"));
++    expect(() => setSquad(fresh.state, fresh.user.id, SEVEN, at("2026-11-21T00:00:00Z"))).toThrow(/Over budget/);
++  });
++
++  it("P08 an old pre-formation seven isn't entered at the draw, and gets a fix-your-team reminder", () => {
++    let { s, ids } = withUsers(2);
++    const legacy = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder"];
++    // Saved before the formation rule existed: written straight into history.
++    s = {
++      ...s,
++      users: s.users.map((u): User => (u.id === ids[0] ? { ...u, squadHistory: [{ picks: legacy, at: "2026-11-01T00:00:00.000Z" }] } : u)),
++    };
++    s = setSquad(s, ids[1], SEVEN, at("2026-11-13T00:00:00Z"));
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    s = c.state;
++    const plan = planReminders(s, new Date("2026-11-19T12:00:00Z"), "thu");
++    expect(plan.find((r) => r.userId === ids[0])?.kind).toBe("fix_team");
++    expect(plan.find((r) => r.userId === ids[1])?.kind).toBe("carry_over");
++    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    expect(s.matchDays[0].selections.map((x) => x.selectorId)).toEqual([ids[1]]);
++  });
++});
++
++describe("v2 scoring", () => {
++  const base = { attendees: ["vikram", "robin", "archit", "tadas"], rulesVersion: 2 as const };
++
++  it("S01 match days from 19 Nov 2026 use v2; earlier ones keep v1", () => {
++    expect(rulesVersionOf({ date: "2026-11-12" })).toBe(1);
++    expect(rulesVersionOf({ date: "2026-11-19" })).toBe(2);
++    expect(rulesVersionOf({ date: "2027-01-07", rulesVersion: 1 })).toBe(1);
++    const events = [{ id: "g", side: "A" as const, kind: "open_play" as const, scorerId: "vikram", assistId: "robin" }];
++    expect(scoreMatch({ attendees: [], events, date: "2026-11-12" }).get("vikram")!.points).toBe(POINTS_V1.goal);
++    const v2 = scoreMatch({ attendees: [], events, date: "2026-11-19", motm: { A: null, B: null } });
++    expect(v2.get("vikram")!.points).toBe(POINTS_V2.goal);
++    expect(v2.get("robin")!.points).toBe(POINTS_V2.assist);
++  });
++
++  it("S02 goal +3, assist +2, own goal −2; no assist on penalties or free kicks; second assists ignored", () => {
++    const lines = scoreMatch({
++      ...base,
++      motm: { A: null, B: null },
++      fairPlayLost: base.attendees.map((playerId) => ({ playerId, reason: "foul" as const })),
++      events: [
++        { id: "1", side: "A", kind: "open_play", scorerId: "vikram", assistId: "robin", secondAssistId: "archit" },
++        { id: "2", side: "A", kind: "penalty", scorerId: "vikram", assistId: "robin" },
++        { id: "3", side: "A", kind: "free_kick", scorerId: "robin", assistId: "vikram" },
++        { id: "4", side: "B", kind: "own_goal", scorerId: "archit" },
++      ],
++    });
++    expect(lines.get("vikram")!.points).toBe(6);
++    expect(lines.get("robin")!.points).toBe(5);
++    expect(lines.get("archit")!.points).toBe(-2);
++    expect(lines.get("archit")!.secondAssists).toBe(0);
++  });
++
++  it("S03 MOTM +4 for one player per team; fair play +1 for every attendee not flagged", () => {
++    const lines = scoreMatch({
++      ...base,
++      events: [],
++      motm: { A: "vikram", B: "tadas" },
++      fairPlayLost: [{ playerId: "archit", reason: "dissent" }],
++    });
++    expect(lines.get("vikram")).toMatchObject({ motm: 1, fairPlay: 1, points: 5 });
++    expect(lines.get("tadas")).toMatchObject({ motm: 1, fairPlay: 1, points: 5 });
++    expect(lines.get("robin")).toMatchObject({ motm: 0, fairPlay: 1, points: 1 });
++    expect(lines.get("archit")).toMatchObject({ fairPlay: 0, points: 0 });
++  });
++
++  it("S04 Pick 7 selectors bank MOTM and fair play too", () => {
++    const m = { ...base, id: "m", events: [], motm: { A: "vikram", B: null }, fairPlayLost: [] };
++    expect(scoreSelection({ selectorId: "u", picks: ["vikram", "robin"] }, m).points).toBe(4 + 1 + 1);
++  });
++
++  it("S05 saving a v2 scorecard needs MOTM for both teams, from that team; fair play is stored and audited", () => {
++    let { s, ids } = withUsers(1);
++    s = setSquad(s, ids[0], SEVEN, at("2026-11-13T00:00:00Z"));
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    expect(c.match.rulesVersion).toBe(2);
++    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    const d = s.matchDays[0].draw!;
++    const id = c.match.id;
++    const save = (input: Parameters<typeof saveScorecard>[3]) => saveScorecard(s, id, [], input, at("2026-11-20T04:00:00Z"));
++    expect(() => save({ motm: { A: d.teamA[0], B: null } })).toThrow(LedgerError);
++    expect(() => save({ motm: { A: d.teamB[0], B: d.teamB[1] } })).toThrow(LedgerError);
++    expect(() => save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: "inder", reason: "foul" }] })).toThrow(LedgerError);
++    s = save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: d.teamA[1], reason: "card" }] });
++    const m = s.matchDays[0];
++    expect(m.status).toBe("played");
++    expect(m.motm).toEqual({ A: d.teamA[0], B: d.teamB[0] });
++    expect(m.fairPlayLost).toEqual([{ playerId: d.teamA[1], reason: "card" }]);
++    expect(s.audit.at(-1)!.after).toMatchObject({ motm: m.motm, fairPlayLost: m.fairPlayLost });
++    const lines = scoreMatch(m);
++    expect(lines.get(d.teamA[0])!.points).toBe(POINTS_V2.motm + POINTS_V2.fairPlay);
++    expect(lines.get(d.teamA[1])!.points).toBe(0);
++  });
++
++  it("S06 v1 match days still save without MOTM", () => {
++    const c = createMatchDay(initialState(), { date: "2026-11-12", attendees: ATTEND }, at("2026-11-01T00:00:00Z"));
++    expect(c.match.rulesVersion).toBe(1);
++    let s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-12T20:00:00Z"), SEED);
++    s = saveScorecard(s, c.match.id, [], {}, at("2026-11-13T04:00:00Z"));
++    expect(s.matchDays[0].motm).toBeUndefined();
++    expect(scoreMatch(s.matchDays[0]).get("vikram")!.points).toBe(0);
++  });
++});
+diff --git a/lib/league/pick7.ts b/lib/league/pick7.ts
+new file mode 100644
+index 0000000..7fd2c0b
+--- /dev/null
++++ b/lib/league/pick7.ts
+@@ -0,0 +1,135 @@
++/**
++ * Pick 7 v2 — balanced picking. Pure: no I/O, no clock.
++ *
++ *   1. Formation: exactly FORMATION[pos] picks per position (2 DEF · 2 CM · 1 CAM · 2 ATT).
++ *   2. Star budget: the seven's stars may total at most PICK7.starBudget.
++ *      A team pushed over budget by a re-rating stays legal; changes to it may
++ *      only bring the total down until it fits again.
++ *   3. Ownership re-rating: after each draw (from RULES_V2_FROM), a player in
++ *      more than 60% of locked sevens gains a star and one in fewer than 10%
++ *      loses one, within 1–3. Ratings are derived from history, never stored.
++ */
++import { FORMATION, PICK7, POSITIONS, POSITION_LABEL, ROSTER, getPlayer, type Position, type Stars } from "@/config/club";
++import { RULES_V2_FROM } from "@/lib/scoring/rules";
++import type { MatchDay } from "./types";
++
++export type StarMap = Record<string, Stars>;
++
++const clamp = (n: number): Stars => Math.max(1, Math.min(3, n)) as Stars;
++
++export function baseStars(): StarMap {
++  const out: StarMap = {};
++  for (const p of ROSTER) out[p.id] = p.stars;
++  return out;
++}
++
++/** Share of locked sevens (0..1) that included each player, for one drawn match. */
++export function ownership(m: Pick<MatchDay, "selections">): Record<string, number> {
++  const n = m.selections.length;
++  const out: Record<string, number> = {};
++  if (!n) return out;
++  for (const s of m.selections) for (const id of new Set(s.picks)) out[id] = (out[id] ?? 0) + 1;
++  for (const id of Object.keys(out)) out[id] /= n;
++  return out;
++}
++
++/** Drawn v2 match days in kick-off order — the ones whose ownership re-rates players. */
++function ratingMatches(matchDays: readonly MatchDay[], beforeIso?: string): MatchDay[] {
++  return matchDays
++    .filter((m) => m.draw && m.date >= RULES_V2_FROM && (!beforeIso || m.kickoffAt < beforeIso))
++    .sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt) || a.createdAt.localeCompare(b.createdAt));
++}
++
++/**
++ * Star ratings as they stand now (or just before `beforeIso`): base stars,
++ * nudged by ownership after every drawn match.
++ */
++export function currentStars(matchDays: readonly MatchDay[], beforeIso?: string): StarMap {
++  const stars = baseStars();
++  for (const m of ratingMatches(matchDays, beforeIso)) {
++    if (m.selections.length < PICK7.minTeamsToRerate) continue;
++    const own = ownership(m);
++    for (const p of ROSTER) {
++      if (!p.position) continue;
++      const share = own[p.id] ?? 0;
++      if (share > PICK7.riseAbove) stars[p.id] = clamp(stars[p.id] + 1);
++      else if (share < PICK7.fallBelow) stars[p.id] = clamp(stars[p.id] - 1);
++    }
++  }
++  return stars;
++}
++
++/** Ownership in the most recent drawn match (for the "62% own" hint). */
++export function lastOwnership(matchDays: readonly MatchDay[]): Record<string, number> {
++  const last = ratingMatches(matchDays).filter((m) => m.selections.length).at(-1);
++  return last ? ownership(last) : {};
++}
++
++export const starsTotal = (picks: readonly string[], stars: StarMap) => picks.reduce((s, id) => s + (stars[id] ?? 0), 0);
++
++export function positionCounts(picks: readonly string[]): Record<Position, number> {
++  const c: Record<Position, number> = { DEF: 0, CM: 0, CAM: 0, ATT: 0 };
++  for (const id of picks) {
++    const pos = getPlayer(id)?.position;
++    if (pos) c[pos] += 1;
++  }
++  return c;
++}
++
++/** True when the picks are seven different pickable players in the exact formation. */
++export function isFormationValid(picks: readonly string[]): boolean {
++  const unique = new Set(picks);
++  if (unique.size !== picks.length) return false;
++  if (picks.some((id) => !getPlayer(id)?.position)) return false;
++  const c = positionCounts(picks);
++  return POSITIONS.every((p) => c[p] === FORMATION[p]);
++}
++
++export interface TeamCheck {
++  valid: boolean;
++  errors: string[];
++  starsTotal: number;
++  counts: Record<Position, number>;
++  /** Over budget, but allowed because it's no worse than the team it replaces. */
++  grandfathered: boolean;
++}
++
++/**
++ * Full validation of a seven. Used by the picker (live) and by the server
++ * (authoritative). `previous` is the user's current saved seven, if any.
++ */
++export function checkTeam(picks: readonly string[], stars: StarMap, previous?: readonly string[] | null): TeamCheck {
++  const errors: string[] = [];
++  const counts = positionCounts(picks);
++  if (new Set(picks).size !== picks.length) errors.push("Each player can only be picked once.");
++  for (const id of picks) {
++    const p = getPlayer(id);
++    if (!p) errors.push(`Unknown player "${id}".`);
++    else if (!p.position) errors.push(`${p.name} isn't available in Pick 7.`);
++  }
++  for (const pos of POSITIONS) {
++    if (counts[pos] !== FORMATION[pos]) errors.push(`${POSITION_LABEL[pos].many}: ${counts[pos]}/${FORMATION[pos]}`);
++  }
++  const total = starsTotal(picks, stars);
++  let grandfathered = false;
++  if (total > PICK7.starBudget) {
++    const prevTotal = previous && isFormationValid(previous) ? starsTotal(previous, stars) : null;
++    if (prevTotal !== null && total <= prevTotal) grandfathered = true;
++    else errors.push(`Over budget by ${total - PICK7.starBudget}★`);
++  }
++  return { valid: errors.length === 0, errors, starsTotal: total, counts, grandfathered };
++}
++
++/** Keep the players from an old (pre-formation) seven that still fit, in order. */
++export function fitToFormation(picks: readonly string[]): string[] {
++  const left: Record<Position, number> = { ...FORMATION };
++  const out: string[] = [];
++  for (const id of new Set(picks)) {
++    const pos = getPlayer(id)?.position;
++    if (pos && left[pos] > 0) {
++      left[pos] -= 1;
++      out.push(id);
++    }
++  }
++  return out;
++}
+diff --git a/lib/league/reminders.ts b/lib/league/reminders.ts
+index 524176b..131ddb4 100644
+--- a/lib/league/reminders.ts
++++ b/lib/league/reminders.ts
+@@ -5,6 +5,7 @@
+ import { CLUB, playerName } from "@/config/club";
+ import { SERIES, TEAM_NAMES } from "@/config/schedule";
+ import { currentSquad, nextDeadlineMatch } from "./ledger";
++import { isFormationValid } from "./pick7";
+ import { fmtKickoff } from "./schedule";
+ import type { LeagueState } from "./types";
+ 
+@@ -13,7 +14,7 @@ export interface PlannedReminder {
+   email: string;
+   name: string;
+   matchId: string;
+-  kind: "no_team" | "carry_over";
++  kind: "no_team" | "carry_over" | "fix_team";
+   picks: string[] | null;
+   kickoffAt: string;
+ }
+@@ -31,7 +32,8 @@ export function planReminders(state: LeagueState, now: Date, slot: string): Plan
+     .filter((u) => u.emailReminders && !sent.has(u.id))
+     .map((u) => {
+       const picks = currentSquad(u);
+-      return { userId: u.id, email: u.email, name: u.name, matchId: m.id, kind: picks ? "carry_over" : "no_team", picks, kickoffAt: m.kickoffAt };
++      const kind = !picks ? "no_team" : isFormationValid(picks) ? "carry_over" : "fix_team";
++      return { userId: u.id, email: u.email, name: u.name, matchId: m.id, kind, picks, kickoffAt: m.kickoffAt };
+     });
+ }
+ 
+@@ -40,18 +42,24 @@ export function reminderEmail(r: PlannedReminder, baseUrl: string): { subject: s
+   const first = r.name.split(" ")[0];
+   const fixture = `${TEAM_NAMES.A} vs ${TEAM_NAMES.B}`;
+   const subject =
+-    r.kind === "no_team" ? `RSFC: pick your ${CLUB.picksPerSelector} before ${when}` : `RSFC: any changes to your ${CLUB.picksPerSelector}? Deadline ${when}`;
++    r.kind === "no_team"
++      ? `RSFC: pick your ${CLUB.picksPerSelector} before ${when}`
++      : r.kind === "fix_team"
++        ? `RSFC: your ${CLUB.picksPerSelector} needs updating before ${when}`
++        : `RSFC: any changes to your ${CLUB.picksPerSelector}? Deadline ${when}`;
+   const list = r.picks?.map(playerName).join(", ");
+   const body =
+     r.kind === "no_team"
+       ? `You haven't picked your ${CLUB.picksPerSelector} yet. Pick them before kick-off and you'll bank every point they score.`
+-      : `Your ${CLUB.picksPerSelector} carries over unless you change it: ${list}.`;
++      : r.kind === "fix_team"
++        ? `Pick 7 now uses a formation: 2 defenders, 2 CMs, 1 CAM and 2 attackers, within a star budget. Your current ${CLUB.picksPerSelector} doesn't fit it, so it won't be entered until you update it.`
++        : `Your ${CLUB.picksPerSelector} carries over unless you change it: ${list}.`;
+   const link = `${baseUrl}/team`;
+   const text = `Hi ${first},\n\n${fixture} kicks off ${when}. ${body}\n\nMake changes: ${link}\n\nTurn these emails off any time at ${baseUrl}/account`;
+   const html = `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5;color:#0c1925">
+ <p>Hi ${first},</p>
+ <p><b>${fixture}</b> kicks off <b>${when}</b>. ${body}</p>
+-<p><a href="${link}" style="display:inline-block;background:#3fd38a;color:#0c1925;padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:700">${r.kind === "no_team" ? "Pick my 7" : "Make changes"}</a></p>
++<p><a href="${link}" style="display:inline-block;background:#3fd38a;color:#0c1925;padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:700">${r.kind === "no_team" ? "Pick my 7" : r.kind === "fix_team" ? "Fix my 7" : "Make changes"}</a></p>
+ <p style="color:#6b7a8c;font-size:13px">RSFC League · <a href="${baseUrl}/account" style="color:#6b7a8c">turn off reminder emails</a></p></div>`;
+   return { subject, text, html };
+ }
+diff --git a/lib/league/types.ts b/lib/league/types.ts
+index 24a8385..600357d 100644
+--- a/lib/league/types.ts
++++ b/lib/league/types.ts
+@@ -88,6 +88,17 @@ export interface DrawResult {
+ 
+ export type MatchStatus = "open" | "drawn" | "played";
+ 
++/** Scoring rule set. 1 = original (+5/+3, deflections, second assist). 2 = simplified (+3/+2, MOTM, fair play). */
++export type RulesVersion = 1 | 2;
++
++/** Why a player lost their fair-play point. Each is a yes/no thing someone saw happen. */
++export type FairPlayBreach = "foul" | "card" | "dissent" | "dangerous";
++
++export interface FairPlayLoss {
++  playerId: string;
++  reason: FairPlayBreach;
++}
++
+ /**
+  * A selector's seven for one match day. Snapshotted from the user's standing
+  * team (as it stood at the deadline) when the teams are drawn.
+@@ -150,6 +161,12 @@ export interface MatchDay {
+   scorecardAt: string | null;
+   /** Bumped on every scorecard correction. */
+   scorecardVersion: number;
++  /** Pins the scoring rules. Unset: v2 for match days on/after RULES_V2_FROM, else v1. */
++  rulesVersion?: RulesVersion;
++  /** v2: Man of the Match for each team (+4). */
++  motm?: Record<Side, string | null>;
++  /** v2: everyone who played keeps +1 fair play unless listed here. */
++  fairPlayLost?: FairPlayLoss[];
+ }
+ 
+ export interface LeagueSettings {
+diff --git a/lib/scoring/rules.test.ts b/lib/scoring/rules.test.ts
+index 867f457..b12c32f 100644
+--- a/lib/scoring/rules.test.ts
++++ b/lib/scoring/rules.test.ts
+@@ -7,6 +7,7 @@ import type { GoalEvent, MatchDay } from "@/lib/league/types";
+ import {
+   DEFAULT_RULES,
+   POINTS,
++  POINTS_V1,
+   buildSelectorStandings,
+   buildStandings,
+   computeAwards,
+@@ -48,7 +49,8 @@ const ON: ScoringRules = { ...DEFAULT_RULES, secondAssistEnabled: true };
+ 
+ describe("point values", () => {
+   it("R00 point table matches the brief", () => {
+-    expect(POINTS).toEqual({ goal: 5, assist: 3, ownGoal: -2, secondAssist: 1 });
++    expect(POINTS_V1).toEqual({ goal: 5, assist: 3, ownGoal: -2, secondAssist: 1 });
++    expect(POINTS).toEqual({ goal: 3, assist: 2, ownGoal: -2, motm: 4, fairPlay: 1 });
+     expect(DEFAULT_RULES).toEqual({ secondAssistEnabled: false, deflectionDefault: "own_goal" });
+   });
+ });
+@@ -186,7 +188,7 @@ describe("match & season aggregation", () => {
+ 
+ describe("tie-breaks", () => {
+   const row = (playerId: string, points: number, goals: number, assists: number, perMatch: Record<string, number> = {}): StandingRow => ({
+-    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, played: 0, form: [], rank: 0, sharedRank: false,
++    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, played: 0, form: [], rank: 0, sharedRank: false,
+   });
+ 
+   it("R17 level on points → more goals ranks higher", () => {
+diff --git a/lib/scoring/rules.ts b/lib/scoring/rules.ts
+index 0de78b1..7c0b31a 100644
+--- a/lib/scoring/rules.ts
++++ b/lib/scoring/rules.ts
+@@ -5,7 +5,20 @@
+  * no clock, no randomness. Pages, charts, the API and the tests all call these
+  * functions, so a rule changed here changes everywhere at once.
+  *
+- * Scoring comes ONLY from the match scorecard (goals and assists):
++ * There are two rule sets, chosen per match (see rulesVersionOf):
++ *
++ * v2 — SIMPLIFIED, every match day on/after RULES_V2_FROM:
++ *
++ *   Goal (primary scorer)              +3
++ *   Assist (last pass, max one)        +2   — never on penalties or direct free kicks
++ *   Own goal                           −2
++ *   Man of the Match                   +4   — exactly one per team
++ *   Fair play                          +1   — everyone who played, unless the scorekeeper
++ *                                             records a breach: a foul conceded, a card or
++ *                                             sin-bin, a dissent warning, or a dangerous challenge
++ *   No second assists, no deflection rulings.
++ *
++ * v1 — ORIGINAL, kept so matches played under it never change:
+  *
+  *   Goal (any type)                    +5 to the scorer
+  *   Assist                             +3 to the assister
+@@ -38,19 +51,53 @@
+  *   5. anyone still level shares the rank (competition ranking: 1, 2, 2, 4).
+  */
+ 
+-import type { DeflectionRuling, GoalEvent, GoalKind, MatchDay, Side } from "@/lib/league/types";
++import type { DeflectionRuling, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, MatchDay, RulesVersion, Side } from "@/lib/league/types";
+ 
+ // ---------------------------------------------------------------------------
+ // Point values & rule switches
+ // ---------------------------------------------------------------------------
+ 
+-export const POINTS = {
++/** Original rules (matches before RULES_V2_FROM). */
++export const POINTS_V1 = {
+   goal: 5,
+   assist: 3,
+   ownGoal: -2,
+   secondAssist: 1,
+ } as const;
+ 
++/** Simplified rules (current). */
++export const POINTS_V2 = {
++  goal: 3,
++  assist: 2,
++  ownGoal: -2,
++  motm: 4,
++  fairPlay: 1,
++} as const;
++
++/** The current point values, for pages that show "the rules". */
++export const POINTS = POINTS_V2;
++
++/** First match day (club-local date) scored under v2. Earlier match days keep v1. */
++export const RULES_V2_FROM = "2026-11-19";
++
++/** Which rule set a match uses: pinned on the match, otherwise by date. Undated (tests) → v1. */
++export function rulesVersionOf(m: { date?: string; rulesVersion?: RulesVersion }): RulesVersion {
++  if (m.rulesVersion) return m.rulesVersion;
++  return m.date && m.date >= RULES_V2_FROM ? 2 : 1;
++}
++
++export const FAIR_PLAY_BREACHES: readonly FairPlayBreach[] = ["foul", "card", "dissent", "dangerous"];
++
++export const FAIR_PLAY_LABEL: Record<FairPlayBreach, { short: string; long: string }> = {
++  foul: { short: "Foul", long: "Conceded a foul: play was stopped and a free kick or penalty given against them" },
++  card: { short: "Card", long: "Shown a card or sent to the sin-bin" },
++  dissent: { short: "Dissent", long: "Formally warned for arguing with the ref, scorekeeper or an opponent" },
++  dangerous: { short: "Dangerous", long: "Called for a dangerous challenge: slide tackle, high foot, or contact from behind" },
++};
++
++/** Goal types the v2 scorecard offers (v1 also had header and deflection). */
++export const GOAL_KINDS_V2: readonly GoalKind[] = ["open_play", "penalty", "free_kick", "own_goal"];
++
+ export interface ScoringRules {
+   /** Pre-assist (+1). Default OFF. */
+   secondAssistEnabled: boolean;
+@@ -85,7 +132,7 @@ export const GOAL_KIND_LABEL: Record<GoalKind, string> = {
+ // Single event → contributions
+ // ---------------------------------------------------------------------------
+ 
+-export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal";
++export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play";
+ 
+ export interface Contribution {
+   playerId: string;
+@@ -106,7 +153,9 @@ export function deflectionRulingOf(e: GoalEvent, rules: ScoringRules): Deflectio
+ }
+ 
+ /** Score one scorecard entry. Pure. */
+-export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES): EventScore {
++export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES, version: RulesVersion = 1): EventScore {
++  if (version === 2) return scoreEventV2(e, rules);
++  const POINTS = POINTS_V1;
+   const out: Contribution[] = [];
+   const ignored: string[] = [];
+   const add = (playerId: string, kind: ContributionKind, points: number) =>
+@@ -151,31 +200,60 @@ export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES): E
+   return { contributions: out, ignored };
+ }
+ 
++/** v2: goal +3, assist +2 (not on penalties / free kicks), own goal −2. Nothing else. */
++function scoreEventV2(e: GoalEvent, rules: ScoringRules): EventScore {
++  const out: Contribution[] = [];
++  const ignored: string[] = [];
++  const add = (playerId: string, kind: ContributionKind, points: number) => out.push({ playerId, kind, points, eventId: e.id });
++  if (e.secondAssistId) ignored.push("Second assists aren't scored any more.");
++
++  // Legacy deflection entries still honour their ruling, at v2 values.
++  const isOwnGoal = e.kind === "own_goal" || (e.kind === "deflection" && deflectionRulingOf(e, rules) === "own_goal");
++  if (isOwnGoal) {
++    const by = e.kind === "own_goal" ? e.scorerId : (e.deflectedById ?? null);
++    if (by) add(by, "own_goal", POINTS_V2.ownGoal);
++    if (e.assistId) ignored.push("Assists on an own goal earn nothing.");
++    return { contributions: out, ignored };
++  }
++  add(e.scorerId, "goal", POINTS_V2.goal);
++  if (!e.assistId) return { contributions: out, ignored };
++  if (e.kind === "penalty" || e.kind === "free_kick") ignored.push("Penalties and direct free kicks have no assist.");
++  else if (e.assistId === e.scorerId) ignored.push("A player cannot assist their own goal.");
++  else add(e.assistId, "assist", POINTS_V2.assist);
++  return { contributions: out, ignored };
++}
++
+ // ---------------------------------------------------------------------------
+ // Match → per-player lines
+ // ---------------------------------------------------------------------------
+ 
++/** What scoring needs from a match. `date`/`rulesVersion` pick the rule set; v2 also reads MOTM and fair play. */
++export type ScorableMatch = Pick<MatchDay, "events" | "attendees"> &
++  Partial<Pick<MatchDay, "date" | "rulesVersion" | "motm" | "fairPlayLost">>;
++
+ export interface PlayerMatchLine {
+   playerId: string;
+   goals: number;
+   assists: number;
+   secondAssists: number;
+   ownGoals: number;
++  /** v2: Man of the Match awards (0/1 per match). */
++  motm: number;
++  /** v2: fair-play points kept (0/1 per match). */
++  fairPlay: number;
+   points: number;
+ }
+ 
+ export function emptyLine(playerId: string): PlayerMatchLine {
+-  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, points: 0 };
++  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, points: 0 };
+ }
+ 
+ /**
+  * Per-player lines for one match. Every attendee gets a line (0 if they didn't
+  * score) so "played, no points" is distinguishable from "didn't play".
+  */
+-export function scoreMatch(
+-  match: Pick<MatchDay, "events" | "attendees">,
+-  rules: ScoringRules = DEFAULT_RULES,
+-): Map<string, PlayerMatchLine> {
++export function scoreMatch(match: ScorableMatch, rules: ScoringRules = DEFAULT_RULES): Map<string, PlayerMatchLine> {
++  const version = rulesVersionOf(match);
+   const lines = new Map<string, PlayerMatchLine>();
+   const line = (id: string) => {
+     let l = lines.get(id);
+@@ -184,7 +262,7 @@ export function scoreMatch(
+   };
+   for (const id of match.attendees) line(id);
+   for (const e of match.events) {
+-    for (const c of scoreEvent(e, rules).contributions) {
++    for (const c of scoreEvent(e, rules, version).contributions) {
+       const l = line(c.playerId);
+       l.points += c.points;
+       if (c.kind === "goal") l.goals += 1;
+@@ -193,6 +271,21 @@ export function scoreMatch(
+       else if (c.kind === "own_goal") l.ownGoals += 1;
+     }
+   }
++  if (version === 2) {
++    for (const id of new Set([match.motm?.A, match.motm?.B])) {
++      if (!id) continue;
++      const l = line(id);
++      l.motm += 1;
++      l.points += POINTS_V2.motm;
++    }
++    const lost = new Set((match.fairPlayLost ?? []).map((f) => f.playerId));
++    for (const id of match.attendees) {
++      if (lost.has(id)) continue;
++      const l = line(id);
++      l.fairPlay += 1;
++      l.points += POINTS_V2.fairPlay;
++    }
++  }
+   return lines;
+ }
+ 
+@@ -263,6 +356,8 @@ export function buildStandings(
+       r.assists += l.assists;
+       r.secondAssists += l.secondAssists;
+       r.ownGoals += l.ownGoals;
++      r.motm += l.motm;
++      r.fairPlay += l.fairPlay;
+       r.points += l.points;
+       r.perMatch[m.id] = l.points;
+       if (m.attendees.includes(l.playerId)) r.played += 1;
+@@ -357,7 +452,7 @@ export interface SelectionResult {
+ 
+ export function scoreSelection(
+   selection: { selectorId: string; picks: string[] },
+-  match: Pick<MatchDay, "id" | "events" | "attendees">,
++  match: ScorableMatch & Pick<MatchDay, "id">,
+   rules: ScoringRules = DEFAULT_RULES,
+   lines: Map<string, PlayerMatchLine> = scoreMatch(match, rules),
+ ): SelectionResult {
+@@ -488,7 +583,12 @@ export interface MatchContext {
+  * Errors block saving. Warnings are shown to the admin but allowed — e.g. a
+  * player who swapped bibs at half-time scoring for the "wrong" team.
+  */
+-export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules: ScoringRules = DEFAULT_RULES): ValidationIssue[] {
++export function validateScorecard(
++  events: GoalEvent[],
++  ctx: MatchContext,
++  rules: ScoringRules = DEFAULT_RULES,
++  version: RulesVersion = 1,
++): ValidationIssue[] {
+   const issues: ValidationIssue[] = [];
+   const err = (eventId: string, message: string) => issues.push({ level: "error", eventId, message });
+   const warn = (eventId: string, message: string) => issues.push({ level: "warning", eventId, message });
+@@ -505,6 +605,11 @@ export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules:
+     seen.add(e.id);
+     if (e.side !== "A" && e.side !== "B") err(e.id, `${n}: team must be A or B.`);
+     if (!GOAL_KINDS.includes(e.kind)) err(e.id, `${n}: unknown goal type "${e.kind}".`);
++    if (version === 2) {
++      if (e.kind === "deflection") err(e.id, `${n}: deflections aren't recorded any more. Pick goal or own goal.`);
++      if (e.secondAssistId) warn(e.id, `${n}: second assists aren't scored any more; it will be ignored.`);
++      if (e.kind === "penalty" && e.assistId) warn(e.id, `${n}: penalties have no assist; it will be ignored.`);
++    }
+ 
+     const people: [string, string | null | undefined][] = [
+       ["scorer", e.scorerId],
+@@ -535,7 +640,7 @@ export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules:
+       warn(e.id, `${n}: assists on an own goal earn nothing and will be ignored.`);
+     if (e.kind === "free_kick" && (e.assistId || e.secondAssistId))
+       warn(e.id, `${n}: direct free kicks have no assist; it will be ignored.`);
+-    if (e.secondAssistId && !rules.secondAssistEnabled)
++    if (version === 1 && e.secondAssistId && !rules.secondAssistEnabled)
+       warn(e.id, `${n}: the second-assist rule is off, so this earns nothing.`);
+ 
+     // Side sanity (warnings only).
+@@ -557,3 +662,35 @@ export function validateScorecard(events: GoalEvent[], ctx: MatchContext, rules:
+   });
+   return issues;
+ }
++
++/**
++ * v2 Man of the Match and fair-play entries. MOTM is required for both teams
++ * and must be someone drawn on that team (or the floater). Fair-play breaches
++ * must name players who attended, once each, with a listed reason.
++ */
++export function validateAwards(
++  input: { motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
++  ctx: MatchContext,
++): ValidationIssue[] {
++  const issues: ValidationIssue[] = [];
++  const err = (message: string) => issues.push({ level: "error", message });
++  const names: Record<Side, string> = { A: "White", B: "Red" };
++  for (const side of ["A", "B"] as Side[]) {
++    const id = input.motm?.[side];
++    if (!id) {
++      err(`Choose Man of the Match for ${names[side]}.`);
++      continue;
++    }
++    const team = side === "A" ? ctx.teamA : ctx.teamB;
++    if (!ctx.knownPlayers.has(id)) err(`${names[side]} MOTM "${id}" is not on the RSFC roster.`);
++    else if (team && !team.includes(id) && ctx.floater !== id) err(`${names[side]} MOTM must be someone who played for ${names[side]}.`);
++  }
++  const seen = new Set<string>();
++  for (const f of input.fairPlayLost ?? []) {
++    if (!FAIR_PLAY_BREACHES.includes(f.reason)) err(`Unknown fair-play reason "${f.reason}".`);
++    if (!ctx.attendees.includes(f.playerId)) err(`Fair play: "${f.playerId}" didn't attend this match day.`);
++    if (seen.has(f.playerId)) err("Fair play: list each player once.");
++    seen.add(f.playerId);
++  }
++  return issues;
++}
+diff --git a/scripts/seed-demo.ts b/scripts/seed-demo.ts
+index 8e68bf5..48a6528 100644
+--- a/scripts/seed-demo.ts
++++ b/scripts/seed-demo.ts
+@@ -12,7 +12,7 @@
+ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+ import path from "node:path";
+ import { randomUUID } from "node:crypto";
+-import { MEMBERS, DROPINS, ROSTER } from "../config/club";
++import { FORMATION, MEMBERS, DROPINS, PICKABLE, POSITIONS, ROSTER } from "../config/club";
+ import { SeededRandom } from "../lib/draw/draw";
+ import { DEFAULT_CONSTRAINTS, createMatchDay, initialState, recordDraw, saveScorecard, setSquad, signUp, type Ctx } from "../lib/league/ledger";
+ import { scryptSync, randomBytes } from "node:crypto";
+@@ -38,6 +38,9 @@ const weighted = (ids: string[], w: Record<string, number>) => {
+   return pick(bag);
+ };
+ 
++/** A random seven in the Pick 7 formation (2 DEF · 2 CM · 1 CAM · 2 ATT). */
++const randomSeven = () => POSITIONS.flatMap((pos) => rng.shuffle(PICKABLE.filter((p) => p.position === pos).map((p) => p.id)).slice(0, FORMATION[pos]));
++
+ let state = initialState();
+ // Demo accounts: password "demo-league" for all. Same hash format as lib/server/password.ts.
+ const salt = randomBytes(16);
+@@ -59,7 +62,7 @@ dates.forEach((date, di) => {
+   state = c.state;
+   // Some accounts tweak their seven each week; the rest carry over (FPL-style).
+   for (const uid of userIds) {
+-    if (di === 0 || rng.int(3) === 0) state = setSquad(state, uid, rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 7), ctxAt(`${date}T15:00:00Z`));
++    if (di === 0 || rng.int(3) === 0) state = setSquad(state, uid, randomSeven(), ctxAt(`${date}T15:00:00Z`));
+   }
+   state = recordDraw(state, c.match.id, DEFAULT_CONSTRAINTS, ctxAt(`${date}T22:00:00-04:00`));
+   const d = state.matchDays.find((m) => m.id === c.match.id)!.draw!;
+-- 
+2.43.0
+
