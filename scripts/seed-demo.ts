@@ -1,0 +1,97 @@
+/**
+ * Writes a DEMO season to .data/rsfc-league.json so you can preview the
+ * tables and charts locally. Uses the real ledger functions, so every draw is
+ * a genuine seeded draw and every scorecard passes validation.
+ *
+ *   npm run seed:demo          # refuses to overwrite real data
+ *   npm run seed:demo -- --force
+ *
+ * Never run this against production storage. To start the real season, delete
+ * .data/rsfc-league.json (or flush the Redis key).
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { MEMBERS, DROPINS, ROSTER } from "../config/club";
+import { SeededRandom } from "../lib/draw/draw";
+import { DEFAULT_CONSTRAINTS, createMatchDay, initialState, recordDraw, saveScorecard, submitSelection, type Ctx } from "../lib/league/ledger";
+import type { GoalEvent, GoalKind, LeagueState, Side } from "../lib/league/types";
+
+const FILE = path.join(process.cwd(), ".data", "rsfc-league.json");
+if (existsSync(FILE) && !process.argv.includes("--force")) {
+  const cur = JSON.parse(readFileSync(FILE, "utf8")) as LeagueState;
+  if (!cur.demo && cur.matchDays.length) {
+    console.error("Refusing to overwrite real league data. Pass --force if you're sure.");
+    process.exit(1);
+  }
+}
+
+const rng = new SeededRandom("d".repeat(64), 7);
+const pick = <T,>(a: readonly T[]) => a[rng.int(a.length)];
+const ctxAt = (iso: string): Ctx => ({ now: new Date(iso), newId: () => randomUUID() });
+// A few players are sharper finishers / creators, so the charts have shape.
+const finishing: Record<string, number> = { vikram: 4, jaskaran: 3, savi: 3, raunak: 3, ghous: 2, harpreet: 2 };
+const creating: Record<string, number> = { archit: 4, navneet: 3, tadas: 3, karminder: 2, sanjeev: 2 };
+const weighted = (ids: string[], w: Record<string, number>) => {
+  const bag = ids.flatMap((id) => Array(w[id] ?? 1).fill(id) as string[]);
+  return pick(bag);
+};
+
+let state = initialState();
+const dates = ["2026-09-12", "2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10", "2026-10-17", "2026-10-24", "2026-10-31", "2026-11-07"];
+
+dates.forEach((date, di) => {
+  const members = rng.shuffle(MEMBERS.map((p) => p.id)).slice(0, 13 + rng.int(5));
+  const drops = rng.shuffle(DROPINS.map((p) => p.id)).slice(0, rng.int(3));
+  const attendees = [...members, ...drops];
+  const c = createMatchDay(state, { date, attendees }, ctxAt(`${date}T13:00:00Z`));
+  state = c.state;
+  // Pick 7s from ~half the squad.
+  for (const sel of rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 8 + rng.int(6))) {
+    state = submitSelection(state, c.match.id, sel, rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 7), ctxAt(`${date}T13:30:00Z`));
+  }
+  state = recordDraw(state, c.match.id, DEFAULT_CONSTRAINTS, ctxAt(`${date}T14:00:00Z`));
+  const d = state.matchDays.find((m) => m.id === c.match.id)!.draw!;
+  const team = (s: Side) => [...(s === "A" ? d.teamA : d.teamB), ...(d.floater ? [d.floater] : [])];
+  const events: GoalEvent[] = [];
+  const goals = 3 + rng.int(7);
+  for (let g = 0; g < goals; g++) {
+    const side: Side = rng.int(2) ? "A" : "B";
+    const other: Side = side === "A" ? "B" : "A";
+    const roll = rng.int(100);
+    const kind: GoalKind = roll < 4 ? "own_goal" : roll < 7 ? "deflection" : roll < 12 ? "penalty" : roll < 15 ? "free_kick" : roll < 30 ? "header" : "open_play";
+    const minute = 2 + rng.int(78);
+    if (kind === "own_goal") {
+      events.push({ id: randomUUID(), side, kind, scorerId: pick(team(other)), minute });
+      continue;
+    }
+    const scorerId = weighted(team(side), finishing);
+    const mates = team(side).filter((x) => x !== scorerId);
+    const assistId = kind === "free_kick" || (kind === "penalty" && rng.int(4)) || rng.int(10) < 3 ? null : weighted(mates, creating);
+    const e: GoalEvent = { id: randomUUID(), side, kind, scorerId, assistId, minute };
+    if (kind === "deflection") {
+      e.deflectedById = pick(team(other));
+      e.deflectionRuling = rng.int(2) ? "own_goal" : "goal";
+    }
+    events.push(e);
+  }
+  events.sort((a, b) => (a.minute ?? 0) - (b.minute ?? 0));
+  state = saveScorecard(state, c.match.id, events, {}, ctxAt(`${date}T16:00:00Z`));
+  if (di === 2) {
+    // One demo correction so the audit trail has something to show.
+    const fixed = events.map((e, i) => (i === 0 && e.kind === "open_play" ? { ...e, assistId: null } : e));
+    state = saveScorecard(state, c.match.id, fixed, { reason: "Demo: first goal was a solo run" }, ctxAt(`${date}T20:00:00Z`));
+  }
+});
+
+// An upcoming match day with attendance taken and picks open.
+const next = createMatchDay(state, { date: "2026-11-14", attendees: rng.shuffle(MEMBERS.map((p) => p.id)).slice(0, 15).concat(["abrar"]) }, ctxAt("2026-11-12T18:00:00Z"));
+state = next.state;
+for (const sel of ["sanjeev", "archit", "vikram", "jedi"]) {
+  state = submitSelection(state, next.match.id, sel, rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 7), ctxAt("2026-11-12T19:00:00Z"));
+}
+
+state = { ...state, demo: true, version: 1 };
+mkdirSync(path.dirname(FILE), { recursive: true });
+writeFileSync(FILE, JSON.stringify(state, null, 2));
+console.log(`Demo season written to ${FILE}: ${dates.length} played match days + 1 upcoming.`);

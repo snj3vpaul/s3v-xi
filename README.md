@@ -1,126 +1,92 @@
-# S3V XI
+# RSFC League
 
-**Your League. Your Eleven.** A free fantasy cricket concept for local/community leagues, beginning with Ottawa.
+**Your club. Your seven.** RSFC's in-house soccer league:
 
-## ⚽ Predictor League (`/league`) — new
+- Every match day, a seeded random draw splits whoever turns up into two teams.
+- Points come only from the scorecard: goal +5, assist +3, own goal −2.
+- Pick 7 lets every player back seven teammates before the draw.
 
-A private, just-for-fun **scoreline prediction league for friends**: join with an invite link, predict exact scores before kick-off, and climb an animated leaderboard when the admin enters real results.
+Built with Next.js 16 (App Router), React 19, Recharts and TypeScript. It deploys on Vercel and stores data in Upstash Redis.
 
-> **For fun only. No gambling.** No money, deposits, wagers, stakes, odds, prizes or bookmaker links, ever. Points are virtual bragging rights with no value outside the group chat. Requests that drift toward wagering get a fun alternative instead (a new title, a bonus rule, a forfeit).
-
-**Try it in 30 seconds:**
-
-```bash
-npm install
-npm run dev        # open http://localhost:3000/league
-```
-
-The first launch seeds a demo league with 8 players, 2 scored matchweeks and 1 live matchweek, stored in a local SQLite file. Sign in as `commish@demo.league` (admin) or `priya@demo.league` with the password `demo-league`; the sign-in page has one-tap buttons for these. `npm run league:reset` clears the demo data, and it reseeds after you restart the dev server.
-
-**Scoring** (configurable in `lib/league/config.ts`):
-
-| Your pick vs the result | Points |
-|---|---|
-| Exact score | 3 |
-| Right outcome (win/draw/loss), wrong score | 1 |
-| Wrong outcome | 0 |
-
-Ties share a rank. ▲▼ arrows show movement since the previous round. Titles such as 🔮 Score Oracle, 📈 Consistent, 🤝 Draw Whisperer and 🌞 Optimist are earned automatically, and confetti fires when you nail an exact score.
-
-**Starting a real league:**
-
-1. Set `DATABASE_URL` (Postgres, e.g. the Supabase transaction-pooler URI) and `LEAGUE_ADMIN_EMAIL` in Vercel, then deploy. Tables are created automatically with RLS locked down.
-2. Sign up at `/league/join` with the admin email.
-3. In **Admin**, copy the invite link for your friends, create a round, and add fixtures in your local time.
-4. After each match, enter the score. Everyone's points and the table update instantly.
-
-Full guide, API reference and security notes: **[docs/PREDICTOR_LEAGUE.md](docs/PREDICTOR_LEAGUE.md)**.
-
-## Milestone 1: interactive fictional demo
-
-- Next.js + React + TypeScript responsive landing page and brand identity.
-- Fictional 20-player cricket pool, editable 15-player squad, starting XI and four reserve players.
-- Captain (2x) and vice-captain (1.5x) multiplier choices.
-- **Full Squad** (bench points) and **Skipper x3** (captain triple points) browser-only chip previews.
-- Deterministic demo scoring with tests.
-
-**Not production ready.** No actual CricHeroes integration, shared persistence, authentication, database, transfer engine, confirmed match scores, deadline enforcement, auto-substitution or leaderboard exists yet. The initial fantasy XI demonstration uses fictional player statistics; the player archive contains real historical aggregate leaderboard figures, and the match workspace has no verified match figures. The demo is not affiliated with CricHeroes or Fantasy Premier League.
-
-## Run locally
-
-Requires Node.js 22.x (matching Vercel).
+## Quick start (local)
 
 ```bash
 npm install
-npm run dev
+npm run seed:demo     # optional: a fake 9-match-day season so the charts have data
+npm run dev           # http://localhost:3000
 ```
 
-Open http://localhost:3000.
+- **Admin passcode in local dev:** `rsfc`. You can override it with `ADMIN_PASSCODE` in `.env.local`.
+- **Local data:** stored in `.data/rsfc-league.json`. Delete that file to start a clean season.
 
 ```bash
-npm run test
-npm run typecheck
-npm run build
+npm test              # 50 unit tests: scoring rules, draw engine, corrections
+npm run lint          # type-check
+npm run build && npm start
+npm run verify-draw   # re-run every recorded draw from its seed
 ```
 
-## Vercel deployment
+## Deploy to Vercel
 
-Deploy via [Vercel Git integration](https://vercel.com/new) using the existing `snj3vpaul/s3v-xi` repository. Framework is Next.js, root directory is `./`, and no environment variables are required for the fictional demo. The project includes `vercel.json`, `.nvmrc`, `.vercelignore`, a favicon and `/api/health` smoke-test endpoint.
+1. Push to the GitHub repo that's already linked to the Vercel project. It's detected as Next.js and needs no config.
+2. In **Vercel → Storage → Marketplace → Upstash Redis**, create a free database and connect it to the project. This injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+3. Add environment variables:
+   - `ADMIN_PASSCODE`: the club's admin passcode. Required in production.
+   - `SESSION_SECRET`: a long random string, used to sign the admin cookie.
+4. Redeploy.
 
-See **[docs/VERCEL_DEPLOYMENT.md](docs/VERCEL_DEPLOYMENT.md)** for exact GitHub and Vercel steps.
+Without Redis, the app still runs on Vercel, but it keeps data in memory and shows a warning banner. Don't run a season like that.
 
-## GitHub
+## Match-day flow
 
-Upload these files to your existing repository `snj3vpaul/s3v-xi` on a feature branch, review, then merge. Use `git clone` of the existing repository before copying this starter into it, rather than creating a new remote repository.
+1. **Admin → New match day.** Set the date and optionally tick attendance.
+2. **Pick 7.** Players choose their name and seven picks. Picks stay hidden until the draw.
+3. **Draw** (admin, at the pitch):
+   - Finalise attendance, set the rules (split drop-ins, avoid repeat, keep together or apart, max per side) and press *Draw the teams*.
+   - The seed is published. Anyone can press *Verify draw*.
+4. **Scorecard** (admin, after full time):
+   - Enter one entry per goal: team, type, scorer, and an optional assist or pre-assist.
+   - Errors block saving. Warnings (for example, an assist on a free kick) are shown and then ignored.
+   - Publishing updates the table, the charts and the Pick 7 results.
+5. **Corrections.** Inside the correction window (7 days by default), reopen the scorecard, change it and give a reason. The previous version is kept in the audit log.
 
-## Next milestones
+## Project layout
 
-1. Supabase Auth and PostgreSQL schema with RLS.
-2. Server-enforced rounds, snapshots, transfers and chip activation.
-3. Admin scorecard CSV/JSON import, corrections and audit logs.
-4. Verified scores and standings, eventually private friend leagues.
-5. Authorized CricHeroes integration if an official route is available; never scrape it without authorization.
+```
+config/club.ts            roster (18 members + 3 drop-ins): the single source of truth
+lib/scoring/rules.ts      ALL scoring rules (pure) + rules.test.ts
+lib/draw/draw.ts          seeded crypto draw, constraints, verification + draw.test.ts
+lib/league/types.ts       data model
+lib/league/ledger.ts      pure state transitions + audit log + ledger.test.ts
+lib/league/derive.ts      standings, awards and summaries for the pages
+lib/server/store.ts       Redis (Upstash REST, compare-and-set) / file / memory storage
+lib/server/auth.ts        passcode → signed HttpOnly cookie
+app/                      pages: / draw pick matches table stats rules admin; app/api/* route handlers
+components/charts/        season race, goal involvement, form sparklines, contribution matrix, selector gauges
+docs/SCORING.md           every rule mapped to its test
+docs/DATA_MODEL.md        the stored document, explained
+MIGRATION.md              pivot summary + what to delete from the old cricket codebase
+```
 
-See `docs/` for architecture, rules, integration principles and deployment.
+## Changing things
 
-> **Indexing note:** Search-engine indexing is deliberately disabled for this fictional prototype via Next.js metadata. Remove that restriction when real tournament data and legal/privacy documentation are ready.
+- **Roster:** edit `config/club.ts`. Never change a player's `id` once they've played; add new players freely.
+- **Point values:** change `POINTS` in `lib/scoring/rules.ts`, update the tests, and every page follows.
+- **Rulings** (deflection default, second assist, excluding drop-ins from awards, correction window, draw defaults): change them in Admin → Settings.
 
+## Design notes
 
-## Update 02 — Player points and match centre
+- **Palette:**
+  - Night navy `#0C1925`, carried over from S3V
+  - Chalk `#F2EFE6`
+  - Kit green `#3FD38A`
+  - Bib gold `#E9B949` for drop-ins and awards
+- **Chart series:** green / blue / gold / violet / coral, checked for colour-blind separation against the panel colour. Drop-ins also get a hatched fill and a badge, so they never depend on colour alone.
+- **Charts:** every chart has a title, a units line, a source note and a table view.
+- **Motion:** a gentle rise-in only, switched off under `prefers-reduced-motion`.
+- **Fonts:** Barlow Condensed (display) and Inter (body). Both are self-hosted via Fontsource, with no external font requests.
 
-Added playable routes:
+## Known v1 limits
 
-- **`/points`** — click-through scoring guide and live points calculator.
-- **`/players`** — browsable player archive from the four uploaded tournament leaderboards.
-- **`/match-centre`** — match-stat entry, CSV import/export, score breakdown and clickable player point standings for the Canterbury T20 vs Kanata T20 match reference.
-- **`/leaderboard`** — player points rankings calculated from locally entered match figures.
-
-The historical CSVs are cumulative tournament totals, **not match scorecards**. No automatic CricHeroes API access is claimed. The matched scorecard URL opens on CricHeroes; you must supply individual match statistics by manual entry or a permitted CSV export. Imported figures are stored in your browser only, not shared with other users.
-
-Refer to [Update 02 documentation](docs/UPDATE_02.md) for exact formats, limitations and fantasy scoring rules.
-
-## Update 03 — Product audit and usable improvements
-
-- The fictional team builder now restores and saves draft selections in **local browser storage** (not a manager account). Invalid/tampered drafts fall back to the sample lineup.
-- Swap a reserve into a full starting XI without breaking the 15-player roster. Captaincy is cleared if its player moves to the bench.
-- Search the demo player pool and reset locally saved demo choices.
-- Compare two historical player records side-by-side on `/players`, without claiming match-by-match analytics.
-- Centralized, immutable scoring defaults with published `s3v-t20-v1` rules identifier. Added targeted validation and swap tests.
-- Corrected home-page language to make clear that player match data is not an official live feed.
-
-See [Product audit](docs/PRODUCT_AUDIT_03.md) for benchmark notes, unimplemented functionality and limitations. The application still lacks a shared database, legitimate fantasy-manager rankings, score verification and league lock rules.
-
-## Update 04 — Real multi-tournament administration (optional Supabase setup)
-
-- `/admin`: protected tournament creation and management.
-- `/tournaments`: published tournament selector and authenticated squad submissions.
-- CSV/XLSX team, player, and fixture importer with column mapping, preview, validation, manual drafting and protected edits.
-- **Maximum 3 players per real-world cricket team**, enforced in the fictional demo, UI, server endpoint, and PostgreSQL trigger for real tournament squads.
-- Supabase Auth, RLS and tournament-scoped tables ensure users do not mix cricket squads across competitions.
-- A future-ready match-performance table; **not yet a verified fantasy manager scoring engine or leaderboard**.
-
-See **[multi-tournament setup guide](docs/TOURNAMENT_SETUP.md)** to apply the migration, configure Supabase and grant the first admin role. The original fictional demonstration continues working without database credentials; real tournament pages need Supabase configuration.
-
-### Deployment warning
-
-After publishing the code on GitHub, Vercel can deploy the application, but **this does not automatically create Supabase tables or accounts**. Apply the SQL migration and configure the environment variables separately, then deploy again. Until then, database-dependent routes explicitly report a setup requirement.
+- **No player logins.** Anyone can submit Pick 7 as anyone. Every submission is logged with a timestamp. If it gets abused, add per-player PINs.
+- **One shared admin passcode.** Rotate it by changing `ADMIN_PASSCODE`. Existing admin cookies stay valid until they expire unless you also change `SESSION_SECRET`.

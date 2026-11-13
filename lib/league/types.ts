@@ -1,0 +1,160 @@
+/**
+ * RSFC League data model.
+ *
+ * The whole league is one JSON document (`LeagueState`). That is deliberate:
+ * a friends' league of ~21 players and one match a week produces a few hundred
+ * KB over many seasons, so one document in a KV store is simpler and safer
+ * than a database. Every standings figure is DERIVED from match scorecards at
+ * read time — nothing computed is ever stored — so editing an old match
+ * automatically recalculates everything downstream.
+ */
+
+/** Which drawn team a goal is credited to on the match scoreboard. */
+export type Side = "A" | "B";
+
+/**
+ * How the goal happened. Drives point rules (see lib/scoring/rules.ts).
+ *  - open_play   normal goal; assist optional
+ *  - header      header (e.g. from a cross); same points as open_play
+ *  - penalty     +5; NO assist unless the admin explicitly records one
+ *  - free_kick   direct free kick; +5; assists are never credited
+ *  - own_goal    −2 to the player who put it in their own net; no assists
+ *  - deflection  shot deflected in off an opponent; admin rules it own_goal or goal
+ */
+export type GoalKind = "open_play" | "header" | "penalty" | "free_kick" | "own_goal" | "deflection";
+
+export type DeflectionRuling = "own_goal" | "goal";
+
+export interface GoalEvent {
+  id: string;
+  /** Team credited on the scoreboard (for own goals: the team that BENEFITS). */
+  side: Side;
+  kind: GoalKind;
+  /**
+   * open_play/header/penalty/free_kick: the goal scorer.
+   * own_goal: the player who put the ball in their own net.
+   * deflection: the player who took the shot.
+   */
+  scorerId: string;
+  assistId?: string | null;
+  /** Pre-assist (the pass before the assist). Only scores when the rule is enabled. */
+  secondAssistId?: string | null;
+  /** deflection only: the opponent the shot deflected off. */
+  deflectedById?: string | null;
+  /** deflection only: the admin's ruling. Stored on the event so later setting changes never rewrite history. */
+  deflectionRuling?: DeflectionRuling;
+  minute?: number | null;
+  note?: string;
+}
+
+export interface DrawConstraints {
+  /** Deal drop-ins alternately so they split as evenly as possible. */
+  splitDropIns: boolean;
+  /** Reject a draw identical to the previous match's teams (same attendees only). */
+  avoidRepeat: boolean;
+  /** Pairs that must land on the same team. */
+  keepTogether: [string, string][];
+  /** Pairs that must land on opposite teams. */
+  keepApart: [string, string][];
+  /** Cap on players on the pitch per side; extras become rolling subs. */
+  maxPerSide: number;
+}
+
+export interface DrawResult {
+  /** Algorithm id — lets a future change of algorithm keep old draws verifiable. */
+  algorithm: "sha256-ctr-fisher-yates-v1";
+  /** 256-bit hex seed from crypto.randomBytes. Publish it; anyone can re-run the draw. */
+  seed: string;
+  /** Which attempt (0-based) under this seed satisfied the constraints. */
+  attempt: number;
+  constraints: DrawConstraints;
+  /** Attendee ids exactly as passed to the draw (sorted), so verification is reproducible. */
+  attendees: string[];
+  /** Previous-match floater counts used to pick the floater (recorded for audit). */
+  floaterCounts: Record<string, number>;
+  /** Previous match teams used for the avoid-repeat check (recorded for audit). */
+  previousTeams: { A: string[]; B: string[] } | null;
+  teamA: string[];
+  teamB: string[];
+  /** Odd headcount: this player swaps sides at half-time (plays first half for `floaterFirstHalf`). */
+  floater: string | null;
+  floaterFirstHalf: Side | null;
+  /** On-pitch players per side, e.g. 8 for "8v8". */
+  perSide: number;
+  /** Rolling subs per side (players beyond perSide on each team). */
+  rollingSubs: number;
+  drawnAt: string;
+}
+
+export type MatchStatus = "open" | "drawn" | "played";
+
+export interface Selection {
+  selectorId: string;
+  picks: string[];
+  submittedAt: string;
+}
+
+export interface MatchDay {
+  id: string;
+  /** ISO date (YYYY-MM-DD). */
+  date: string;
+  label?: string;
+  status: MatchStatus;
+  attendees: string[];
+  draw: DrawResult | null;
+  /** Goal-by-goal scorecard. Empty array + status "played" = a 0–0. */
+  events: GoalEvent[];
+  /** Selections are accepted until the draw is made, then locked. */
+  selections: Selection[];
+  createdAt: string;
+  /** First time a scorecard was saved. Starts the correction window. */
+  scorecardAt: string | null;
+  /** Bumped on every scorecard correction. */
+  scorecardVersion: number;
+}
+
+export interface LeagueSettings {
+  /** Default ruling pre-filled on new deflection entries. */
+  deflectionDefault: DeflectionRuling;
+  secondAssistEnabled: boolean;
+  /** Hide drop-ins from season awards (they stay on leaderboards with a badge). */
+  excludeDropInsFromAwards: boolean;
+  /** Days after a scorecard is first saved during which it may be corrected. */
+  correctionWindowDays: number;
+  defaultConstraints: DrawConstraints;
+}
+
+export type AuditAction =
+  | "matchday.create"
+  | "matchday.delete"
+  | "matchday.attendance"
+  | "draw.create"
+  | "draw.reset"
+  | "selection.submit"
+  | "scorecard.create"
+  | "scorecard.correct"
+  | "settings.update";
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  actor: "admin" | `player:${string}`;
+  action: AuditAction;
+  matchId?: string;
+  /** Free-text reason; required for scorecard corrections. */
+  reason?: string;
+  /** Full prior value (never discarded) and the new value. */
+  before?: unknown;
+  after?: unknown;
+}
+
+export interface LeagueState {
+  schemaVersion: 1;
+  /** Optimistic-concurrency counter, bumped on every write. */
+  version: number;
+  settings: LeagueSettings;
+  matchDays: MatchDay[];
+  audit: AuditEntry[];
+  /** True when this state was produced by `npm run seed:demo`. */
+  demo?: boolean;
+}

@@ -1,10 +1,111 @@
 import Link from "next/link";
-import {SiteHeader} from "@/components/SiteHeader";
-import {SquadDemo} from "@/components/SquadDemo";
-export default function Page(){return <main>
-<SiteHeader/>
-<section className="hero" id="top"><div className="hero-content"><p className="eyebrow"><span className="dot"/> FREE TO PLAY · GRASSROOTS FANTASY CRICKET</p><h1>YOUR LEAGUE.<br/><em>YOUR ELEVEN.</em></h1><p className="subhead">The biggest selection calls are happening at your local ground. Turn real cricket performances into friendly fantasy rivalries.</p><div className="hero-cta"><Link href="/tournaments" className="primary">CHOOSE A TOURNAMENT ↗</Link><a href="#builder" className="outline-btn">TRY FICTIONAL DEMO ↗</a><a href="#about">HOW IT WORKS ↓</a></div></div><div className="pitch-mark" aria-hidden="true"><span>XI</span></div><div className="hero-foot"><span>EST. OTTAWA · OPEN TO EVERY LEAGUE</span><span>01 / A NEW WAY TO FOLLOW LOCAL CRICKET</span></div></section>
-<section className="about section" id="about"><div className="section-head"><div><p className="kicker">THE IDEA / 001</p><h2>THE GAME<br/>BEYOND THE GAME.</h2></div><p>You know the players. You know the rivalries. Now find out who really knows the cricket.</p></div><div className="three"><article><span>01 / YOUR GROUND</span><h3>Community cricket.<br/>Centre stage.</h3><p>Follow the leagues, players and performances that mean something to you.</p></article><article><span>02 / YOUR ELEVEN</span><h3>The selection<br/>is yours.</h3><p>Build a 15-player squad, choose an XI and make your captain count.</p></article><article><span>03 / YOUR STRATEGY</span><h3>One move can<br/>change the round.</h3><p>Deploy Full Squad or Skipper x3 when the moment feels right.</p></article></div></section>
-<section className="update-banner section"><div><p className="kicker">NEW / UPDATE 02</p><h2>FANTASY POINTS.<br/><em>FULLY EXPLAINED.</em></h2><p>Explore imported 2026 player records, calculate points from a match scorecard, or build your own test entry for Canterbury vs Kanata. Figures entered in the Match Centre are local and never claimed as verified CricHeroes data.</p><div className="update-links"><Link href="/match-centre" className="primary">OPEN MATCH CENTRE ↗</Link><Link href="/points" className="outline-btn">EXPLORE SCORING RULES ↗</Link><Link href="/players" className="outline-btn">BROWSE PLAYERS ↗</Link><Link href="/leaderboard" className="outline-btn">PLAYER POINTS TABLE ↗</Link></div></div><div className="update-number" aria-hidden="true">02</div></section><SquadDemo/>
-<footer className="footer"><div className="brand">S3V <span>XI.</span></div><p>YOUR LEAGUE. YOUR ELEVEN.<br/><small>Independent fictional demo, not affiliated with CricHeroes or Fantasy Premier League.</small></p><small>FREE TO PLAY · © 2026 S3V XI</small></footer>
-</main>}
+import { CLUB, MEMBERS, DROPINS } from "@/config/club";
+import { POINTS } from "@/lib/scoring/rules";
+import { deriveSeason, fmtDate, upcoming } from "@/lib/league/derive";
+import { getState } from "@/lib/server/store";
+import { Kicker, Name } from "@/components/ui";
+
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const state = await getState();
+  const { played, standings } = deriveSeason(state);
+  const next = upcoming(state);
+  const goals = standings.reduce((s, r) => s + r.goals, 0);
+  const top3 = standings.filter((r) => r.played > 0).slice(0, 3);
+
+  return (
+    <main className="wrap stack-lg">
+      <section className="hero pitchlines">
+        <div className="eyebrow rise">Free to play · Grassroots soccer · {CLUB.name}</div>
+        <h1 className="rise rise-2">
+          Your club. <em>Your seven.</em>
+        </h1>
+        <p className="lede rise rise-3">
+          {CLUB.strapline} Every match day the hat splits whoever turns up into two teams. The scoresheet
+          does the rest — goals, assists, and the odd own goal. Before kick-off, pick the seven teammates you
+          reckon will deliver.
+        </p>
+        <div className="row rise rise-3">
+          <Link className="btn btn-primary" href="/draw">This week&apos;s draw</Link>
+          <Link className="btn" href="/pick">Pick your 7</Link>
+          <Link className="btn" href="/rules">How scoring works</Link>
+        </div>
+      </section>
+
+      <section className="grid grid-3">
+        <div className="panel stat-tile">
+          <div className="v num">{played.length}</div>
+          <div className="l">Match days played</div>
+        </div>
+        <div className="panel stat-tile">
+          <div className="v num">{goals}</div>
+          <div className="l">Goals on the scoresheet</div>
+        </div>
+        <div className="panel stat-tile">
+          <div className="v">{next ? fmtDate(next.date) : "TBC"}</div>
+          <div className="l">
+            Next match day{next ? ` · ${next.status === "open" ? "picks open" : "teams drawn"}` : ""}
+          </div>
+        </div>
+      </section>
+
+      <section className="stack">
+        <Kicker label="The idea" no="001" />
+        <div className="grid grid-3">
+          <article className="panel feature">
+            <div className="no">01</div>
+            <h3>The Draw</h3>
+            <p>
+              Nobody picks their mates. A seeded, crypto-random draw splits the {MEMBERS.length} members and{" "}
+              {DROPINS.length} drop-ins who turn up into two even sides — and anyone can re-run the seed to check it.
+            </p>
+          </article>
+          <article className="panel feature">
+            <div className="no">02</div>
+            <h3>The Scoresheet</h3>
+            <p>
+              Points come from one place only: the match scorecard. Goal +{POINTS.goal}. Assist +{POINTS.assist}. Own goal{" "}
+              {POINTS.ownGoal}. That&apos;s it. No ratings, no opinions, no arguments (well, fewer).
+            </p>
+          </article>
+          <article className="panel feature">
+            <div className="no">03</div>
+            <h3>Your Seven</h3>
+            <p>
+              Before the draw, pick {CLUB.picksPerSelector} players you back to get on the scoresheet. Whatever side they
+              land on, their points become yours. Prediction, not drafting.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section className="stack">
+        <Kicker label="The table" no="002" />
+        {top3.length ? (
+          <div className="panel">
+            <ol className="stack" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {top3.map((r) => (
+                <li key={r.playerId} className="row spread">
+                  <span className="row">
+                    <span className="rank">{r.rank}</span>
+                    <Name id={r.playerId} />
+                  </span>
+                  <span className="pts num">{r.points}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="row" style={{ marginTop: "1rem" }}>
+              <Link className="btn btn-sm" href="/table">Full table</Link>
+              <Link className="btn btn-sm" href="/stats">Season charts</Link>
+            </div>
+          </div>
+        ) : (
+          <div className="panel muted">
+            The table fills up after the first scorecard. Until then, everyone&apos;s level on zero — enjoy it.
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}

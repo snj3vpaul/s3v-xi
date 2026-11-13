@@ -1,16 +1,7 @@
 node_modules
 .next
-.env
-.env.*
-!.env.example
-coverage
-*.log
+.data
 *.tsbuildinfo
 next-env.d.ts
-.DS_Store
-
-# Machine-specific Vercel project link
-.vercel/
-
-# Predictor League local SQLite database
-.data/
+.env*.local
+.vercel
