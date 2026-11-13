@@ -1,0 +1,1506 @@
+From 305bf06fe62264a673351106aebe09e01b3ac4e5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 12:17:20 -0500
+Subject: [PATCH] Win bonus, rotation penalty, and a points breakdown for every
+ score
+
+Scoring (v2 match days, from 19 Nov 2026)
+- Winning team: +3 to each player on the side that wins (rolling subs
+  included); the floater gets +2 when there's a winner; draw or an
+  abandoned "no result" match gives no bonus. Decided from the goal log.
+- Missed rotation: -2 to a player who skipped their GK or sub stint, which
+  flows to every selector who picked them.
+- matchItems() itemises every point with a reason; scoreMatch() now totals
+  those items, so breakdowns always add up to the tables.
+
+Scorekeeper
+- "No result" switch and live "White win / Draw" label under the score.
+- Fair play and rotation merged into one Conduct checklist per player
+  (both ticked by default; unticking asks why), with "Mark all rotated".
+- Publishing requires "I've checked who went in goal and who subbed".
+- Points preview shows each player's itemised chips.
+
+Users
+- Pick 7 table rows expand (lazy GET /api/pick7/breakdown/[id]) into a
+  "where the points came from" bar by source plus every round, each pick
+  itemised (goal, assist, win, MOTM, fair play, rotation) with tooltips,
+  "Didn't play" lines, and a note when a scorecard was corrected.
+- Same breakdown in My season on My Team; match report gains Win and Rot
+  columns plus result and missed-rotation lines; rules, table and home
+  pages list the new values.
+
+Tests: 93 (8 new in lib/league/winRotation.test.ts).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PtuBR2yKPy8UddCaB5RWRB
+---
+ README.md                                 |   2 +-
+ app/admin/match/[id]/page.tsx             |   3 +-
+ app/api/matchdays/[id]/scorecard/route.ts |  16 +-
+ app/api/pick7/breakdown/[id]/route.ts     |  13 ++
+ app/globals.css                           |  47 ++++++
+ app/matches/[id]/page.tsx                 |  34 +++-
+ app/page.tsx                              |   4 +-
+ app/rules/page.tsx                        |  13 +-
+ app/table/page.tsx                        |   2 +-
+ app/team/page.tsx                         |  28 +---
+ components/Pick7Table.tsx                 |  73 ++++++++-
+ components/PointsBreakdown.tsx            |  79 ++++++++++
+ components/ScorecardEditor.tsx            | 172 +++++++++++++++------
+ docs/SCORING.md                           |  10 +-
+ lib/league/ledger.ts                      |  17 +-
+ lib/league/pick7.test.ts                  |   4 +-
+ lib/league/pick7Table.test.ts             |   4 +-
+ lib/league/pick7Table.ts                  |  78 +++++++++-
+ lib/league/types.ts                       |  14 ++
+ lib/league/winRotation.test.ts            | 121 +++++++++++++++
+ lib/scoring/rules.test.ts                 |   4 +-
+ lib/scoring/rules.ts                      | 180 ++++++++++++++++++----
+ 22 files changed, 786 insertions(+), 132 deletions(-)
+ create mode 100644 app/api/pick7/breakdown/[id]/route.ts
+ create mode 100644 components/PointsBreakdown.tsx
+ create mode 100644 lib/league/winRotation.test.ts
+
+diff --git a/README.md b/README.md
+index 49f8ed6..68f2d98 100644
+--- a/README.md
++++ b/README.md
+@@ -4,7 +4,7 @@
+ 
+ - **Every Thursday, 10 pm: White vs Red**, until summer. The fixtures are created automatically and published as a calendar feed.
+ - Every match day, a seeded random draw splits whoever turns up into the two teams.
+-- Points come from the scorecard: goal +3, assist +2, own goal −2, Man of the Match +4 (one per team), fair play +1. Match days before 19 Nov 2026 keep the original +5 / +3 / −2.
++- Points come from the scorecard: goal +3, assist +2, own goal −2, Man of the Match +4 (one per team), winning side +3 each, fair play +1, missed GK/sub rotation −2. Match days before 19 Nov 2026 keep the original +5 / +3 / −2.
+ - **Pick 7, FPL-style.** Anyone with an account (email and password) picks 7 of the 20 players in a fixed formation (2 DEF · 2 CM · 1 CAM · 2 ATT) within a star budget. The team carries over every week. Changes are free until the Thursday deadline, and reminders go out before each one.
+ 
+ Built with Next.js 16 (App Router), React 19, Recharts and TypeScript. It deploys on Vercel and stores data in Upstash Redis.
+diff --git a/app/admin/match/[id]/page.tsx b/app/admin/match/[id]/page.tsx
+index 45adc2b..7a64932 100644
+--- a/app/admin/match/[id]/page.tsx
++++ b/app/admin/match/[id]/page.tsx
+@@ -36,7 +36,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id:
+         <h1>{m.scorecardAt ? <>Correct the <em>scoresheet.</em></> : <>Full time. <em>Who scored?</em></>}</h1>
+         <p className="muted">
+           {version === 2
+-            ? "Log each goal, pick a Man of the Match for each team, and untick anyone who lost their fair-play point."
++            ? "Log each goal, pick a Man of the Match for each team, then check conduct: fair play and who did their goalkeeper and sub stints."
+             : "One entry per goal, in order. Pick the type first — it decides who can get an assist."}{" "}
+           <Link href={`/matches/${m.id}`}>Match report →</Link>
+         </p>
+@@ -58,6 +58,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id:
+             initial={m.events}
+             initialMotm={m.motm ?? null}
+             initialFairPlayLost={m.fairPlayLost ?? []}
++            initialRotation={{ missed: m.rotationMissed ?? [], checked: !!m.rotationChecked, noResult: !!m.noResult }}
+             version={version}
+             settings={state.settings}
+             isCorrection={m.scorecardAt !== null}
+diff --git a/app/api/matchdays/[id]/scorecard/route.ts b/app/api/matchdays/[id]/scorecard/route.ts
+index 8ecdfae..2fd2dc8 100644
+--- a/app/api/matchdays/[id]/scorecard/route.ts
++++ b/app/api/matchdays/[id]/scorecard/route.ts
+@@ -1,22 +1,32 @@
+ import { saveScorecard } from "@/lib/league/ledger";
+-import type { FairPlayLoss, GoalEvent, Side } from "@/lib/league/types";
++import type { FairPlayLoss, GoalEvent, RotationMiss, Side } from "@/lib/league/types";
+ import { body, handle, requireAdmin } from "@/lib/server/http";
+ import { ctx, mutate } from "@/lib/server/store";
+ 
+ export const PUT = handle<{ id: string }>(async (req, { id }) => {
+   await requireAdmin();
+-  const { events, reason, motm, fairPlayLost } = await body<{
++  const { events, reason, motm, fairPlayLost, rotationMissed, rotationChecked, noResult } = await body<{
+     events: GoalEvent[];
+     reason?: string;
+     motm?: Partial<Record<Side, string | null>>;
+     fairPlayLost?: FairPlayLoss[];
++    rotationMissed?: RotationMiss[];
++    rotationChecked?: boolean;
++    noResult?: boolean;
+   }>(req);
+   await mutate((s) =>
+     saveScorecard(
+       s,
+       id,
+       Array.isArray(events) ? events : [],
+-      { reason, motm: motm ?? null, fairPlayLost: Array.isArray(fairPlayLost) ? fairPlayLost : [] },
++      {
++        reason,
++        motm: motm ?? null,
++        fairPlayLost: Array.isArray(fairPlayLost) ? fairPlayLost : [],
++        rotationMissed: Array.isArray(rotationMissed) ? rotationMissed : [],
++        rotationChecked: rotationChecked === true,
++        noResult: noResult === true,
++      },
+       ctx(),
+     ),
+   );
+diff --git a/app/api/pick7/breakdown/[id]/route.ts b/app/api/pick7/breakdown/[id]/route.ts
+new file mode 100644
+index 0000000..7fc1fbd
+--- /dev/null
++++ b/app/api/pick7/breakdown/[id]/route.ts
+@@ -0,0 +1,13 @@
++import { NextResponse } from "next/server";
++import { rulesFrom } from "@/lib/league/ledger";
++import { selectorBreakdown } from "@/lib/league/pick7Table";
++import { handle } from "@/lib/server/http";
++import { getState } from "@/lib/server/store";
++
++export const dynamic = "force-dynamic";
++
++/** A selector's played rounds, itemised. Only locked-and-played picks, which are public anyway. */
++export const GET = handle<{ id: string }>(async (_req, { id }) => {
++  const state = await getState();
++  return NextResponse.json(selectorBreakdown(state, rulesFrom(state.settings), id), { headers: { "Cache-Control": "no-store" } });
++});
+diff --git a/app/globals.css b/app/globals.css
+index 57aba3b..c7db5e5 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -652,3 +652,50 @@ html.lenis, html.lenis body { height: auto; }
+ @keyframes p7-pulse { 50% { opacity: 0.45; } }
+ @keyframes p7-flash { from { background: rgba(201, 168, 92, 0.35); } }
+ @media (prefers-reduced-motion: reduce) { .p7-saving, .p7-table tr.p7-flash td { animation: none; } }
++
++/* Scorecard: conduct + breakdown */
++.conduct-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.9rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--line-soft); }
++.conduct-name { min-width: 8.5rem; font-size: 0.95rem; }
++.conduct-toggle { margin: 0; display: inline-flex; align-items: center; gap: 0.35rem; text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 0.85rem; color: var(--text-2); }
++.conduct-row .chips { gap: 0.3rem; flex-basis: 100%; }
++.conduct-row .chip { padding: 0.2rem 0.65rem; font-size: 0.78rem; }
++.confirm-row { margin: 0.4rem 0 0; display: flex; gap: 0.5rem; align-items: center; padding: 0.7rem 0.8rem; border-radius: var(--radius-sm); background: var(--surface-sunk); text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 0.92rem; color: var(--text); font-weight: 500; }
++.breakdown-list { list-style: none; margin: 0; padding: 0; }
++.breakdown-list li { display: grid; grid-template-columns: minmax(6.5rem, 9rem) 1fr auto; gap: 0.6rem; align-items: center; padding: 0.35rem 0; border-bottom: 1px dashed var(--line-soft); }
++.bd-name { font-size: 0.92rem; }
++.bd-items { display: flex; flex-wrap: wrap; gap: 0.3rem; }
++.bd-chip { font-family: var(--mono); font-size: 0.72rem; padding: 0.12rem 0.45rem; border-radius: 999px; border: 1px solid var(--line-soft); background: var(--surface); white-space: nowrap; }
++.bd-chip.neg { color: var(--danger); border-color: rgba(158, 59, 46, 0.35); }
++.bd-total { font-size: 1.05rem; min-width: 2rem; text-align: right; }
++.bd-dnp { color: var(--muted); font-size: 0.8rem; }
++.source-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--surface-sunk); margin: 0.35rem 0 0.5rem; gap: 2px; }
++.source-bar .src { display: block; min-width: 4px; }
++.source-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; font-size: 0.8rem; color: var(--text-2); }
++.source-legend i.src { display: inline-block; width: 8px; height: 8px; border-radius: 2px; vertical-align: middle; }
++.src-goal { background: var(--forest-ui); }
++.src-assist, .src-second_assist { background: #6f9a7f; }
++.src-win { background: var(--champagne); }
++.src-motm { background: var(--ochre); }
++.src-fair_play { background: var(--taupe); }
++.src-own_goal, .src-rotation { background: var(--brick); }
++details.round { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; background: var(--surface); }
++details.round summary { display: flex; justify-content: space-between; gap: 0.5rem; cursor: pointer; font-size: 0.92rem; list-style: none; }
++details.round summary::-webkit-details-marker { display: none; }
++details.round summary::before { content: "▸"; margin-right: 0.4rem; color: var(--muted); }
++details.round[open] summary::before { content: "▾"; }
++details.round[open] summary { margin-bottom: 0.4rem; }
++.p7-table tr.p7-click { cursor: pointer; }
++.p7-table tr.p7-click:hover td { background: var(--surface-sunk); }
++.p7-table td.p7-expand { background: var(--bg); padding: 0.75rem; }
++.p7-caret { color: var(--muted); font-size: 0.75rem; margin-left: 0.3rem; }
++.linklike { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
++.linklike:hover { color: var(--accent); }
++.linklike:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
++details.round summary > span:first-child { flex: 1; text-align: left; }
++.score-wrap { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
++@media (max-width: 520px) {
++  .breakdown-list li { grid-template-columns: 1fr auto; grid-template-areas: "name total" "items items"; row-gap: 0.25rem; }
++  .bd-name { grid-area: name; }
++  .bd-items { grid-area: items; }
++  .bd-total { grid-area: total; }
++}
+diff --git a/app/matches/[id]/page.tsx b/app/matches/[id]/page.tsx
+index 33dd39e..4c91e56 100644
+--- a/app/matches/[id]/page.tsx
++++ b/app/matches/[id]/page.tsx
+@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
+ import { playerName } from "@/config/club";
+ import { fmtDate, matchSummary, selectorName } from "@/lib/league/derive";
+ import { correctionDeadline, rulesFrom } from "@/lib/league/ledger";
+-import { FAIR_PLAY_LABEL, rulesVersionOf, scoreSelection } from "@/lib/scoring/rules";
++import { FAIR_PLAY_LABEL, ROTATION_LABEL, rulesVersionOf, scoreSelection, winnerOf } from "@/lib/scoring/rules";
+ import { isAdmin } from "@/lib/server/auth";
+ import { getState } from "@/lib/server/store";
+ import { EventLine } from "@/components/EventLine";
+@@ -56,6 +56,20 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
+                 <b>Man of the Match:</b> {[m.motm?.A && `${playerName(m.motm.A)} (White)`, m.motm?.B && `${playerName(m.motm.B)} (Red)`].filter(Boolean).join(" · ")}
+               </p>
+             )}
++            {v2 && (
++              <p className="small" style={{ marginBottom: 0 }}>
++                <b>Result:</b>{" "}
++                {m.noResult ? "No result (abandoned), no win bonus" : (() => {
++                  const w = winnerOf(m);
++                  return w ? `${w === "A" ? "White" : "Red"} win, +3 to each of their players` : "Draw, no win bonus";
++                })()}
++              </p>
++            )}
++            {v2 && (m.rotationMissed?.length ?? 0) > 0 && (
++              <p className="small muted" style={{ marginBottom: 0 }}>
++                <b>Missed rotation:</b> {m.rotationMissed!.map((r) => `${playerName(r.playerId)} (${ROTATION_LABEL[r.reason].toLowerCase()})`).join(", ")}
++              </p>
++            )}
+             {v2 && (m.fairPlayLost?.length ?? 0) > 0 && (
+               <p className="small muted" style={{ marginBottom: 0 }}>
+                 <b>Lost fair play:</b> {m.fairPlayLost!.map((f) => `${playerName(f.playerId)} (${FAIR_PLAY_LABEL[f.reason].short.toLowerCase()})`).join(", ")}
+@@ -69,7 +83,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
+                 <thead>
+                   <tr>
+                     <th>Player</th><th className="r">G</th><th className="r">A</th><th className="r">OG</th>
+-                    {v2 && <><th className="r" title="Man of the Match">MOTM</th><th className="r" title="Fair play">FP</th></>}
++                    {v2 && (
++                      <>
++                        <th className="r" title="Winning team (+3)">Win</th>
++                        <th className="r" title="Man of the Match (+4)">MOTM</th>
++                        <th className="r" title="Fair play (+1)">FP</th>
++                        <th className="r" title="Missed rotation (−2)">Rot</th>
++                      </>
++                    )}
+                     <th className="r">Pts</th>
+                   </tr>
+                 </thead>
+@@ -80,7 +101,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
+                       <td className="r">{l.goals}</td>
+                       <td className="r">{l.assists + (rules.secondAssistEnabled ? l.secondAssists : 0)}</td>
+                       <td className="r">{l.ownGoals}</td>
+-                      {v2 && <><td className="r">{l.motm ? "★" : ""}</td><td className="r">{l.fairPlay ? "✓" : "–"}</td></>}
++                      {v2 && (
++                        <>
++                          <td className="r">{l.wins ? "🏆" : ""}</td>
++                          <td className="r">{l.motm ? "★" : ""}</td>
++                          <td className="r">{l.fairPlay ? "✓" : "–"}</td>
++                          <td className="r">{l.rotationMissed ? <span className="neg">−2</span> : "✓"}</td>
++                        </>
++                      )}
+                       <td className="r pts"><Points v={l.points} /></td>
+                     </tr>
+                   ))}
+diff --git a/app/page.tsx b/app/page.tsx
+index d4d61f1..719cf4f 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -110,9 +110,11 @@ export default async function Home() {
+                   <div><dt>Assist</dt><dd className="num">+{POINTS.assist}</dd></div>
+                   <div><dt>Own goal</dt><dd className="num neg">{POINTS.ownGoal}</dd></div>
+                   <div><dt>MOTM</dt><dd className="num">+{POINTS.motm}</dd></div>
++                  <div><dt>Win</dt><dd className="num">+{POINTS.win}</dd></div>
+                   <div><dt>Fair play</dt><dd className="num">+{POINTS.fairPlay}</dd></div>
++                  <div><dt>Skip GK/sub</dt><dd className="num neg">{POINTS.rotationMiss}</dd></div>
+                 </dl>
+-                <p className="chapter-body">Five numbers. Easy to keep, hard to argue with.</p>
++                <p className="chapter-body">Seven numbers. Easy to keep, hard to argue with.</p>
+               </div>
+             </div>
+           </article>
+diff --git a/app/rules/page.tsx b/app/rules/page.tsx
+index 7e69892..fcbb70d 100644
+--- a/app/rules/page.tsx
++++ b/app/rules/page.tsx
+@@ -16,14 +16,23 @@ export default async function RulesPage() {
+     ["Assist", `+${POINTS.assist}`, "The last pass before the goal. One per goal at most, and none on penalties or direct free kicks."],
+     ["Own goal", `${POINTS.ownGoal}`, "To the player who put it in. If in doubt, it's the attacker's goal. There are no deflection rulings."],
+     ["Man of the Match", `+${POINTS.motm}`, `Exactly one per team: one for ${TEAM_NAMES.A}, one for ${TEAM_NAMES.B}.`],
++    [
++      "Winning team",
++      `+${POINTS.win}`,
++      `Every player on the side that wins, subs included. The floater (odd numbers) gets +${POINTS.floaterWin} whenever there's a winner. A draw or an abandoned match: no bonus.`,
++    ],
+     ["Fair play", `+${POINTS.fairPlay}`, "Everyone who plays starts with it, and keeps it unless the scorekeeper records one of the breaches below."],
++    ["Missed rotation", `${POINTS.rotationMiss}`, "Everyone takes a turn in goal and on the bench. Skip your goalkeeper or sub stint and you lose 2, and so does everyone who picked you."],
+   ];
+   return (
+     <main className="wrap stack-lg">
+       <header className="stack">
+         <Kicker label="The rulebook" no="Rules" />
+-        <h1>Five numbers. <em>That&apos;s it.</em></h1>
+-        <p className="lede">Points come from the scoresheet: goals, assists, own goals, one Man of the Match per team, and a fair-play point.</p>
++        <h1>Seven numbers. <em>No black boxes.</em></h1>
++        <p className="lede">
++          Goals, assists, own goals, one Man of the Match per team, the winning side, fair play and rotation. Tap any score on the Pick 7 table to
++          see exactly where it came from.
++        </p>
+       </header>
+ 
+       <section className="panel">
+diff --git a/app/table/page.tsx b/app/table/page.tsx
+index d2ef4a3..b33e3d3 100644
+--- a/app/table/page.tsx
++++ b/app/table/page.tsx
+@@ -25,7 +25,7 @@ export default async function TablePage() {
+         <Kicker label="Season standings" no={`${played.length} match day${played.length === 1 ? "" : "s"}`} />
+         <h1>The <em>table.</em></h1>
+         <p className="lede">
+-          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Fair play +{POINTS.fairPlay}.
++          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Win +{POINTS.win} · Fair play +{POINTS.fairPlay} · Missed rotation {POINTS.rotationMiss}.
+           Ties split by goals, then assists, then head-to-head, then shared.
+         </p>
+       </header>
+diff --git a/app/team/page.tsx b/app/team/page.tsx
+index 2b548ff..0d2b1de 100644
+--- a/app/team/page.tsx
++++ b/app/team/page.tsx
+@@ -5,7 +5,8 @@ import { SERIES, TEAM_NAMES } from "@/config/schedule";
+ import { fmtDate, selectorName, upcoming } from "@/lib/league/derive";
+ import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
+ import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
+-import { buildPick7Table } from "@/lib/league/pick7Table";
++import { buildPick7Table, selectorBreakdown } from "@/lib/league/pick7Table";
++import { PointsBreakdown } from "@/components/PointsBreakdown";
+ import { Pick7Table } from "@/components/Pick7Table";
+ import { fmtKickoff } from "@/lib/league/schedule";
+ import { playedMatches, scoreSelection } from "@/lib/scoring/rules";
+@@ -37,13 +38,7 @@ export default async function TeamPage() {
+   const stars = currentStars(state.matchDays);
+   const ownership = lastOwnership(state.matchDays);
+   const myRow = me ? pick7.find((r) => r.id === me.id && r.rank !== null) : undefined;
+-  const myRounds = me
+-    ? played
+-        .map((m) => ({ m, sel: m.selections.find((s) => s.selectorId === me.id) }))
+-        .filter((x) => x.sel)
+-        .map(({ m, sel }) => ({ m, r: scoreSelection(sel!, m, rules) }))
+-        .reverse()
+-    : [];
++  const myBreakdown = me ? selectorBreakdown(state, rules, me.id) : null;
+   const deadlineLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
+   const myLocked = me && lockedNow ? lockedNow.selections.find((s) => s.selectorId === me.id) : undefined;
+ 
+@@ -120,22 +115,7 @@ export default async function TeamPage() {
+               ) : (
+                 <p className="muted" style={{ margin: 0 }}>Pick your seven to join the table on 0 points.</p>
+               )}
+-              {myRounds.length > 0 && (
+-                <div className="table-wrap">
+-                  <table>
+-                    <thead><tr><th>Match day</th><th className="r">Hits</th><th className="r">Pts</th></tr></thead>
+-                    <tbody>
+-                      {myRounds.map(({ m, r }) => (
+-                        <tr key={m.id}>
+-                          <td><Link href={`/matches/${m.id}`}>{fmtDate(m.date)}</Link></td>
+-                          <td className="r">{r.hits}/{r.picks.length}</td>
+-                          <td className="r pts"><Points v={r.points} /></td>
+-                        </tr>
+-                      ))}
+-                    </tbody>
+-                  </table>
+-                </div>
+-              )}
++              {myBreakdown && myBreakdown.rounds.length > 0 && <PointsBreakdown data={myBreakdown} />}
+             </section>
+             <section className="panel stack">
+               <h3>Never miss a Thursday</h3>
+diff --git a/components/Pick7Table.tsx b/components/Pick7Table.tsx
+index a4b0b5d..41573d0 100644
+--- a/components/Pick7Table.tsx
++++ b/components/Pick7Table.tsx
+@@ -1,7 +1,8 @@
+ "use client";
+-import { useCallback, useEffect, useRef, useState } from "react";
+-import { applyOptimistic, type Pick7Row, type Pick7Status } from "@/lib/league/pick7Table";
++import { Fragment, useCallback, useEffect, useRef, useState } from "react";
++import { applyOptimistic, type Pick7Row, type Pick7Status, type SelectorBreakdown } from "@/lib/league/pick7Table";
+ import { onPick7 } from "./pick7Live";
++import { PointsBreakdown } from "./PointsBreakdown";
+ 
+ const POLL_MS = 15_000;
+ 
+@@ -24,6 +25,24 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
+   const [updatedAt, setUpdatedAt] = useState(() => Date.now());
+   const [flash, setFlash] = useState(false);
+   const inflight = useRef<AbortController | null>(null);
++  /** Expanded row and its fetched breakdown (cached per row until the table refreshes). */
++  const [open, setOpen] = useState<string | null>(null);
++  const [details, setDetails] = useState<Record<string, SelectorBreakdown | "loading" | "error">>({});
++
++  const toggle = async (id: string) => {
++    if (open === id) return setOpen(null);
++    setOpen(id);
++    if (details[id] && details[id] !== "error") return;
++    setDetails((d) => ({ ...d, [id]: "loading" }));
++    try {
++      const res = await fetch(`/api/pick7/breakdown/${encodeURIComponent(id)}`, { cache: "no-store" });
++      if (!res.ok) throw new Error();
++      const data = (await res.json()) as SelectorBreakdown;
++      setDetails((d) => ({ ...d, [id]: data }));
++    } catch {
++      setDetails((d) => ({ ...d, [id]: "error" }));
++    }
++  };
+ 
+   const refetch = useCallback(async () => {
+     inflight.current?.abort();
+@@ -33,7 +52,12 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
+       const res = await fetch("/api/pick7/table", { cache: "no-store", signal: ac.signal });
+       if (!res.ok) return false;
+       const data = (await res.json()) as { rows: Pick7Row[] };
+-      setRows(data.rows);
++      setRows((prev) => {
++        // Drop cached breakdowns whose points changed (a new scorecard or a correction).
++        const changed = data.rows.filter((r) => prev.find((p) => p.id === r.id)?.points !== r.points).map((r) => r.id);
++        if (changed.length) setDetails((d) => Object.fromEntries(Object.entries(d).filter(([k]) => !changed.includes(k))));
++        return data.rows;
++      });
+       setUpdatedAt(Date.now());
+       return true;
+     } catch {
+@@ -100,11 +124,34 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
+               const pending = mine && overlay !== null;
+               const st = STATUS[r.status];
+               const onTable = r.rank !== null;
++              const canOpen = r.rounds > 0;
++              const isOpen = open === r.id;
++              const d = details[r.id];
+               return (
+-                <tr key={r.id} className={`${mine ? "p7-me" : ""}${mine && flash ? " p7-flash" : ""}${onTable ? "" : " p7-waiting"}`}>
++<Fragment key={r.id}>
++                                <tr
++                  className={`${mine ? "p7-me" : ""}${mine && flash ? " p7-flash" : ""}${onTable ? "" : " p7-waiting"}${canOpen ? " p7-click" : ""}`}
++                  onClick={canOpen ? () => toggle(r.id) : undefined}
++                >
+                   <td className="rank">{onTable ? `${r.rank}${r.sharedRank ? "=" : ""}` : "–"}</td>
+                   <td>
+-                    {r.name}
++                    {canOpen ? (
++                      <button
++                        type="button"
++                        className="linklike"
++                        aria-expanded={isOpen}
++                        aria-controls={`bd-${r.id}`}
++                        onClick={(e) => {
++                          e.stopPropagation();
++                          toggle(r.id);
++                        }}
++                      >
++                        {r.name}
++                        <span className="p7-caret" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
++                      </button>
++                    ) : (
++                      r.name
++                    )}
+                     {mine && <span className="badge badge-kit" style={{ marginLeft: "0.4rem" }}>You</span>}
+                   </td>
+                   <td>
+@@ -114,6 +161,20 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
+                   <td className="r hide-sm">{onTable ? `${r.hits}/${r.totalPicks}` : "–"}</td>
+                   <td className="r pts">{onTable ? r.points : <span className="muted">–</span>}</td>
+                 </tr>
++                {isOpen && (
++                  <tr id={`bd-${r.id}`}>
++                    <td colSpan={6} className="p7-expand">
++                      {d === "loading" || !d ? (
++                        <p className="small muted" style={{ margin: 0 }}>Loading breakdown…</p>
++                      ) : d === "error" ? (
++                        <p className="small neg" style={{ margin: 0 }}>Couldn&apos;t load the breakdown. Tap the name to try again.</p>
++                      ) : (
++                        <PointsBreakdown data={d} />
++                      )}
++                    </td>
++                  </tr>
++                )}
++                </Fragment>
+               );
+             })}
+           </tbody>
+@@ -121,7 +182,7 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
+       </div>
+       <p className="small muted" style={{ margin: 0 }} aria-live="off">
+         <span className="p7-live-dot" aria-hidden="true" /> Live · updated <Ago at={updatedAt} />. Everyone starts on 0 the moment they pick; points
+-        arrive when a match they picked for is played. Which players people picked stays hidden until the week locks.
++        arrive when a match they picked for is played. Tap a name to see exactly where their points came from. Which players people picked stays hidden until the week locks.
+       </p>
+     </div>
+   );
+diff --git a/components/PointsBreakdown.tsx b/components/PointsBreakdown.tsx
+new file mode 100644
+index 0000000..6c1fdc1
+--- /dev/null
++++ b/components/PointsBreakdown.tsx
+@@ -0,0 +1,79 @@
++"use client";
++import Link from "next/link";
++import type { SelectorBreakdown } from "@/lib/league/pick7Table";
++import { POINT_KIND_LABEL, type ContributionKind } from "@/lib/scoring/rules";
++
++const ORDER: ContributionKind[] = ["goal", "assist", "second_assist", "win", "motm", "fair_play", "own_goal", "rotation"];
++const fmtDate = (iso: string) =>
++  new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
++const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
++
++/**
++ * "Where did my points come from?" — a season bar by source, then every round
++ * with each pick's points itemised. Chips carry the exact reason as a tooltip.
++ */
++export function PointsBreakdown({ data, openFirst = true }: { data: SelectorBreakdown; openFirst?: boolean }) {
++  if (!data.rounds.length) return <p className="small muted" style={{ margin: 0 }}>No played rounds yet. You&apos;re on 0 until a match you picked for is played.</p>;
++  const kinds = ORDER.filter((k) => data.byKind[k]);
++  const pos = kinds.filter((k) => (data.byKind[k] ?? 0) > 0);
++  const neg = kinds.filter((k) => (data.byKind[k] ?? 0) < 0);
++  const posTotal = pos.reduce((t, k) => t + (data.byKind[k] ?? 0), 0) || 1;
++
++  return (
++    <div className="stack" style={{ gap: "0.75rem" }}>
++      <div>
++        <div className="pos-head"><span>Where the points came from</span><span className="num">{data.total} pts</span></div>
++        <div className="source-bar" role="img" aria-label={kinds.map((k) => `${POINT_KIND_LABEL[k].label} ${signed(data.byKind[k]!)}`).join(", ")}>
++          {pos.map((k) => (
++            <span key={k} className={`src src-${k}`} style={{ flexGrow: data.byKind[k] }} title={`${POINT_KIND_LABEL[k].label} ${signed(data.byKind[k]!)}`} />
++          ))}
++        </div>
++        <div className="source-legend">
++          {kinds.map((k) => (
++            <span key={k} className={(data.byKind[k] ?? 0) < 0 ? "neg" : ""}>
++              <i className={`src src-${k}`} aria-hidden="true" /> {POINT_KIND_LABEL[k].icon} {POINT_KIND_LABEL[k].label}{" "}
++              <b className="num">{signed(data.byKind[k]!)}</b>
++              {(data.byKind[k] ?? 0) > 0 && <span className="muted"> ({Math.round(((data.byKind[k] ?? 0) / posTotal) * 100)}%)</span>}
++            </span>
++          ))}
++          {neg.length === 0 && <span className="muted">No penalties</span>}
++        </div>
++      </div>
++
++      {data.rounds.map((r, i) => (
++        <details key={r.matchId} className="round" open={openFirst && i === 0}>
++          <summary>
++            <span>{fmtDate(r.date)} · <span className="muted">{r.result}</span></span>
++            <b className="num">{r.total} pts</b>
++          </summary>
++          <ul className="breakdown-list">
++            {r.picks.map((p) => (
++              <li key={p.playerId}>
++                <span className="bd-name">{p.name}</span>
++                <span className="bd-items">
++                  {!p.played ? (
++                    <span className="bd-dnp">Didn&apos;t play</span>
++                  ) : p.items.length ? (
++                    p.items.map((it, k) => (
++                      <span key={k} className={`bd-chip${it.points < 0 ? " neg" : ""}`} title={it.detail}>
++                        {POINT_KIND_LABEL[it.kind].icon} {signed(it.points)}
++                        <span className="sr-only"> {it.detail}</span>
++                      </span>
++                    ))
++                  ) : (
++                    <span className="bd-dnp">Played, no points</span>
++                  )}
++                </span>
++                <b className={`bd-total num${p.total < 0 ? " neg" : ""}`}>{p.total}</b>
++              </li>
++            ))}
++          </ul>
++          <p className="small muted" style={{ margin: "0.4rem 0 0" }}>
++            <Link href={`/matches/${r.matchId}`}>Match report</Link> · <Link href="/rules">How is this scored?</Link>
++            {r.corrections > 0 && ` · Scorecard corrected ${r.corrections}× since first published (reasons in the match report)`}
++          </p>
++        </details>
++      ))}
++    </div>
++  );
++}
+diff --git a/components/ScorecardEditor.tsx b/components/ScorecardEditor.tsx
+index b6f3b3c..9cd1e4a 100644
+--- a/components/ScorecardEditor.tsx
++++ b/components/ScorecardEditor.tsx
+@@ -2,7 +2,18 @@
+ import { useMemo, useState } from "react";
+ import { useRouter } from "next/navigation";
+ import { ROSTER, playerName } from "@/config/club";
+-import type { DrawResult, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, LeagueSettings, RulesVersion, Side } from "@/lib/league/types";
++import type {
++  DrawResult,
++  FairPlayBreach,
++  FairPlayLoss,
++  GoalEvent,
++  GoalKind,
++  LeagueSettings,
++  RotationLapse,
++  RotationMiss,
++  RulesVersion,
++  Side,
++} from "@/lib/league/types";
+ import {
+   FAIR_PLAY_BREACHES,
+   FAIR_PLAY_LABEL,
+@@ -10,6 +21,11 @@ import {
+   GOAL_KINDS_V2,
+   GOAL_KIND_LABEL,
+   POINTS_V2,
++  POINT_KIND_LABEL,
++  ROTATION_LABEL,
++  ROTATION_LAPSES,
++  matchItems,
++  winnerOf,
+   deflectionRulingOf,
+   scoreMatch,
+   scoreline,
+@@ -74,6 +90,7 @@ export function ScorecardEditor({
+   initial,
+   initialMotm,
+   initialFairPlayLost,
++  initialRotation,
+   version,
+   settings,
+   isCorrection,
+@@ -86,6 +103,7 @@ export function ScorecardEditor({
+   initial: GoalEvent[];
+   initialMotm: Record<Side, string | null> | null;
+   initialFairPlayLost: FairPlayLoss[];
++  initialRotation: { missed: RotationMiss[]; checked: boolean; noResult: boolean };
+   version: RulesVersion;
+   settings: LeagueSettings;
+   isCorrection: boolean;
+@@ -97,6 +115,9 @@ export function ScorecardEditor({
+   const [events, setEvents] = useState<GoalEvent[]>(initial);
+   const [motm, setMotm] = useState<Record<Side, string | null>>(initialMotm ?? { A: null, B: null });
+   const [fairPlayLost, setFairPlayLost] = useState<FairPlayLoss[]>(initialFairPlayLost);
++  const [rotationMissed, setRotationMissed] = useState<RotationMiss[]>(initialRotation.missed);
++  const [rotationChecked, setRotationChecked] = useState(initialRotation.checked);
++  const [noResult, setNoResult] = useState(initialRotation.noResult);
+   const [reason, setReason] = useState("");
+   const [busy, setBusy] = useState(false);
+   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+@@ -109,16 +130,22 @@ export function ScorecardEditor({
+     [events, attendees, draw, settings, version],
+   );
+   const awardIssues = useMemo(
+-    () => (v2 ? validateAwards({ motm, fairPlayLost }, matchCtx) : []),
++    () => (v2 ? validateAwards({ motm, fairPlayLost, rotationMissed, rotationChecked }, matchCtx) : []),
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+-    [v2, motm, fairPlayLost, attendees, draw],
++    [v2, motm, fairPlayLost, rotationMissed, rotationChecked, attendees, draw],
+   );
+   const errors = [...issues, ...awardIssues].filter((i) => i.level === "error");
+   const score = scoreline(events);
+-  const lines = [...scoreMatch({ attendees, events, rulesVersion: version, motm, fairPlayLost }, rules).values()]
++  const scorable = { attendees, events, rulesVersion: version, motm, fairPlayLost, rotationMissed, noResult, draw };
++  const items = matchItems(scorable, rules);
++  const winner = winnerOf({ events, noResult });
++  const lines = [...scoreMatch(scorable, rules).values()]
+     .filter((l) => l.points !== 0 || l.goals || l.assists)
+     .sort((a, b) => b.points - a.points || playerName(a.playerId).localeCompare(playerName(b.playerId)));
+   const lostBy = new Map(fairPlayLost.map((f) => [f.playerId, f.reason]));
++  const missedBy = new Map(rotationMissed.map((r) => [r.playerId, r.reason]));
++  const setMiss = (id: string, reason: RotationLapse | null) =>
++    setRotationMissed((xs) => [...xs.filter((x) => x.playerId !== id), ...(reason ? [{ playerId: id, reason }] : [])]);
+   const setBreach = (id: string, reason: FairPlayBreach | null) =>
+     setFairPlayLost((xs) => [...xs.filter((x) => x.playerId !== id), ...(reason ? [{ playerId: id, reason }] : [])]);
+   const teamOf = (side: Side) => [...(side === "A" ? draw.teamA : draw.teamB), ...(draw.floater ? [draw.floater] : [])];
+@@ -157,7 +184,7 @@ export function ScorecardEditor({
+       await api(`/api/matchdays/${matchId}/scorecard`, "PUT", {
+         events: clean,
+         reason: isCorrection ? reason : undefined,
+-        ...(v2 ? { motm, fairPlayLost } : {}),
++        ...(v2 ? { motm, fairPlayLost, rotationMissed, rotationChecked, noResult } : {}),
+       });
+       setMsg({ ok: true, text: isCorrection ? "Correction saved and logged. Standings recalculated." : "Scorecard published. The table is updated." });
+       setReason("");
+@@ -173,9 +200,22 @@ export function ScorecardEditor({
+     <div className="stack">
+       <div className="panel row spread sticky-score">
+         <span className="row"><span className="bib bib-A" /> White</span>
+-        <span className="score num">{score.A}–{score.B}</span>
++        <span className="score-wrap">
++          <span className="score num">{score.A}–{score.B}</span>
++          {v2 && (
++            <span className="small muted">
++              {noResult ? "No result" : winner ? `${TEAM[winner]} win · +${POINTS_V2.win} each` : "Draw · no win bonus"}
++            </span>
++          )}
++        </span>
+         <span className="row">Red <span className="bib bib-B" /></span>
+       </div>
++      {v2 && (
++        <label className="row" style={{ gap: "0.5rem", textTransform: "none", letterSpacing: 0, fontFamily: "inherit", fontSize: "0.9rem", color: "var(--text)" }}>
++          <input type="checkbox" checked={noResult} disabled={locked} onChange={(x) => setNoResult(x.target.checked)} />
++          Match abandoned / no result (goals, MOTM and conduct still count; nobody gets the win bonus)
++        </label>
++      )}
+ 
+       {locked && (
+         <div className="alert alert-warn">The correction window closed on {deadline?.slice(0, 10)}. This scorecard is final (widen the window in Settings if you must).</div>
+@@ -322,54 +362,94 @@ export function ScorecardEditor({
+           </div>
+ 
+           <div className="panel stack">
+-            <h3>Fair play <span className="muted small">+{POINTS_V2.fairPlay} each, on by default</span></h3>
++            <div className="row spread">
++              <h3>Conduct</h3>
++              <span className="small muted">
++                {rotationMissed.length ? `${rotationMissed.length} missed rotation` : `All ${attendees.length} rotated`} ·{" "}
++                {fairPlayLost.length ? `${fairPlayLost.length} lost fair play` : "all fair"}
++              </span>
++            </div>
+             <p className="small muted" style={{ margin: 0 }}>
+-              Untick anyone who broke a rule, and tap what happened:{" "}
+-              {FAIR_PLAY_BREACHES.map((b, i) => (
+-                <span key={b}>{i > 0 && " · "}<b>{FAIR_PLAY_LABEL[b].short}</b>: {FAIR_PLAY_LABEL[b].long.toLowerCase()}</span>
+-              ))}
+-              .
++              Everyone starts ticked. Untick <b>Fair play</b> (+{POINTS_V2.fairPlay}) for a foul conceded, card, dissent warning or dangerous
++              challenge. Untick <b>Rotated</b> ({POINTS_V2.rotationMiss}) for anyone who skipped their goalkeeper or sub stint.
+             </p>
+-            <div>
+-              {byName(attendees).map((id) => {
+-                const lost = lostBy.get(id);
+-                const keeps = lost === undefined;
+-                return (
+-                  <div key={id} className="fair-row">
+-                    <label>
+-                      <input type="checkbox" checked={keeps} disabled={locked} onChange={(x) => setBreach(id, x.target.checked ? null : "foul")} />
+-                      {playerName(id)}
+-                    </label>
+-                    {!keeps && (
+-                      <div className="chips" role="radiogroup" aria-label={`Why ${playerName(id)} lost fair play`}>
+-                        {FAIR_PLAY_BREACHES.map((b) => (
+-                          <button
+-                            key={b}
+-                            type="button"
+-                            role="radio"
+-                            className="chip"
+-                            aria-checked={lost === b}
+-                            aria-pressed={lost === b}
+-                            disabled={locked}
+-                            title={FAIR_PLAY_LABEL[b].long}
+-                            onClick={() => setBreach(id, b)}
+-                          >
+-                            {FAIR_PLAY_LABEL[b].short}
+-                          </button>
+-                        ))}
+-                      </div>
+-                    )}
+-                  </div>
+-                );
+-              })}
+-            </div>
++            {(["A", "B"] as Side[]).map((side) => (
++              <div key={side}>
++                <div className="pos-head" style={{ margin: "0.5rem 0 0.2rem" }}>
++                  <span><span className={`bib bib-${side}`} /> {TEAM[side]}</span>
++                  {side === "A" && (
++                    <button type="button" className="btn btn-sm" disabled={locked || !rotationMissed.length} onClick={() => setRotationMissed([])}>
++                      Mark all rotated
++                    </button>
++                  )}
++                </div>
++                {byName(teamOf(side).filter((id) => attendees.includes(id) && (side === "A" || id !== draw.floater))).map((id) => {
++                  const lost = lostBy.get(id);
++                  const miss = missedBy.get(id);
++                  return (
++                    <div key={id} className="conduct-row">
++                      <span className="conduct-name">
++                        {playerName(id)}
++                        {id === draw.floater && <span className="badge badge-muted" style={{ marginLeft: "0.35rem" }}>floater</span>}
++                      </span>
++                      <label className="conduct-toggle">
++                        <input type="checkbox" checked={lost === undefined} disabled={locked} onChange={(x) => setBreach(id, x.target.checked ? null : "foul")} />
++                        Fair play
++                      </label>
++                      <label className="conduct-toggle">
++                        <input type="checkbox" checked={miss === undefined} disabled={locked} onChange={(x) => setMiss(id, x.target.checked ? null : "gk")} />
++                        Rotated
++                      </label>
++                      {lost !== undefined && (
++                        <div className="chips" role="radiogroup" aria-label={`Why ${playerName(id)} lost fair play`}>
++                          {FAIR_PLAY_BREACHES.map((b) => (
++                            <button key={b} type="button" role="radio" className="chip" aria-checked={lost === b} aria-pressed={lost === b} disabled={locked} title={FAIR_PLAY_LABEL[b].long} onClick={() => setBreach(id, b)}>
++                              {FAIR_PLAY_LABEL[b].short}
++                            </button>
++                          ))}
++                        </div>
++                      )}
++                      {miss !== undefined && (
++                        <div className="chips" role="radiogroup" aria-label={`Which turn ${playerName(id)} skipped`}>
++                          {ROTATION_LAPSES.map((r) => (
++                            <button key={r} type="button" role="radio" className="chip" aria-checked={miss === r} aria-pressed={miss === r} disabled={locked} onClick={() => setMiss(id, r)}>
++                              {ROTATION_LABEL[r]}
++                            </button>
++                          ))}
++                        </div>
++                      )}
++                    </div>
++                  );
++                })}
++              </div>
++            ))}
++            <label className="confirm-row">
++              <input type="checkbox" checked={rotationChecked} disabled={locked} onChange={(x) => setRotationChecked(x.target.checked)} />
++              I&apos;ve checked who went in goal and who subbed.
++            </label>
+           </div>
+         </>
+       )}
+ 
+       <div className="panel stack">
+         <h3>Points preview</h3>
+-        {lines.length ? (
++        {v2 ? (
++          <ul className="breakdown-list">
++            {lines.map((l) => (
++              <li key={l.playerId}>
++                <span className="bd-name">{playerName(l.playerId)}</span>
++                <span className="bd-items">
++                  {(items.get(l.playerId) ?? []).map((it, k) => (
++                    <span key={k} className={`bd-chip${it.points < 0 ? " neg" : ""}`} title={it.detail}>
++                      {POINT_KIND_LABEL[it.kind].icon} {it.points > 0 ? "+" : ""}{it.points}
++                    </span>
++                  ))}
++                </span>
++                <b className={`bd-total num${l.points < 0 ? " neg" : ""}`}>{l.points}</b>
++              </li>
++            ))}
++          </ul>
++        ) : lines.length ? (
+           <div className="chips">
+             {lines.map((l) => (
+               <span key={l.playerId} className="chip">
+diff --git a/docs/SCORING.md b/docs/SCORING.md
+index 610d273..be0ef65 100644
+--- a/docs/SCORING.md
++++ b/docs/SCORING.md
+@@ -10,6 +10,8 @@ Test files:
+ - `lib/league/ledger.test.ts`: lifecycle, corrections and recalculation
+ - `lib/league/fpl.test.ts`: accounts, weekly fixtures, carry-over, calendar feed, reminders
+ - `lib/league/pick7.test.ts`: Pick 7 formation, star budget, ownership re-rating, and v2 scoring
++- `lib/league/pick7Table.test.ts`: the live Pick 7 table (no pick vs picked on 0, edits, removal)
++- `lib/league/winRotation.test.ts`: win bonus, rotation penalty, and the breakdown adding up
+ 
+ ## Two rule sets
+ 
+@@ -25,8 +27,14 @@ Each match day is scored under one rule set, chosen by `rulesVersionOf` (pinned
+ | Deflections | admin ruling | not recorded (own goal or goal) |
+ | Man of the Match | — | +4, one per team (required to save) |
+ | Fair play | — | +1 to every attendee unless a breach is recorded: foul, card/sin-bin, dissent warning, dangerous challenge |
++| Winning team | — | +3 to each player on the side that wins (subs included); floater +2 when there's a winner; draw or "no result" = 0 |
++| Missed rotation | — | −2 to a player who skipped their GK or sub stint. The scorekeeper must confirm rotation was checked before publishing |
+ 
+-The edge-case table below documents v1; the v2 cases are tests S01–S06 and Pick 7 cases P01–P08.
++Every v2 point is itemised by `matchItems()`; `scoreMatch()` totals those items, and `selectorBreakdown()` (in
++`lib/league/pick7Table.ts`) serves the same items to the Pick 7 "where did my points come from" view, so the breakdown
++always adds up to the table (test B01).
++
++The edge-case table below documents v1; the v2 cases are tests S01–S06, W01–W05, R01–R02 and B01, and Pick 7 cases P01–P08 and T01–T08.
+ 
+ ## Pick 7 balance (`lib/league/pick7.ts`)
+ 
+diff --git a/lib/league/ledger.ts b/lib/league/ledger.ts
+index 160bddb..7fc896d 100644
+--- a/lib/league/ledger.ts
++++ b/lib/league/ledger.ts
+@@ -18,6 +18,7 @@ import type {
+   DrawConstraints,
+   FairPlayLoss,
+   GoalEvent,
++  RotationMiss,
+   LeagueSettings,
+   LeagueState,
+   MatchDay,
+@@ -476,7 +477,14 @@ export function saveScorecard(
+   state: LeagueState,
+   matchId: string,
+   events: GoalEvent[],
+-  input: { reason?: string; motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
++  input: {
++    reason?: string;
++    motm?: Partial<Record<Side, string | null>> | null;
++    fairPlayLost?: FairPlayLoss[] | null;
++    rotationMissed?: RotationMiss[] | null;
++    rotationChecked?: boolean;
++    noResult?: boolean;
++  },
+   ctx: Ctx,
+ ): LeagueState {
+   const m = findMatch(state, matchId);
+@@ -513,13 +521,18 @@ export function saveScorecard(
+       ? {
+           motm: { A: input.motm?.A ?? null, B: input.motm?.B ?? null },
+           fairPlayLost: (input.fairPlayLost ?? []).map((f) => ({ playerId: f.playerId, reason: f.reason })),
++          rotationMissed: (input.rotationMissed ?? []).map((r) => ({ playerId: r.playerId, reason: r.reason })),
++          rotationChecked: true,
++          noResult: !!input.noResult,
+         }
+       : {}),
+   };
+   const snap = (x: MatchDay) => ({
+     version: x.scorecardVersion,
+     events: x.events,
+-    ...(version === 2 ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [] } : {}),
++    ...(version === 2
++      ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [], rotationMissed: x.rotationMissed ?? [], noResult: !!x.noResult }
++      : {}),
+   });
+   return replaceMatch(
+     state,
+diff --git a/lib/league/pick7.test.ts b/lib/league/pick7.test.ts
+index b5b7ef2..a87c544 100644
+--- a/lib/league/pick7.test.ts
++++ b/lib/league/pick7.test.ts
+@@ -197,8 +197,8 @@ describe("v2 scoring", () => {
+     const save = (input: Parameters<typeof saveScorecard>[3]) => saveScorecard(s, id, [], input, at("2026-11-20T04:00:00Z"));
+     expect(() => save({ motm: { A: d.teamA[0], B: null } })).toThrow(LedgerError);
+     expect(() => save({ motm: { A: d.teamB[0], B: d.teamB[1] } })).toThrow(LedgerError);
+-    expect(() => save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: "inder", reason: "foul" }] })).toThrow(LedgerError);
+-    s = save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: d.teamA[1], reason: "card" }] });
++    expect(() => save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: "inder", reason: "foul" }], rotationChecked: true })).toThrow(LedgerError);
++    s = save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: d.teamA[1], reason: "card" }], rotationChecked: true });
+     const m = s.matchDays[0];
+     expect(m.status).toBe("played");
+     expect(m.motm).toEqual({ A: d.teamA[0], B: d.teamB[0] });
+diff --git a/lib/league/pick7Table.test.ts b/lib/league/pick7Table.test.ts
+index cc85a16..8090dd7 100644
+--- a/lib/league/pick7Table.test.ts
++++ b/lib/league/pick7Table.test.ts
+@@ -68,7 +68,7 @@ describe("Pick 7 table", () => {
+     s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+     expect(row(s, ids.Ana).points).toBe(0); // drawn, not played
+     const d = s.matchDays[0].draw!;
+-    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] } }, at("2026-11-20T04:00:00Z"));
++    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] }, rotationChecked: true }, at("2026-11-20T04:00:00Z"));
+     // Everyone in SEVEN played (+1 fair play each), plus MOTM +4 for any of them.
+     const motm = [d.teamA[0], d.teamB[0]].filter((x) => SEVEN.includes(x)).length;
+     expect(row(s, ids.Ana)).toMatchObject({ rounds: 1, points: 7 + 4 * motm, rank: 1 });
+@@ -98,7 +98,7 @@ describe("Pick 7 table", () => {
+     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
+     s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+     const d = s.matchDays[0].draw!;
+-    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] } }, at("2026-11-20T04:00:00Z"));
++    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] }, rotationChecked: true }, at("2026-11-20T04:00:00Z"));
+     const before = row(s, ids.Ana).points;
+     s = clearSquad(s, ids.Ana, at("2026-11-21T10:00:00Z"));
+     expect(row(s, ids.Ana)).toMatchObject({ status: "no_pick", points: before, rank: 1 });
+diff --git a/lib/league/pick7Table.ts b/lib/league/pick7Table.ts
+index 19aaeac..2da0874 100644
+--- a/lib/league/pick7Table.ts
++++ b/lib/league/pick7Table.ts
+@@ -12,7 +12,15 @@
+  * points, and a removed seven keeps whatever it had already earned.
+  */
+ import { getPlayer } from "@/config/club";
+-import { buildSelectorStandings, type ScoringRules } from "@/lib/scoring/rules";
++import {
++  buildSelectorStandings,
++  matchItems,
++  playedMatches,
++  scoreline,
++  type ContributionKind,
++  type PointItem,
++  type ScoringRules,
++} from "@/lib/scoring/rules";
+ import { isFormationValid } from "./pick7";
+ import type { LeagueState } from "./types";
+ 
+@@ -109,3 +117,71 @@ export function applyOptimistic(rows: Pick7Row[], userId: string, status: Pick7S
+     ),
+   );
+ }
++
++// ---------------------------------------------------------------------------
++// Points breakdown — "where did my points come from?"
++// ---------------------------------------------------------------------------
++
++export interface PickBreakdown {
++  playerId: string;
++  name: string;
++  played: boolean;
++  items: PointItem[];
++  total: number;
++}
++
++export interface RoundBreakdown {
++  matchId: string;
++  date: string;
++  /** e.g. "White 4–3 Red" */
++  result: string;
++  total: number;
++  picks: PickBreakdown[];
++  /** Times this round's scorecard was corrected (shown as a note). */
++  corrections: number;
++}
++
++export interface SelectorBreakdown {
++  id: string;
++  rounds: RoundBreakdown[];
++  /** Season points by source, for the "where your points came from" bar. */
++  byKind: Partial<Record<ContributionKind, number>>;
++  total: number;
++}
++
++/**
++ * Every played round a selector was entered in, newest first, with each pick's
++ * points itemised. Built from the same matchItems() the scores come from, so
++ * the breakdown always adds up to the table.
++ */
++export function selectorBreakdown(state: LeagueState, rules: ScoringRules, selectorId: string): SelectorBreakdown {
++  const rounds: RoundBreakdown[] = [];
++  const byKind: Partial<Record<ContributionKind, number>> = {};
++  for (const m of playedMatches(state.matchDays)) {
++    const sel = m.selections.find((s) => s.selectorId === selectorId);
++    if (!sel) continue;
++    const items = matchItems(m, rules);
++    const score = scoreline(m.events);
++    const picks = [...new Set(sel.picks)].map((id) => {
++      const list = items.get(id) ?? [];
++      for (const it of list) byKind[it.kind] = (byKind[it.kind] ?? 0) + it.points;
++      return {
++        playerId: id,
++        name: getPlayer(id)?.name ?? id,
++        played: m.attendees.includes(id),
++        items: list,
++        total: list.reduce((t, it) => t + it.points, 0),
++      };
++    });
++    rounds.push({
++      matchId: m.id,
++      date: m.date,
++      result: m.noResult ? `White ${score.A}–${score.B} Red (no result)` : `White ${score.A}–${score.B} Red`,
++      total: picks.reduce((t, p) => t + p.total, 0),
++      picks: picks.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
++      corrections: Math.max(0, m.scorecardVersion - 1),
++    });
++  }
++  rounds.reverse();
++  return { id: selectorId, rounds, byKind, total: rounds.reduce((t, r) => t + r.total, 0) };
++}
+diff --git a/lib/league/types.ts b/lib/league/types.ts
+index 3c4d1bf..91c6625 100644
+--- a/lib/league/types.ts
++++ b/lib/league/types.ts
+@@ -94,6 +94,14 @@ export type RulesVersion = 1 | 2;
+ /** Why a player lost their fair-play point. Each is a yes/no thing someone saw happen. */
+ export type FairPlayBreach = "foul" | "card" | "dissent" | "dangerous";
+ 
++/** Which rotation duty a player skipped. */
++export type RotationLapse = "gk" | "sub";
++
++export interface RotationMiss {
++  playerId: string;
++  reason: RotationLapse;
++}
++
+ export interface FairPlayLoss {
+   playerId: string;
+   reason: FairPlayBreach;
+@@ -168,6 +176,12 @@ export interface MatchDay {
+   motm?: Record<Side, string | null>;
+   /** v2: everyone who played keeps +1 fair play unless listed here. */
+   fairPlayLost?: FairPlayLoss[];
++  /** v2: players who skipped a GK or sub stint (−2 each). */
++  rotationMissed?: RotationMiss[];
++  /** v2: the scorekeeper confirmed they checked rotation (required to publish). */
++  rotationChecked?: boolean;
++  /** v2: abandoned / no result — no win bonus, everything else counts. */
++  noResult?: boolean;
+ }
+ 
+ export interface LeagueSettings {
+diff --git a/lib/league/winRotation.test.ts b/lib/league/winRotation.test.ts
+new file mode 100644
+index 0000000..a36c8fa
+--- /dev/null
++++ b/lib/league/winRotation.test.ts
+@@ -0,0 +1,121 @@
++/** Win bonus, rotation penalty, required rotation check, and the points breakdown adding up. */
++import { describe, expect, it } from "vitest";
++import { POINTS_V2, matchItems, scoreMatch, scoreSelection, winnerOf } from "@/lib/scoring/rules";
++import {
++  DEFAULT_CONSTRAINTS,
++  LedgerError,
++  createMatchDay,
++  initialState,
++  recordDraw,
++  rulesFrom,
++  saveScorecard,
++  setSquad,
++  signUp,
++  type Ctx,
++} from "./ledger";
++import { buildPick7Table, selectorBreakdown } from "./pick7Table";
++import type { GoalEvent, LeagueState } from "./types";
++
++let n = 0;
++const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `wr-${++n}` });
++const SEED = "c".repeat(64);
++const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
++const ALT = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
++
++const draw = { teamA: ["vikram", "robin", "archit"], teamB: ["tadas", "nakul", "jedi"], floater: "ghous" };
++const base = { attendees: [...draw.teamA, ...draw.teamB, draw.floater], rulesVersion: 2 as const, draw, motm: { A: null, B: null } };
++const goal = (side: "A" | "B", scorerId: string, assistId?: string): GoalEvent => ({ id: `g${++n}`, side, kind: "open_play", scorerId, assistId });
++
++describe("winning team bonus", () => {
++  it("W01 +3 to every player on the winning side (subs included), +2 to the floater, 0 to the losers", () => {
++    const lines = scoreMatch({ ...base, events: [goal("A", "vikram"), goal("A", "robin"), goal("B", "nakul")] });
++    for (const id of draw.teamA) expect(lines.get(id)!.wins).toBe(1);
++    expect(lines.get("archit")!.points).toBe(POINTS_V2.win + POINTS_V2.fairPlay);
++    expect(lines.get("tadas")!.points).toBe(POINTS_V2.fairPlay);
++    expect(lines.get("ghous")!.points).toBe(POINTS_V2.floaterWin + POINTS_V2.fairPlay);
++    expect(lines.get("ghous")!.wins).toBe(1);
++  });
++
++  it("W02 own goals decide the result like any goal", () => {
++    expect(winnerOf({ events: [goal("A", "vikram"), { id: "og", side: "B", kind: "own_goal", scorerId: "robin" }, { id: "og2", side: "B", kind: "own_goal", scorerId: "archit" }] })).toBe("B");
++  });
++
++  it("W03 draw or no result: nobody gets the win bonus, everything else still counts", () => {
++    const drawn = scoreMatch({ ...base, events: [goal("A", "vikram"), goal("B", "nakul")] });
++    expect([...drawn.values()].every((l) => l.wins === 0)).toBe(true);
++    const abandoned = scoreMatch({ ...base, noResult: true, events: [goal("A", "vikram")], motm: { A: "vikram", B: "tadas" } });
++    expect(abandoned.get("vikram")).toMatchObject({ wins: 0, goals: 1, motm: 1, points: 3 + 4 + 1 });
++  });
++
++  it("W04 a player who didn't turn up gets nothing, even if their side won", () => {
++    const lines = scoreMatch({ ...base, attendees: base.attendees.filter((x) => x !== "archit"), events: [goal("A", "vikram")] });
++    expect(lines.has("archit")).toBe(false);
++    expect(scoreSelection({ selectorId: "u", picks: ["archit"] }, { ...base, id: "m", attendees: base.attendees.filter((x) => x !== "archit"), events: [goal("A", "vikram")] }).points).toBe(0);
++  });
++
++  it("W05 v1 matches never get a win bonus", () => {
++    const lines = scoreMatch({ ...base, rulesVersion: 1, events: [goal("A", "vikram")] });
++    expect(lines.get("archit")!.points).toBe(0);
++  });
++});
++
++describe("rotation", () => {
++  it("R01 a missed GK or sub stint is −2 to that player, and so to every selector who picked them", () => {
++    const m = { ...base, id: "m", events: [], rotationMissed: [{ playerId: "vikram", reason: "gk" as const }] };
++    const lines = scoreMatch(m);
++    expect(lines.get("vikram")).toMatchObject({ rotationMissed: 1, points: POINTS_V2.fairPlay + POINTS_V2.rotationMiss });
++    expect(scoreSelection({ selectorId: "u", picks: ["vikram", "robin"] }, m).points).toBe(-1 + 1);
++    expect(matchItems(m).get("vikram")!.find((i) => i.kind === "rotation")!.detail).toBe("Skipped GK turn");
++  });
++
++  it("R02 a v2 scorecard can't be published until rotation is confirmed; misses are stored and audited", () => {
++    let s: LeagueState = initialState();
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: [...SEVEN, ...ALT] }, at("2026-11-12T00:00:00Z"));
++    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    const d = s.matchDays[0].draw!;
++    const motm = { A: d.teamA[0], B: d.teamB[0] };
++    expect(() => saveScorecard(s, c.match.id, [], { motm }, at("2026-11-20T04:00:00Z"))).toThrow(LedgerError);
++    expect(() =>
++      saveScorecard(s, c.match.id, [], { motm, rotationChecked: true, rotationMissed: [{ playerId: "inder", reason: "gk" }] }, at("2026-11-20T04:00:00Z")),
++    ).toThrow(LedgerError); // inder didn't attend
++    s = saveScorecard(s, c.match.id, [], { motm, rotationChecked: true, rotationMissed: [{ playerId: d.teamA[1], reason: "sub" }] }, at("2026-11-20T04:00:00Z"));
++    expect(s.matchDays[0]).toMatchObject({ rotationChecked: true, rotationMissed: [{ playerId: d.teamA[1], reason: "sub" }], noResult: false });
++    expect(s.audit.at(-1)!.after).toMatchObject({ rotationMissed: [{ playerId: d.teamA[1], reason: "sub" }] });
++  });
++});
++
++describe("points breakdown", () => {
++  it("B01 every selector's breakdown adds up to their table points, round by round and by source", () => {
++    let s: LeagueState = initialState();
++    const ids: string[] = [];
++    for (const [i, team] of [SEVEN, ALT].entries()) {
++      const r = signUp(s, { email: `b${i}@x.co`, name: `B${i}`, passwordHash: "h" }, at("2026-11-12T00:00:00Z"));
++      s = setSquad(r.state, r.user.id, team, at("2026-11-13T00:00:00Z"));
++      ids.push(r.user.id);
++    }
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: [...SEVEN, ...ALT] }, at("2026-11-12T00:00:00Z"));
++    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    const d = s.matchDays[0].draw!;
++    const events: GoalEvent[] = [goal("A", d.teamA[0], d.teamA[1]), goal("A", d.teamA[2]), goal("B", d.teamB[0])];
++    s = saveScorecard(
++      s,
++      c.match.id,
++      events,
++      { motm: { A: d.teamA[0], B: d.teamB[1] }, rotationChecked: true, rotationMissed: [{ playerId: d.teamB[2], reason: "gk" }], fairPlayLost: [{ playerId: d.teamA[3], reason: "foul" }] },
++      at("2026-11-20T04:00:00Z"),
++    );
++    const rules = rulesFrom(s.settings);
++    const table = buildPick7Table(s, rules);
++    for (const id of ids) {
++      const b = selectorBreakdown(s, rules, id);
++      const row = table.find((r) => r.id === id)!;
++      expect(b.total).toBe(row.points);
++      expect(Object.values(b.byKind).reduce((a, x) => a + (x ?? 0), 0)).toBe(row.points);
++      expect(b.rounds[0].picks.reduce((a, p) => a + p.total, 0)).toBe(b.rounds[0].total);
++      expect(b.rounds[0].result).toBe("White 2–1 Red");
++    }
++    // White won: someone's breakdown shows a 🏆 line with the score.
++    const all = ids.flatMap((id) => selectorBreakdown(s, rules, id).rounds[0].picks.flatMap((p) => p.items));
++    expect(all.some((i) => i.kind === "win" && i.detail === "White won 2–1")).toBe(true);
++  });
++});
+diff --git a/lib/scoring/rules.test.ts b/lib/scoring/rules.test.ts
+index b12c32f..82bba4c 100644
+--- a/lib/scoring/rules.test.ts
++++ b/lib/scoring/rules.test.ts
+@@ -50,7 +50,7 @@ const ON: ScoringRules = { ...DEFAULT_RULES, secondAssistEnabled: true };
+ describe("point values", () => {
+   it("R00 point table matches the brief", () => {
+     expect(POINTS_V1).toEqual({ goal: 5, assist: 3, ownGoal: -2, secondAssist: 1 });
+-    expect(POINTS).toEqual({ goal: 3, assist: 2, ownGoal: -2, motm: 4, fairPlay: 1 });
++    expect(POINTS).toEqual({ goal: 3, assist: 2, ownGoal: -2, motm: 4, fairPlay: 1, win: 3, floaterWin: 2, rotationMiss: -2 });
+     expect(DEFAULT_RULES).toEqual({ secondAssistEnabled: false, deflectionDefault: "own_goal" });
+   });
+ });
+@@ -188,7 +188,7 @@ describe("match & season aggregation", () => {
+ 
+ describe("tie-breaks", () => {
+   const row = (playerId: string, points: number, goals: number, assists: number, perMatch: Record<string, number> = {}): StandingRow => ({
+-    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, played: 0, form: [], rank: 0, sharedRank: false,
++    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, played: 0, form: [], rank: 0, sharedRank: false,
+   });
+ 
+   it("R17 level on points → more goals ranks higher", () => {
+diff --git a/lib/scoring/rules.ts b/lib/scoring/rules.ts
+index 7c0b31a..6287ea1 100644
+--- a/lib/scoring/rules.ts
++++ b/lib/scoring/rules.ts
+@@ -51,7 +51,19 @@
+  *   5. anyone still level shares the rank (competition ranking: 1, 2, 2, 4).
+  */
+ 
+-import type { DeflectionRuling, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, MatchDay, RulesVersion, Side } from "@/lib/league/types";
++import type {
++  DeflectionRuling,
++  DrawResult,
++  FairPlayBreach,
++  FairPlayLoss,
++  GoalEvent,
++  GoalKind,
++  MatchDay,
++  RotationLapse,
++  RotationMiss,
++  RulesVersion,
++  Side,
++} from "@/lib/league/types";
+ 
+ // ---------------------------------------------------------------------------
+ // Point values & rule switches
+@@ -72,6 +84,12 @@ export const POINTS_V2 = {
+   ownGoal: -2,
+   motm: 4,
+   fairPlay: 1,
++  /** Each player on the winning side. */
++  win: 3,
++  /** The floater (half a game each side) when there's a winner. */
++  floaterWin: 2,
++  /** Skipped a goalkeeper or sub stint. */
++  rotationMiss: -2,
+ } as const;
+ 
+ /** The current point values, for pages that show "the rules". */
+@@ -95,6 +113,21 @@ export const FAIR_PLAY_LABEL: Record<FairPlayBreach, { short: string; long: stri
+   dangerous: { short: "Dangerous", long: "Called for a dangerous challenge: slide tackle, high foot, or contact from behind" },
+ };
+ 
++export const ROTATION_LAPSES: readonly RotationLapse[] = ["gk", "sub"];
++export const ROTATION_LABEL: Record<RotationLapse, string> = { gk: "Skipped GK turn", sub: "Skipped sub turn" };
++
++/** Labels for every kind of point, in breakdown order. */
++export const POINT_KIND_LABEL: Record<ContributionKind, { icon: string; label: string }> = {
++  goal: { icon: "⚽", label: "Goals" },
++  assist: { icon: "🅰️", label: "Assists" },
++  second_assist: { icon: "🅰️", label: "Pre-assists" },
++  own_goal: { icon: "🙈", label: "Own goals" },
++  motm: { icon: "⭐", label: "Man of the Match" },
++  win: { icon: "🏆", label: "Wins" },
++  fair_play: { icon: "🤝", label: "Fair play" },
++  rotation: { icon: "🔄", label: "Missed rotation" },
++};
++
+ /** Goal types the v2 scorecard offers (v1 also had header and deflection). */
+ export const GOAL_KINDS_V2: readonly GoalKind[] = ["open_play", "penalty", "free_kick", "own_goal"];
+ 
+@@ -132,7 +165,7 @@ export const GOAL_KIND_LABEL: Record<GoalKind, string> = {
+ // Single event → contributions
+ // ---------------------------------------------------------------------------
+ 
+-export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play";
++export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play" | "win" | "rotation";
+ 
+ export interface Contribution {
+   playerId: string;
+@@ -227,9 +260,12 @@ function scoreEventV2(e: GoalEvent, rules: ScoringRules): EventScore {
+ // Match → per-player lines
+ // ---------------------------------------------------------------------------
+ 
+-/** What scoring needs from a match. `date`/`rulesVersion` pick the rule set; v2 also reads MOTM and fair play. */
++/** What scoring needs from a match. `date`/`rulesVersion` pick the rule set; v2 also reads MOTM, conduct and the draw. */
+ export type ScorableMatch = Pick<MatchDay, "events" | "attendees"> &
+-  Partial<Pick<MatchDay, "date" | "rulesVersion" | "motm" | "fairPlayLost">>;
++  Partial<Pick<MatchDay, "date" | "rulesVersion" | "motm" | "fairPlayLost" | "rotationMissed" | "noResult">> & {
++    /** Needed for the v2 win bonus (who was on which side). */
++    draw?: Pick<DrawResult, "teamA" | "teamB" | "floater"> | null;
++  };
+ 
+ export interface PlayerMatchLine {
+   playerId: string;
+@@ -241,51 +277,112 @@ export interface PlayerMatchLine {
+   motm: number;
+   /** v2: fair-play points kept (0/1 per match). */
+   fairPlay: number;
++  /** v2: on the winning side (0/1 per match). */
++  wins: number;
++  /** v2: rotation stints missed (0/1 per match). */
++  rotationMissed: number;
+   points: number;
+ }
+ 
+ export function emptyLine(playerId: string): PlayerMatchLine {
+-  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, points: 0 };
++  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, points: 0 };
++}
++
++/** One line of a player's points breakdown — every point a player earns comes from exactly one of these. */
++export interface PointItem {
++  kind: ContributionKind;
++  points: number;
++  /** Short human explanation, e.g. "White won 4–3" or "Skipped GK turn". */
++  detail: string;
++  /** The scorecard entry it came from (goals, assists, own goals). */
++  eventId?: string;
+ }
+ 
++/** Which side won on the scoreboard, or null for a draw / no result. */
++export function winnerOf(match: Pick<ScorableMatch, "events" | "noResult">): Side | null {
++  if (match.noResult) return null;
++  const s = scoreline(match.events);
++  return s.A === s.B ? null : s.A > s.B ? "A" : "B";
++}
++
++const SIDE_NAME: Record<Side, string> = { A: "White", B: "Red" };
++
+ /**
+- * Per-player lines for one match. Every attendee gets a line (0 if they didn't
+- * score) so "played, no points" is distinguishable from "didn't play".
++ * Every point in one match, itemised per player. scoreMatch() totals these, so
++ * the breakdown users see is, by construction, exactly what they were scored.
++ * Every attendee gets an entry (possibly empty) so "played, 0" ≠ "didn't play".
+  */
+-export function scoreMatch(match: ScorableMatch, rules: ScoringRules = DEFAULT_RULES): Map<string, PlayerMatchLine> {
++export function matchItems(match: ScorableMatch, rules: ScoringRules = DEFAULT_RULES): Map<string, PointItem[]> {
+   const version = rulesVersionOf(match);
+-  const lines = new Map<string, PlayerMatchLine>();
+-  const line = (id: string) => {
+-    let l = lines.get(id);
+-    if (!l) lines.set(id, (l = emptyLine(id)));
+-    return l;
++  const items = new Map<string, PointItem[]>();
++  const push = (id: string, item: PointItem) => {
++    const list = items.get(id);
++    if (list) list.push(item);
++    else items.set(id, [item]);
+   };
+-  for (const id of match.attendees) line(id);
+-  for (const e of match.events) {
++  for (const id of match.attendees) items.set(id, []);
++
++  match.events.forEach((e, i) => {
++    const n = `Goal ${i + 1}`;
+     for (const c of scoreEvent(e, rules, version).contributions) {
+-      const l = line(c.playerId);
+-      l.points += c.points;
+-      if (c.kind === "goal") l.goals += 1;
+-      else if (c.kind === "assist") l.assists += 1;
+-      else if (c.kind === "second_assist") l.secondAssists += 1;
+-      else if (c.kind === "own_goal") l.ownGoals += 1;
++      const detail =
++        c.kind === "goal" ? `${n}${e.kind === "penalty" ? " (pen)" : e.kind === "free_kick" ? " (free kick)" : ""}`
++        : c.kind === "own_goal" ? `${n}, own goal`
++        : c.kind === "assist" ? `${n}, assist`
++        : `${n}, pre-assist`;
++      push(c.playerId, { kind: c.kind, points: c.points, detail, eventId: e.id });
+     }
++  });
++  if (version !== 2) return items;
++
++  for (const side of ["A", "B"] as Side[]) {
++    const id = match.motm?.[side];
++    if (id) push(id, { kind: "motm", points: POINTS_V2.motm, detail: `Man of the Match (${SIDE_NAME[side]})` });
+   }
+-  if (version === 2) {
+-    for (const id of new Set([match.motm?.A, match.motm?.B])) {
+-      if (!id) continue;
+-      const l = line(id);
+-      l.motm += 1;
+-      l.points += POINTS_V2.motm;
+-    }
+-    const lost = new Set((match.fairPlayLost ?? []).map((f) => f.playerId));
++
++  const win = winnerOf(match);
++  if (win && match.draw) {
++    const s = scoreline(match.events);
++    const score = `${SIDE_NAME[win]} won ${Math.max(s.A, s.B)}–${Math.min(s.A, s.B)}`;
++    const team = win === "A" ? match.draw.teamA : match.draw.teamB;
+     for (const id of match.attendees) {
+-      if (lost.has(id)) continue;
+-      const l = line(id);
+-      l.fairPlay += 1;
+-      l.points += POINTS_V2.fairPlay;
++      if (team.includes(id)) push(id, { kind: "win", points: POINTS_V2.win, detail: score });
++      else if (match.draw.floater === id) push(id, { kind: "win", points: POINTS_V2.floaterWin, detail: `${score} (floater, half a game each side)` });
+     }
+   }
++
++  const lostFair = new Map((match.fairPlayLost ?? []).map((f) => [f.playerId, f.reason]));
++  const missed = new Map((match.rotationMissed ?? []).map((r) => [r.playerId, r.reason]));
++  for (const id of match.attendees) {
++    if (!lostFair.has(id)) push(id, { kind: "fair_play", points: POINTS_V2.fairPlay, detail: "Fair play" });
++    const r = missed.get(id);
++    if (r) push(id, { kind: "rotation", points: POINTS_V2.rotationMiss, detail: ROTATION_LABEL[r] });
++  }
++  return items;
++}
++
++/**
++ * Per-player lines for one match: the totals of matchItems(). Every attendee
++ * gets a line (0 if they didn't score) so "played, no points" is
++ * distinguishable from "didn't play".
++ */
++export function scoreMatch(match: ScorableMatch, rules: ScoringRules = DEFAULT_RULES): Map<string, PlayerMatchLine> {
++  const lines = new Map<string, PlayerMatchLine>();
++  for (const [id, list] of matchItems(match, rules)) {
++    const l = emptyLine(id);
++    for (const it of list) {
++      l.points += it.points;
++      if (it.kind === "goal") l.goals += 1;
++      else if (it.kind === "assist") l.assists += 1;
++      else if (it.kind === "second_assist") l.secondAssists += 1;
++      else if (it.kind === "own_goal") l.ownGoals += 1;
++      else if (it.kind === "motm") l.motm += 1;
++      else if (it.kind === "fair_play") l.fairPlay += 1;
++      else if (it.kind === "win") l.wins += 1;
++      else if (it.kind === "rotation") l.rotationMissed += 1;
++    }
++    lines.set(id, l);
++  }
+   return lines;
+ }
+ 
+@@ -358,6 +455,8 @@ export function buildStandings(
+       r.ownGoals += l.ownGoals;
+       r.motm += l.motm;
+       r.fairPlay += l.fairPlay;
++      r.wins += l.wins;
++      r.rotationMissed += l.rotationMissed;
+       r.points += l.points;
+       r.perMatch[m.id] = l.points;
+       if (m.attendees.includes(l.playerId)) r.played += 1;
+@@ -669,7 +768,12 @@ export function validateScorecard(
+  * must name players who attended, once each, with a listed reason.
+  */
+ export function validateAwards(
+-  input: { motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
++  input: {
++    motm?: Partial<Record<Side, string | null>> | null;
++    fairPlayLost?: FairPlayLoss[] | null;
++    rotationMissed?: RotationMiss[] | null;
++    rotationChecked?: boolean;
++  },
+   ctx: MatchContext,
+ ): ValidationIssue[] {
+   const issues: ValidationIssue[] = [];
+@@ -692,5 +796,13 @@ export function validateAwards(
+     if (seen.has(f.playerId)) err("Fair play: list each player once.");
+     seen.add(f.playerId);
+   }
++  const seenRot = new Set<string>();
++  for (const r of input.rotationMissed ?? []) {
++    if (!ROTATION_LAPSES.includes(r.reason)) err(`Unknown rotation reason "${r.reason}".`);
++    if (!ctx.attendees.includes(r.playerId)) err(`Rotation: "${r.playerId}" didn't attend this match day.`);
++    if (seenRot.has(r.playerId)) err("Rotation: list each player once.");
++    seenRot.add(r.playerId);
++  }
++  if (!input.rotationChecked) err("Confirm you've checked who went in goal and who subbed.");
+   return issues;
+ }
+-- 
+2.43.0
+
