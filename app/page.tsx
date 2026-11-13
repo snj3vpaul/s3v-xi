@@ -1,14 +1,28 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { CLUB, MEMBERS, DROPINS } from "@/config/club";
-import { POINTS } from "@/lib/scoring/rules";
 import { deriveSeason, upcoming } from "@/lib/league/derive";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtKickoff } from "@/lib/league/schedule";
 import { CalendarLinks } from "@/components/CalendarLinks";
 import { getState } from "@/lib/server/store";
-import { Kicker, Name } from "@/components/ui";
+import { Name } from "@/components/ui";
+import { FloodlitPitch } from "@/components/home/FloodlitPitch";
+import { PitchDiagram } from "@/components/home/PitchDiagram";
 
 export const dynamic = "force-dynamic";
+
+/** Headline words, each in its own mask so the line can rise in word by word (pure CSS, no JS needed). */
+function Words({ text, from = 0 }: { text: string; from?: number }) {
+  return text.split(" ").map((w, i) => (
+    <Fragment key={i}>
+      {i > 0 && " "}
+      <span className="w">
+        <span style={{ ["--i" as string]: from + i }}>{w}</span>
+      </span>
+    </Fragment>
+  ));
+}
 
 export default async function Home() {
   const state = await getState();
@@ -16,115 +30,101 @@ export default async function Home() {
   const next = upcoming(state);
   const goals = standings.reduce((s, r) => s + r.goals, 0);
   const top3 = standings.filter((r) => r.played > 0).slice(0, 3);
+  const squad = MEMBERS.length + DROPINS.length;
 
   return (
-    <main className="wrap stack-lg">
-      <section className="hero pitchlines">
-        <div className="eyebrow rise">Free to play · Grassroots soccer · {CLUB.name}</div>
-        <h1 className="rise rise-2">
-          Your club. <em>Your seven.</em>
-        </h1>
-        <p className="lede rise rise-3">
-          {CLUB.strapline} Every match day the hat splits whoever turns up into two teams. The scoresheet
-          does the rest — goals, assists, and the odd own goal. Before kick-off, pick the seven teammates you
-          reckon will deliver.
-        </p>
-        <div className="row rise rise-3">
-          <Link className="btn btn-primary" href="/join">Join the league</Link>
-          <Link className="btn" href="/draw">This week&apos;s draw</Link>
-          <Link className="btn" href="/team">Pick your 7</Link>
-          <Link className="btn" href="/rules">How scoring works</Link>
-        </div>
-      </section>
-
-      <section className="grid grid-3">
-        <div className="panel stat-tile">
-          <div className="v num">{played.length}</div>
-          <div className="l">Match days played</div>
-        </div>
-        <div className="panel stat-tile">
-          <div className="v num">{goals}</div>
-          <div className="l">Goals on the scoresheet</div>
-        </div>
-        <div className="panel stat-tile">
-          <div className="v">{next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : "TBC"}</div>
-          <div className="l">
-            Next: {TEAM_NAMES.A} vs {TEAM_NAMES.B}{next ? ` · ${next.status === "open" ? "Pick 7 open" : "teams drawn"}` : ""}
+    <main className="home">
+      <section className="hero-stage" aria-labelledby="hero-title">
+        <FloodlitPitch />
+        <div className="wrap hero-inner">
+          <p className="eyebrow hero-in" style={{ ["--i" as string]: 0 }}>
+            Free to play · Grassroots soccer · {CLUB.name}
+          </p>
+          <h1 id="hero-title" className="hero-title">
+            <Words text="Your club." from={1} /> <em><Words text="Your seven." from={3} /></em>
+          </h1>
+          <p className="lede hero-in" style={{ ["--i" as string]: 5 }}>
+            {CLUB.strapline} The hat splits whoever turns up into two teams, and the scoresheet does the rest. Before kick-off, back
+            the seven you reckon will deliver.
+          </p>
+          <div className="hero-actions hero-in" style={{ ["--i" as string]: 6 }}>
+            <Link className="btn btn-primary btn-lg" href="/team">Pick your {CLUB.picksPerSelector}</Link>
+            <Link className="text-link" href="/rules">How scoring works <span aria-hidden="true">→</span></Link>
           </div>
+          <p className="next-fixture hero-in" style={{ ["--i" as string]: 7 }}>
+            <span className="dot" aria-hidden="true" />
+            {next ? (
+              <>
+                Next: <b>{TEAM_NAMES.A} vs {TEAM_NAMES.B}</b> · {fmtKickoff(next.kickoffAt, SERIES.timeZone)} ·{" "}
+                {next.status === "open" ? "Pick 7 open" : "teams drawn"}
+              </>
+            ) : (
+              <>Next fixture to be confirmed</>
+            )}
+          </p>
         </div>
       </section>
 
-      <section className="stack">
-        <Kicker label="The idea" no="001" />
-        <div className="grid grid-3">
-          <article className="panel feature">
-            <div className="no">01</div>
-            <h3>The Draw</h3>
-            <p>
-              Nobody picks their mates. A seeded, crypto-random draw splits the {MEMBERS.length} members and{" "}
-              {DROPINS.length} drop-ins who turn up into two even sides — and anyone can re-run the seed to check it.
-            </p>
-          </article>
-          <article className="panel feature">
-            <div className="no">02</div>
-            <h3>The Scoresheet</h3>
-            <p>
-              Points come from one place only: the match scorecard. Goal +{POINTS.goal}. Assist +{POINTS.assist}. Own goal{" "}
-              {POINTS.ownGoal}. That&apos;s it. No ratings, no opinions, no arguments (well, fewer).
-            </p>
-          </article>
-          <article className="panel feature">
-            <div className="no">03</div>
-            <h3>Your Seven</h3>
-            <p>
-              Make an account and pick {CLUB.picksPerSelector} of the 21 you back to get on the scoresheet. Whatever side they
-              land on, their points become yours. Your seven carries over every week — change it before Thursday&apos;s deadline.
-            </p>
-          </article>
-        </div>
-      </section>
+      <div className="wrap">
+        <section className="scoreline" aria-label="Season so far" data-reveal-group>
+          <div className="score-cell">
+            <div className="v num" data-count={played.length}>{played.length}</div>
+            <div className="l">Match days played</div>
+          </div>
+          <div className="score-cell">
+            <div className="v num" data-count={goals}>{goals}</div>
+            <div className="l">Goals on the scoresheet</div>
+          </div>
+          <div className="score-cell">
+            <div className="v num" data-count={squad}>{squad}</div>
+            <div className="l">Players in the hat</div>
+          </div>
+        </section>
+      </div>
 
-      <section className="stack">
-        <Kicker label="Every Thursday" no="002" />
-        <div className="panel row spread">
+      <PitchDiagram />
+
+      <div className="wrap stack-lg home-tail">
+        <section className="fixture-band" data-reveal aria-labelledby="every-thursday">
           <div>
-            <h3 style={{ fontSize: "1.6rem" }}>
-              {TEAM_NAMES.A} <em style={{ color: "var(--muted)" }}>vs</em> {TEAM_NAMES.B} · 10 pm
-            </h3>
-            <p className="muted small" style={{ margin: "0.3rem 0 0" }}>
+            <p className="kicker"><b>Every Thursday</b></p>
+            <h2 id="every-thursday">
+              {TEAM_NAMES.A} <em>vs</em> {TEAM_NAMES.B} · 10 pm
+            </h2>
+            <p className="muted" style={{ margin: "0.5rem 0 0" }}>
               Weekly until summer. Pick 7 locks at kick-off; reminders go out Wednesday evening and Thursday midday.
             </p>
           </div>
           <CalendarLinks />
-        </div>
-      </section>
+        </section>
 
-      <section className="stack">
-        <Kicker label="The table" no="003" />
-        {top3.length ? (
-          <div className="panel">
-            <ol className="stack" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <section className="stack" aria-labelledby="the-table">
+          <div className="row spread">
+            <h2 id="the-table">The table</h2>
+            {top3.length > 0 && (
+              <div className="row">
+                <Link className="text-link" href="/table">Full table <span aria-hidden="true">→</span></Link>
+                <Link className="text-link" href="/stats">Season charts <span aria-hidden="true">→</span></Link>
+              </div>
+            )}
+          </div>
+          {top3.length ? (
+            <ol className="podium-list" data-reveal-group>
               {top3.map((r) => (
-                <li key={r.playerId} className="row spread">
-                  <span className="row">
-                    <span className="rank">{r.rank}</span>
-                    <Name id={r.playerId} />
-                  </span>
-                  <span className="pts num">{r.points}</span>
+                <li key={r.playerId}>
+                  <span className="rank">{r.rank}</span>
+                  <span className="who"><Name id={r.playerId} /></span>
+                  <span className="pts num">{r.points}<small> pts</small></span>
                 </li>
               ))}
             </ol>
-            <div className="row" style={{ marginTop: "1rem" }}>
-              <Link className="btn btn-sm" href="/table">Full table</Link>
-              <Link className="btn btn-sm" href="/stats">Season charts</Link>
+          ) : (
+            <div className="panel muted" data-reveal>
+              The table fills up after the first scorecard. Until then, everyone&apos;s level on zero. Enjoy it.
             </div>
-          </div>
-        ) : (
-          <div className="panel muted">
-            The table fills up after the first scorecard. Until then, everyone&apos;s level on zero — enjoy it.
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      </div>
     </main>
   );
 }

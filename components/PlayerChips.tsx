@@ -33,7 +33,12 @@ export function PlayerChips({
                 onClick={() => onToggle(p.id)}
               >
                 {p.name}
-                {p.kind === "dropin" && <span className="badge badge-dropin" style={{ color: on ? "inherit" : undefined }}>D</span>}
+                {p.kind === "dropin" && (
+                  <span className="badge badge-dropin" style={{ color: on ? "inherit" : undefined }}>
+                    <span aria-hidden="true">D</span>
+                    <span className="sr-only">drop-in</span>
+                  </span>
+                )}
               </button>
             );
           })}
@@ -43,6 +48,11 @@ export function PlayerChips({
   };
   return (
     <div>
+      {full && (
+        <p className="small muted" style={{ margin: "0.4rem 0 0" }}>
+          All {max} picked. Remove one to swap someone in.
+        </p>
+      )}
       {group("Members", MEMBERS)}
       {group("Drop-ins", DROPINS)}
     </div>

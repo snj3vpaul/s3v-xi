@@ -9,7 +9,6 @@ const LINKS = [
   ["/table", "Table"],
   ["/stats", "Stats"],
   ["/rules", "Rules"],
-  ["/admin", "Admin"],
 ] as const;
 
 export function Nav({ userName }: { userName: string | null }) {

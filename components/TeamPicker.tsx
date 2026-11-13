@@ -10,6 +10,7 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
   const [picks, setPicks] = useState<string[]>(initial);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [said, setSaid] = useState("");
   const need = CLUB.picksPerSelector;
   const dirty = picks.length !== initial.length || picks.some((p) => !initial.includes(p));
 
@@ -24,7 +25,11 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
               {id ? (
                 <>
                   <span style={{ flex: 1 }}>{playerName(id)}</span>
-                  <button type="button" className="btn btn-sm" style={{ minHeight: 28, padding: "0 0.5rem" }} aria-label={`Remove ${playerName(id)}`} onClick={() => setPicks(picks.filter((x) => x !== id))}>✕</button>
+                  <button type="button" className="btn btn-sm" style={{ minHeight: 28, padding: "0 0.5rem" }} aria-label={`Remove ${playerName(id)}`} onClick={() => {
+                      const left = picks.filter((x) => x !== id);
+                      setPicks(left);
+                      setSaid(`Removed ${playerName(id)}. ${left.length} of ${need} picked.`);
+                    }}>✕</button>
                 </>
               ) : (
                 <span>Empty</span>
@@ -36,9 +41,19 @@ export function TeamPicker({ initial, deadlineLabel }: { initial: string[]; dead
       <div>
         <div className="row spread">
           <h3>Choose from the squad</h3>
-          <span className="num" aria-live="polite">{picks.length}/{need}</span>
+          <span className="num" aria-hidden="true">{picks.length}/{need}</span>
         </div>
-        <PlayerChips selected={picks} max={need} onToggle={(id) => setPicks((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))} />
+        <p className="sr-only" aria-live="polite" aria-atomic="true">{said}</p>
+        <PlayerChips
+          selected={picks}
+          max={need}
+          onToggle={(id) => {
+            const on = picks.includes(id);
+            const nextPicks = on ? picks.filter((x) => x !== id) : [...picks, id];
+            setPicks(nextPicks);
+            setSaid(`${on ? "Removed" : "Added"} ${playerName(id)}. ${nextPicks.length} of ${need} picked.`);
+          }}
+        />
       </div>
       <div className="row">
         <button
