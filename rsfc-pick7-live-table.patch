@@ -1,0 +1,891 @@
+From db9d5819cf04a9ebd042d79514535ba73dd848af Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 12:00:12 -0500
+Subject: [PATCH] Live Pick 7 table: everyone on 0 the moment they pick,
+ optimistic updates, remove team
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- New derived table (lib/league/pick7Table.ts) lists every account in one of
+  three states: no_pick (unranked, shows "–"), picked (ranked, from 0 points)
+  and needs_fix (old pre-formation seven). Points are never stored: they are
+  the sum of played rounds, so a new pick is 0, edits before the deadline
+  can't move points, and a removed seven keeps what it already earned.
+- Ranking: points desc, hits desc (shared rank), then earliest first pick.
+- GET /api/pick7/table (no-store) serves names, status and points only;
+  picks stay hidden until the week locks.
+- DELETE /api/me/squad + clearSquad(): removes the standing seven (audited as
+  squad.clear); it isn't entered at later draws. currentSquad/squadAt treat a
+  removed seven as no team everywhere (banner, reminders, draw counts).
+- <Pick7Table>: server-rendered rows, optimistic "Saving…" row the instant the
+  picker saves or removes, rollback on error, refetch on confirm, 15 s polling
+  while visible, refetch on focus, and cross-tab refresh via BroadcastChannel.
+- Shown on My Team and on /table (now visible before any match is played).
+- "Remove my team" two-step button in the picker.
+
+Tests: 85 (8 new in lib/league/pick7Table.test.ts).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PtuBR2yKPy8UddCaB5RWRB
+---
+ app/admin/page.tsx            |   4 +-
+ app/api/me/squad/route.ts     |  10 ++-
+ app/api/pick7/table/route.ts  |  17 +++++
+ app/draw/page.tsx             |   3 +-
+ app/globals.css               |  17 +++++
+ app/table/page.tsx            |  42 ++++-------
+ app/team/page.tsx             |  23 ++++--
+ components/Pick7Table.tsx     | 138 ++++++++++++++++++++++++++++++++++
+ components/TeamPicker.tsx     |  35 +++++++++
+ components/pick7Live.ts       |  33 ++++++++
+ lib/league/ledger.ts          |  25 +++++-
+ lib/league/pick7Table.test.ts | 128 +++++++++++++++++++++++++++++++
+ lib/league/pick7Table.ts      | 111 +++++++++++++++++++++++++++
+ lib/league/types.ts           |   4 +-
+ 14 files changed, 549 insertions(+), 41 deletions(-)
+ create mode 100644 app/api/pick7/table/route.ts
+ create mode 100644 components/Pick7Table.tsx
+ create mode 100644 components/pick7Live.ts
+ create mode 100644 lib/league/pick7Table.test.ts
+ create mode 100644 lib/league/pick7Table.ts
+
+diff --git a/app/admin/page.tsx b/app/admin/page.tsx
+index 93cd197..e21b0cd 100644
+--- a/app/admin/page.tsx
++++ b/app/admin/page.tsx
+@@ -3,6 +3,7 @@ import Link from "next/link";
+ import { playerName } from "@/config/club";
+ import { fmtDate } from "@/lib/league/derive";
+ import type { AuditEntry } from "@/lib/league/types";
++import { currentSquad } from "@/lib/league/ledger";
+ import { isAdmin } from "@/lib/server/auth";
+ import { getState, storageMode } from "@/lib/server/store";
+ import { AdminLogin, AdminLogout } from "@/components/AdminLogin";
+@@ -25,6 +26,7 @@ const ACTION: Record<AuditEntry["action"], string> = {
+   "draw.reset": "Draw reset",
+   "selection.submit": "Pick 7 submitted",
+   "squad.update": "Pick 7 team changed",
++  "squad.clear": "Pick 7 team removed",
+   "fixtures.create": "Weekly fixtures created",
+   "user.signup": "Account created",
+   "user.update": "Account updated",
+@@ -132,7 +134,7 @@ export default async function AdminPage() {
+             name: u.name,
+             email: u.email,
+             player: u.playerId ? playerName(u.playerId) : null,
+-            hasTeam: u.squadHistory.length > 0,
++            hasTeam: currentSquad(u) !== null,
+             reminders: u.emailReminders,
+             createdAt: u.createdAt,
+           }))}
+diff --git a/app/api/me/squad/route.ts b/app/api/me/squad/route.ts
+index 6960312..eede0ef 100644
+--- a/app/api/me/squad/route.ts
++++ b/app/api/me/squad/route.ts
+@@ -1,11 +1,19 @@
+-import { setSquad } from "@/lib/league/ledger";
++import { clearSquad, setSquad } from "@/lib/league/ledger";
+ import { HttpError, body, handle } from "@/lib/server/http";
+ import { currentUser } from "@/lib/server/session";
+ import { ctx, mutate } from "@/lib/server/store";
+ 
++/** Save (create or edit) the standing seven. Validation and the 0-point start are in the ledger. */
+ export const PUT = handle(async (req) => {
+   const me = await currentUser();
+   if (!me) throw new HttpError(401, "Log in to pick your seven.");
+   const { picks } = await body<{ picks?: string[] }>(req);
+   await mutate((s) => setSquad(s, me.id, Array.isArray(picks) ? picks : [], ctx()));
+ });
++
++/** Remove the standing seven: back to "no pick" from the next unlocked match day. */
++export const DELETE = handle(async () => {
++  const me = await currentUser();
++  if (!me) throw new HttpError(401, "Log in first.");
++  await mutate((s) => clearSquad(s, me.id, ctx()));
++});
+diff --git a/app/api/pick7/table/route.ts b/app/api/pick7/table/route.ts
+new file mode 100644
+index 0000000..bbfdb72
+--- /dev/null
++++ b/app/api/pick7/table/route.ts
+@@ -0,0 +1,17 @@
++import { NextResponse } from "next/server";
++import { rulesFrom } from "@/lib/league/ledger";
++import { buildPick7Table } from "@/lib/league/pick7Table";
++import { handle } from "@/lib/server/http";
++import { getState } from "@/lib/server/store";
++
++export const dynamic = "force-dynamic";
++
++/**
++ * The live Pick 7 table: names, status, points. Never which players anyone
++ * picked — those stay hidden until the week locks.
++ */
++export const GET = handle(async () => {
++  const state = await getState();
++  const rows = buildPick7Table(state, rulesFrom(state.settings));
++  return NextResponse.json({ rows, at: new Date().toISOString() }, { headers: { "Cache-Control": "no-store" } });
++});
+diff --git a/app/draw/page.tsx b/app/draw/page.tsx
+index 4b920a4..998852f 100644
+--- a/app/draw/page.tsx
++++ b/app/draw/page.tsx
+@@ -5,6 +5,7 @@ import { formatLabel } from "@/lib/draw/draw";
+ import { SERIES, TEAM_NAMES } from "@/config/schedule";
+ import { fmtKickoff } from "@/lib/league/schedule";
+ import { fmtDate, upcoming } from "@/lib/league/derive";
++import { currentSquad } from "@/lib/league/ledger";
+ import { isAdmin } from "@/lib/server/auth";
+ import { getState } from "@/lib/server/store";
+ import { AttendanceEditor } from "@/components/AttendanceEditor";
+@@ -19,7 +20,7 @@ export const metadata: Metadata = { title: "Match-day draw" };
+ export default async function DrawPage() {
+   const [state, admin] = await Promise.all([getState(), isAdmin()]);
+   const m = upcoming(state);
+-  const withTeam = state.users.filter((u) => u.squadHistory.length).length;
++  const withTeam = state.users.filter((u) => currentSquad(u)).length;
+ 
+   return (
+     <main className="wrap stack-lg">
+diff --git a/app/globals.css b/app/globals.css
+index 33750c7..57aba3b 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -635,3 +635,20 @@ html.lenis, html.lenis body { height: auto; }
+ .fair-row label { margin: 0; display: inline-flex; align-items: center; gap: 0.45rem; text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 0.92rem; color: var(--text); min-width: 9rem; }
+ .fair-row .chips { gap: 0.3rem; }
+ .fair-row .chip { padding: 0.2rem 0.65rem; font-size: 0.78rem; }
++
++/* Live Pick 7 table */
++.p7-status {
++  display: inline-block; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase;
++  padding: 0.2rem 0.55rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
++}
++.p7-picked { color: var(--accent); border-color: var(--accent); }
++.p7-fix { color: var(--danger); border-color: rgba(158, 59, 46, 0.45); }
++.p7-none { border-style: dashed; }
++.p7-saving { color: var(--bronze-deep); border-color: var(--champagne); animation: p7-pulse 1.1s ease-in-out infinite; }
++.p7-table tr.p7-me td { background: var(--surface-sunk); }
++.p7-table tr.p7-waiting td { color: var(--muted); }
++.p7-table tr.p7-flash td { animation: p7-flash 1.6s ease-out; }
++.p7-live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 0.3rem; vertical-align: middle; }
++@keyframes p7-pulse { 50% { opacity: 0.45; } }
++@keyframes p7-flash { from { background: rgba(201, 168, 92, 0.35); } }
++@media (prefers-reduced-motion: reduce) { .p7-saving, .p7-table tr.p7-flash td { animation: none; } }
+diff --git a/app/table/page.tsx b/app/table/page.tsx
+index fe40af5..d2ef4a3 100644
+--- a/app/table/page.tsx
++++ b/app/table/page.tsx
+@@ -3,6 +3,10 @@ import type { Metadata } from "next";
+ import { isDropIn, playerName } from "@/config/club";
+ import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
+ import { getState } from "@/lib/server/store";
++import { currentUser } from "@/lib/server/session";
++import { rulesFrom } from "@/lib/league/ledger";
++import { buildPick7Table } from "@/lib/league/pick7Table";
++import { Pick7Table } from "@/components/Pick7Table";
+ import { Sparkline } from "@/components/charts/Sparkline";
+ import { Empty, Kicker, Name } from "@/components/ui";
+ 
+@@ -10,7 +14,8 @@ export const dynamic = "force-dynamic";
+ export const metadata: Metadata = { title: "Table" };
+ 
+ export default async function TablePage() {
+-  const state = await getState();
++  const [state, me] = await Promise.all([getState(), currentUser()]);
++  const pick7 = buildPick7Table(state, rulesFrom(state.settings));
+   const { played, standings, selectors, awards } = deriveSeason(state);
+   const dateOf = Object.fromEntries(played.map((m) => [m.id, shortDate(m.date)]));
+ 
+@@ -84,35 +89,16 @@ export default async function TablePage() {
+             </p>
+           </section>
+ 
+-          <section className="panel">
+-            <div className="panel-head">
+-              <h2>Pick 7 selectors</h2>
+-              <span className="small muted">Hit = a pick who scored or assisted</span>
+-            </div>
+-            {selectors.length ? (
+-              <div className="table-wrap">
+-                <table>
+-                  <thead><tr><th>#</th><th>Selector</th><th className="r">Rounds</th><th className="r">Hits</th><th className="r hide-sm">Hit rate</th><th className="r">Pts</th></tr></thead>
+-                  <tbody>
+-                    {selectors.map((s) => (
+-                      <tr key={s.selectorId}>
+-                        <td className="rank">{s.rank}{s.sharedRank ? "=" : ""}</td>
+-                        <td>{selectorName(state, s.selectorId)}</td>
+-                        <td className="r">{s.rounds}</td>
+-                        <td className="r">{s.hits}/{s.totalPicks}</td>
+-                        <td className="r hide-sm">{Math.round(s.hitRate * 100)}%</td>
+-                        <td className="r pts">{s.points}</td>
+-                      </tr>
+-                    ))}
+-                  </tbody>
+-                </table>
+-              </div>
+-            ) : (
+-              <p className="muted">No pick-7 entries on played match days yet.</p>
+-            )}
+-          </section>
+         </>
+       )}
++
++      <section className="panel" id="pick7">
++        <div className="panel-head">
++          <h2>Pick 7 table</h2>
++          <span className="small muted">Hit = a pick who scored or assisted</span>
++        </div>
++        <Pick7Table initial={pick7} meId={me?.id ?? null} />
++      </section>
+     </main>
+   );
+ }
+diff --git a/app/team/page.tsx b/app/team/page.tsx
+index 9e1e10c..2b548ff 100644
+--- a/app/team/page.tsx
++++ b/app/team/page.tsx
+@@ -2,9 +2,11 @@ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
+ import { SERIES, TEAM_NAMES } from "@/config/schedule";
+-import { deriveSeason, fmtDate, selectorName, upcoming } from "@/lib/league/derive";
++import { fmtDate, selectorName, upcoming } from "@/lib/league/derive";
+ import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
+ import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
++import { buildPick7Table } from "@/lib/league/pick7Table";
++import { Pick7Table } from "@/components/Pick7Table";
+ import { fmtKickoff } from "@/lib/league/schedule";
+ import { playedMatches, scoreSelection } from "@/lib/scoring/rules";
+ import { currentUser } from "@/lib/server/session";
+@@ -23,7 +25,8 @@ export default async function TeamPage() {
+   const live = upcoming(state, now);
+   const lockedNow = live && live.status === "drawn" ? live : null;
+   const rules = rulesFrom(state.settings);
+-  const { selectors } = deriveSeason(state);
++  const pick7 = buildPick7Table(state, rules);
++  const rankedCount = pick7.filter((r) => r.rank !== null).length;
+   const played = playedMatches(state.matchDays);
+   const last = played.at(-1);
+   const lastResults = last
+@@ -33,7 +36,7 @@ export default async function TeamPage() {
+   const legacy = squad.length > 0 && !isFormationValid(squad);
+   const stars = currentStars(state.matchDays);
+   const ownership = lastOwnership(state.matchDays);
+-  const myRow = me ? selectors.find((s) => s.selectorId === me.id) : undefined;
++  const myRow = me ? pick7.find((r) => r.id === me.id && r.rank !== null) : undefined;
+   const myRounds = me
+     ? played
+         .map((m) => ({ m, sel: m.selections.find((s) => s.selectorId === me.id) }))
+@@ -110,12 +113,12 @@ export default async function TeamPage() {
+               <h3>My season</h3>
+               {myRow ? (
+                 <div className="grid grid-3" style={{ gap: "0.5rem" }}>
+-                  <div className="stat-tile"><div className="v num">{myRow.rank}{myRow.sharedRank ? "=" : ""}</div><div className="l">of {selectors.length} selectors</div></div>
++                  <div className="stat-tile"><div className="v num">{myRow.rank}{myRow.sharedRank ? "=" : ""}</div><div className="l">of {rankedCount} selectors</div></div>
+                   <div className="stat-tile"><div className="v num">{myRow.points}</div><div className="l">points</div></div>
+-                  <div className="stat-tile"><div className="v num">{Math.round(myRow.hitRate * 100)}%</div><div className="l">hit rate</div></div>
++                  <div className="stat-tile"><div className="v num">{myRow.totalPicks ? Math.round((myRow.hits / myRow.totalPicks) * 100) : 0}%</div><div className="l">hit rate</div></div>
+                 </div>
+               ) : (
+-                <p className="muted" style={{ margin: 0 }}>Your first round counts once a match you picked for is played.</p>
++                <p className="muted" style={{ margin: 0 }}>Pick your seven to join the table on 0 points.</p>
+               )}
+               {myRounds.length > 0 && (
+                 <div className="table-wrap">
+@@ -146,6 +149,14 @@ export default async function TeamPage() {
+         </>
+       )}
+ 
++      <section className="panel stack" id="pick7-table">
++        <div className="panel-head">
++          <h2>Pick 7 table</h2>
++          <Link href="/table#pick7">Full table</Link>
++        </div>
++        <Pick7Table initial={pick7} meId={me?.id ?? null} />
++      </section>
++
+       {lockedNow && lockedNow.selections.length > 0 && (
+         <section className="panel stack">
+           <div className="panel-head">
+diff --git a/components/Pick7Table.tsx b/components/Pick7Table.tsx
+new file mode 100644
+index 0000000..a4b0b5d
+--- /dev/null
++++ b/components/Pick7Table.tsx
+@@ -0,0 +1,138 @@
++"use client";
++import { useCallback, useEffect, useRef, useState } from "react";
++import { applyOptimistic, type Pick7Row, type Pick7Status } from "@/lib/league/pick7Table";
++import { onPick7 } from "./pick7Live";
++
++const POLL_MS = 15_000;
++
++const STATUS: Record<Pick7Status, { label: string; cls: string }> = {
++  picked: { label: "Picked", cls: "p7-picked" },
++  needs_fix: { label: "Fix needed", cls: "p7-fix" },
++  no_pick: { label: "No pick yet", cls: "p7-none" },
++};
++
++/**
++ * The live Pick 7 table. Starts from server-rendered rows, then:
++ *  - applies the signed-in user's change optimistically the moment they save or remove,
++ *  - refetches when the server confirms (or rolls back if it refused),
++ *  - polls every 15 s while the tab is visible, and refetches on focus,
++ *  - refetches when another tab of this browser saves.
++ */
++export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: string | null }) {
++  const [rows, setRows] = useState(initial);
++  const [overlay, setOverlay] = useState<Pick7Status | null>(null);
++  const [updatedAt, setUpdatedAt] = useState(() => Date.now());
++  const [flash, setFlash] = useState(false);
++  const inflight = useRef<AbortController | null>(null);
++
++  const refetch = useCallback(async () => {
++    inflight.current?.abort();
++    const ac = new AbortController();
++    inflight.current = ac;
++    try {
++      const res = await fetch("/api/pick7/table", { cache: "no-store", signal: ac.signal });
++      if (!res.ok) return false;
++      const data = (await res.json()) as { rows: Pick7Row[] };
++      setRows(data.rows);
++      setUpdatedAt(Date.now());
++      return true;
++    } catch {
++      return false;
++    }
++  }, []);
++
++  // Keep in sync with a server re-render (router.refresh) too.
++  useEffect(() => setRows(initial), [initial]);
++
++  useEffect(() => {
++    const tick = () => document.visibilityState === "visible" && refetch();
++    const t = setInterval(tick, POLL_MS);
++    window.addEventListener("focus", tick);
++    document.addEventListener("visibilitychange", tick);
++    const off = onPick7(
++      async (s) => {
++        if (s.kind === "optimistic") {
++          setOverlay(s.status);
++          setFlash(true);
++        } else if (s.ok) {
++          await refetch();
++          setOverlay(null);
++        } else {
++          setOverlay(null); // roll back
++        }
++      },
++      () => void refetch(),
++    );
++    return () => {
++      clearInterval(t);
++      window.removeEventListener("focus", tick);
++      document.removeEventListener("visibilitychange", tick);
++      off();
++      inflight.current?.abort();
++    };
++  }, [refetch]);
++
++  useEffect(() => {
++    if (!flash) return;
++    const t = setTimeout(() => setFlash(false), 1600);
++    return () => clearTimeout(t);
++  }, [flash]);
++
++  const shown = overlay && meId ? applyOptimistic(rows, meId, overlay, new Date().toISOString()) : rows;
++  const ranked = shown.filter((r) => r.rank !== null);
++  const waiting = shown.filter((r) => r.rank === null);
++
++  if (!shown.length) return <p className="muted">No accounts yet. The first person to join and pick starts the table.</p>;
++
++  return (
++    <div className="stack">
++      <div className="table-wrap">
++        <table className="p7-table">
++          <thead>
++            <tr>
++              <th>#</th><th>Selector</th><th>Status</th>
++              <th className="r hide-sm">Rounds</th><th className="r hide-sm">Hits</th><th className="r">Pts</th>
++            </tr>
++          </thead>
++          <tbody>
++            {[...ranked, ...waiting].map((r) => {
++              const mine = r.id === meId;
++              const pending = mine && overlay !== null;
++              const st = STATUS[r.status];
++              const onTable = r.rank !== null;
++              return (
++                <tr key={r.id} className={`${mine ? "p7-me" : ""}${mine && flash ? " p7-flash" : ""}${onTable ? "" : " p7-waiting"}`}>
++                  <td className="rank">{onTable ? `${r.rank}${r.sharedRank ? "=" : ""}` : "–"}</td>
++                  <td>
++                    {r.name}
++                    {mine && <span className="badge badge-kit" style={{ marginLeft: "0.4rem" }}>You</span>}
++                  </td>
++                  <td>
++                    <span className={`p7-status ${pending ? "p7-saving" : st.cls}`}>{pending ? "Saving…" : st.label}</span>
++                  </td>
++                  <td className="r hide-sm">{onTable ? r.rounds : "–"}</td>
++                  <td className="r hide-sm">{onTable ? `${r.hits}/${r.totalPicks}` : "–"}</td>
++                  <td className="r pts">{onTable ? r.points : <span className="muted">–</span>}</td>
++                </tr>
++              );
++            })}
++          </tbody>
++        </table>
++      </div>
++      <p className="small muted" style={{ margin: 0 }} aria-live="off">
++        <span className="p7-live-dot" aria-hidden="true" /> Live · updated <Ago at={updatedAt} />. Everyone starts on 0 the moment they pick; points
++        arrive when a match they picked for is played. Which players people picked stays hidden until the week locks.
++      </p>
++    </div>
++  );
++}
++
++function Ago({ at }: { at: number }) {
++  const [now, setNow] = useState(() => Date.now());
++  useEffect(() => {
++    const t = setInterval(() => setNow(Date.now()), 5_000);
++    return () => clearInterval(t);
++  }, []);
++  const s = Math.max(0, Math.round((now - at) / 1000));
++  return <span suppressHydrationWarning>{s < 5 ? "just now" : s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`}</span>;
++}
+diff --git a/components/TeamPicker.tsx b/components/TeamPicker.tsx
+index 124c9c8..5ff8418 100644
+--- a/components/TeamPicker.tsx
++++ b/components/TeamPicker.tsx
+@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
+ import { CLUB, FORMATION, PICK7, PICKABLE, POSITIONS, POSITION_LABEL, getPlayer, playerName, type Position } from "@/config/club";
+ import { checkTeam, isFormationValid, starsTotal, type StarMap } from "@/lib/league/pick7";
+ import { api } from "./api";
++import { emitPick7 } from "./pick7Live";
+ import { Mascot } from "./Mascot";
+ 
+ const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+@@ -43,6 +44,8 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }:
+   const [said, setSaid] = useState("");
+   /** A player tapped while their position was full: choose who they replace. */
+   const [swapIn, setSwapIn] = useState<string | null>(null);
++  /** Two-step removal: first tap arms it, second tap removes. */
++  const [confirmRemove, setConfirmRemove] = useState(false);
+   const need = CLUB.picksPerSelector;
+   const dirty = picks.length !== saved.length || picks.some((p) => !saved.includes(p));
+ 
+@@ -344,11 +347,14 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }:
+           onClick={async () => {
+             setBusy(true);
+             setMsg(null);
++            emitPick7({ kind: "optimistic", status: "picked" }); // the table shows you on 0 right away
+             try {
+               await api("/api/me/squad", "PUT", { picks });
++              emitPick7({ kind: "settled", ok: true });
+               setMsg({ ok: true, text: deadlineLabel ? `Saved. Locked in for ${deadlineLabel} — and every week after until you change it.` : "Saved." });
+               router.refresh();
+             } catch (e) {
++              emitPick7({ kind: "settled", ok: false });
+               setMsg({ ok: false, text: (e as Error).message });
+             } finally {
+               setBusy(false);
+@@ -358,6 +364,35 @@ export function TeamPicker({ initial, saved, stars, ownership, deadlineLabel }:
+           {saveLabel}
+         </button>
+         {dirty && saved.length > 0 && <button className="btn btn-sm" onClick={() => { setPicks(initial); setSwapIn(null); }}>Undo</button>}
++        {saved.length > 0 && !dirty && (
++          <button
++            type="button"
++            className={`btn btn-sm${confirmRemove ? " btn-danger" : ""}`}
++            disabled={busy}
++            onBlur={() => setConfirmRemove(false)}
++            onClick={async () => {
++              if (!confirmRemove) return setConfirmRemove(true);
++              setConfirmRemove(false);
++              setBusy(true);
++              setMsg(null);
++              emitPick7({ kind: "optimistic", status: "no_pick" });
++              try {
++                await api("/api/me/squad", "DELETE");
++                emitPick7({ kind: "settled", ok: true });
++                setPicks([]);
++                setMsg({ ok: true, text: "Team removed. You won't be entered until you pick again." });
++                router.refresh();
++              } catch (e) {
++                emitPick7({ kind: "settled", ok: false });
++                setMsg({ ok: false, text: (e as Error).message });
++              } finally {
++                setBusy(false);
++              }
++            }}
++          >
++            {confirmRemove ? "Tap again to remove" : "Remove my team"}
++          </button>
++        )}
+         {msg && <span className={`small ${msg.ok ? "" : "neg"}`} role="status">{msg.text}</span>}
+       </div>
+     </div>
+diff --git a/components/pick7Live.ts b/components/pick7Live.ts
+new file mode 100644
+index 0000000..caec18b
+--- /dev/null
++++ b/components/pick7Live.ts
+@@ -0,0 +1,33 @@
++"use client";
++/**
++ * Tiny signal bus between the picker and the live Pick 7 table.
++ *  - "optimistic": a save/removal was just sent; show it now.
++ *  - "settled":    the server answered; refetch (ok) or roll back (failed).
++ * Other open tabs hear about successful changes through a BroadcastChannel.
++ */
++import type { Pick7Status } from "@/lib/league/pick7Table";
++
++export type Pick7Signal = { kind: "optimistic"; status: Pick7Status } | { kind: "settled"; ok: boolean };
++
++const EVENT = "pick7";
++const CHANNEL = "rsfc-pick7";
++
++export function emitPick7(signal: Pick7Signal) {
++  window.dispatchEvent(new CustomEvent<Pick7Signal>(EVENT, { detail: signal }));
++  if (signal.kind === "settled" && signal.ok && "BroadcastChannel" in window) {
++    const ch = new BroadcastChannel(CHANNEL);
++    ch.postMessage("changed");
++    ch.close();
++  }
++}
++
++export function onPick7(fn: (s: Pick7Signal) => void, onOtherTab: () => void): () => void {
++  const local = (e: Event) => fn((e as CustomEvent<Pick7Signal>).detail);
++  window.addEventListener(EVENT, local);
++  const ch = "BroadcastChannel" in window ? new BroadcastChannel(CHANNEL) : null;
++  if (ch) ch.onmessage = onOtherTab;
++  return () => {
++    window.removeEventListener(EVENT, local);
++    ch?.close();
++  };
++}
+diff --git a/lib/league/ledger.ts b/lib/league/ledger.ts
+index 90eef1f..160bddb 100644
+--- a/lib/league/ledger.ts
++++ b/lib/league/ledger.ts
+@@ -239,15 +239,17 @@ export function resetDraw(state: LeagueState, matchId: string, reason: string, c
+ // Pick 7 — standing team (FPL-style carry-over)
+ // ---------------------------------------------------------------------------
+ 
+-/** The user's seven as it stood at `atIso` (latest change at or before it), or null. */
++/** The user's seven as it stood at `atIso` (latest change at or before it), or null (none / removed). */
+ export function squadAt(user: Pick<User, "squadHistory">, atIso: string): string[] | null {
+   let best: string[] | null = null;
+   for (const h of user.squadHistory) if (h.at <= atIso) best = h.picks;
+-  return best;
++  return best?.length ? best : null;
+ }
+ 
++/** The user's current seven, or null if they never picked or removed it. */
+ export function currentSquad(user: Pick<User, "squadHistory">): string[] | null {
+-  return user.squadHistory.at(-1)?.picks ?? null;
++  const last = user.squadHistory.at(-1)?.picks;
++  return last?.length ? last : null;
+ }
+ 
+ /**
+@@ -288,6 +290,23 @@ export function setSquad(state: LeagueState, userId: string, picks: string[], ct
+   };
+ }
+ 
++/**
++ * Remove the standing seven: the user goes back to "no pick" for every match
++ * day whose deadline is still ahead. Weeks already locked keep their snapshot,
++ * and points already earned stay on the table.
++ */
++export function clearSquad(state: LeagueState, userId: string, ctx: Ctx): LeagueState {
++  const u = state.users.find((x) => x.id === userId);
++  if (!u) throw new LedgerError("Account not found.");
++  const prev = currentSquad(u);
++  if (!prev) return state; // nothing to remove
++  return {
++    ...state,
++    users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, { picks: [], at: ctx.now.toISOString() }] } : x)),
++    audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "squad.clear", before: prev })],
++  };
++}
++
+ /** The next match day whose Pick 7 deadline hasn't passed (still open, kick-off in the future). */
+ export function nextDeadlineMatch(state: LeagueState, now: Date): MatchDay | null {
+   return (
+diff --git a/lib/league/pick7Table.test.ts b/lib/league/pick7Table.test.ts
+new file mode 100644
+index 0000000..cc85a16
+--- /dev/null
++++ b/lib/league/pick7Table.test.ts
+@@ -0,0 +1,128 @@
++/** The live Pick 7 table: no pick vs picked-on-0, edits, removal, ranking and optimistic updates. */
++import { describe, expect, it } from "vitest";
++import {
++  DEFAULT_CONSTRAINTS,
++  clearSquad,
++  createMatchDay,
++  currentSquad,
++  initialState,
++  recordDraw,
++  rulesFrom,
++  saveScorecard,
++  setSquad,
++  signUp,
++  type Ctx,
++} from "./ledger";
++import { applyOptimistic, buildPick7Table, rankPick7, type Pick7Row } from "./pick7Table";
++import type { LeagueState, User } from "./types";
++
++let n = 0;
++const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `t7-${++n}` });
++const SEED = "b".repeat(64);
++const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
++const ALT = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
++const ATTEND = [...SEVEN, ...ALT, "gurnaam", "tadas"];
++
++function league(names: string[]) {
++  let s: LeagueState = initialState();
++  const ids: Record<string, string> = {};
++  for (const name of names) {
++    const r = signUp(s, { email: `${name.toLowerCase()}@x.co`, name, passwordHash: "h" }, at("2026-11-12T00:00:00Z"));
++    s = r.state;
++    ids[name] = r.user.id;
++  }
++  return { s, ids };
++}
++const table = (s: LeagueState) => buildPick7Table(s, rulesFrom(s.settings));
++const row = (s: LeagueState, id: string) => table(s).find((r) => r.id === id)!;
++
++describe("Pick 7 table", () => {
++  it("T01 no pick = not ranked, no points shown; a first pick = ranked on exactly 0", () => {
++    let { s, ids } = league(["Ana", "Ben"]);
++    expect(row(s, ids.Ana)).toMatchObject({ status: "no_pick", rank: null, points: 0, firstPickedAt: null });
++    s = setSquad(s, ids.Ana, SEVEN, at("2026-11-13T10:00:00Z"));
++    expect(row(s, ids.Ana)).toMatchObject({ status: "picked", rank: 1, points: 0, rounds: 0, firstPickedAt: "2026-11-13T10:00:00.000Z" });
++    expect(row(s, ids.Ben).rank).toBeNull();
++  });
++
++  it("T02 ties on 0 are shared, listed by who picked first", () => {
++    let { s, ids } = league(["Ana", "Ben", "Cal"]);
++    s = setSquad(s, ids.Cal, SEVEN, at("2026-11-13T09:00:00Z"));
++    s = setSquad(s, ids.Ana, ALT, at("2026-11-13T10:00:00Z"));
++    const t = table(s);
++    expect(t.map((r) => r.name)).toEqual(["Cal", "Ana", "Ben"]);
++    expect(t.slice(0, 2).every((r) => r.rank === 1 && r.sharedRank)).toBe(true);
++  });
++
++  it("T03 edits before the deadline keep points at 0 and keep the original first-pick time", () => {
++    let { s, ids } = league(["Ana"]);
++    s = setSquad(s, ids.Ana, SEVEN, at("2026-11-13T10:00:00Z"));
++    s = setSquad(s, ids.Ana, ALT, at("2026-11-15T10:00:00Z"));
++    expect(row(s, ids.Ana)).toMatchObject({ status: "picked", points: 0, firstPickedAt: "2026-11-13T10:00:00.000Z" });
++  });
++
++  it("T04 points only arrive when a match they were locked into is played", () => {
++    let { s, ids } = league(["Ana", "Ben"]);
++    s = setSquad(s, ids.Ana, SEVEN, at("2026-11-13T10:00:00Z"));
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    expect(row(s, ids.Ana).points).toBe(0); // drawn, not played
++    const d = s.matchDays[0].draw!;
++    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] } }, at("2026-11-20T04:00:00Z"));
++    // Everyone in SEVEN played (+1 fair play each), plus MOTM +4 for any of them.
++    const motm = [d.teamA[0], d.teamB[0]].filter((x) => SEVEN.includes(x)).length;
++    expect(row(s, ids.Ana)).toMatchObject({ rounds: 1, points: 7 + 4 * motm, rank: 1 });
++    expect(row(s, ids.Ben).rank).toBeNull();
++  });
++
++  it("T05 removing a seven reverts to no pick; it isn't entered at the next draw; earned points stay", () => {
++    let { s, ids } = league(["Ana"]);
++    s = setSquad(s, ids.Ana, SEVEN, at("2026-11-13T10:00:00Z"));
++    s = clearSquad(s, ids.Ana, at("2026-11-14T10:00:00Z"));
++    const u = s.users[0];
++    expect(currentSquad(u)).toBeNull();
++    expect(row(s, ids.Ana)).toMatchObject({ status: "no_pick", rank: null });
++    expect(s.audit.at(-1)).toMatchObject({ action: "squad.clear", before: SEVEN });
++    expect(clearSquad(s, ids.Ana, at("2026-11-14T11:00:00Z"))).toBe(s); // nothing left to remove
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    expect(s.matchDays[0].selections).toEqual([]);
++    // Picking again puts them straight back on 0.
++    s = setSquad(s, ids.Ana, ALT, at("2026-11-20T10:00:00Z"));
++    expect(row(s, ids.Ana)).toMatchObject({ status: "picked", points: 0, rank: 1 });
++  });
++
++  it("T06 a removed seven after a played round keeps its points and rank", () => {
++    let { s, ids } = league(["Ana"]);
++    s = setSquad(s, ids.Ana, SEVEN, at("2026-11-13T10:00:00Z"));
++    const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
++    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
++    const d = s.matchDays[0].draw!;
++    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] } }, at("2026-11-20T04:00:00Z"));
++    const before = row(s, ids.Ana).points;
++    s = clearSquad(s, ids.Ana, at("2026-11-21T10:00:00Z"));
++    expect(row(s, ids.Ana)).toMatchObject({ status: "no_pick", points: before, rank: 1 });
++  });
++
++  it("T07 an old pre-formation seven shows as needs_fix but is still on the table", () => {
++    let { s, ids } = league(["Ana"]);
++    s = {
++      ...s,
++      users: s.users.map((u): User => ({ ...u, squadHistory: [{ picks: ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder"], at: "2026-11-01T00:00:00.000Z" }] })),
++    };
++    expect(row(s, ids.Ana)).toMatchObject({ status: "needs_fix", rank: 1, points: 0 });
++  });
++
++  it("T08 optimistic: a save shows the user ranked on 0 instantly; a removal drops them; points never move", () => {
++    const base: Pick7Row = { id: "", name: "", status: "no_pick", points: 0, rounds: 0, hits: 0, totalPicks: 0, firstPickedAt: null, rank: null, sharedRank: false };
++    const rows = rankPick7([
++      { ...base, id: "a", name: "Ana", status: "picked", points: 9, rounds: 1, firstPickedAt: "2026-11-01T00:00:00Z" },
++      { ...base, id: "b", name: "Ben" },
++    ]);
++    const saved = applyOptimistic(rows, "b", "picked", "2026-11-13T10:00:00Z");
++    expect(saved.find((r) => r.id === "b")).toMatchObject({ rank: 2, points: 0, status: "picked" });
++    const removed = applyOptimistic(saved, "b", "no_pick", "2026-11-13T10:01:00Z");
++    expect(removed.find((r) => r.id === "b")?.rank).toBeNull();
++    expect(applyOptimistic(rows, "nobody", "picked", "x")).toBe(rows);
++  });
++});
+diff --git a/lib/league/pick7Table.ts b/lib/league/pick7Table.ts
+new file mode 100644
+index 0000000..19aaeac
+--- /dev/null
++++ b/lib/league/pick7Table.ts
+@@ -0,0 +1,111 @@
++/**
++ * The Pick 7 table — every account, in one of three states. Pure (no I/O); the
++ * server builds it, and the browser re-ranks it after an optimistic change.
++ *
++ *   no_pick    no current seven (never picked, or removed it). Not ranked; shows "—".
++ *   picked     a current seven in the formation. Ranked, from 0 points.
++ *   needs_fix  an old seven that doesn't fit the formation. Ranked on season
++ *              points (0 if none yet), but won't be entered until fixed.
++ *
++ * Points are never stored: they're the sum of played rounds (buildSelectorStandings),
++ * so a fresh pick is 0 by definition, edits before the deadline can't change
++ * points, and a removed seven keeps whatever it had already earned.
++ */
++import { getPlayer } from "@/config/club";
++import { buildSelectorStandings, type ScoringRules } from "@/lib/scoring/rules";
++import { isFormationValid } from "./pick7";
++import type { LeagueState } from "./types";
++
++export type Pick7Status = "no_pick" | "picked" | "needs_fix";
++
++export interface Pick7Row {
++  /** Account id (legacy rows may hold a roster player id). */
++  id: string;
++  name: string;
++  status: Pick7Status;
++  points: number;
++  rounds: number;
++  hits: number;
++  totalPicks: number;
++  /** First time this account saved a seven (ISO), for ordering ties. */
++  firstPickedAt: string | null;
++  /** null = not on the table yet (no pick and no rounds played). */
++  rank: number | null;
++  sharedRank: boolean;
++}
++
++/** Ranked rows have a pick or a played round. */
++export const isRanked = (r: Pick<Pick7Row, "status" | "rounds">) => r.status !== "no_pick" || r.rounds > 0;
++
++/**
++ * Order: ranked rows by points DESC, then hits DESC (shared rank when both tie),
++ * then — for display only — earliest first pick, then name. Unranked rows last.
++ */
++export function rankPick7(rows: Pick7Row[]): Pick7Row[] {
++  const ranked = rows.filter(isRanked);
++  const rest = rows.filter((r) => !isRanked(r)).sort((a, b) => a.name.localeCompare(b.name));
++  ranked.sort(
++    (a, b) =>
++      b.points - a.points ||
++      b.hits - a.hits ||
++      (a.firstPickedAt ?? "￿").localeCompare(b.firstPickedAt ?? "￿") ||
++      a.name.localeCompare(b.name),
++  );
++  const out = ranked.map((r, i) => {
++    const first = ranked.findIndex((x) => x.points === r.points && x.hits === r.hits);
++    const shared = ranked.filter((x) => x.points === r.points && x.hits === r.hits).length > 1;
++    return { ...r, rank: (first === -1 ? i : first) + 1, sharedRank: shared };
++  });
++  return [...out, ...rest.map((r) => ({ ...r, rank: null, sharedRank: false }))];
++}
++
++export function buildPick7Table(state: LeagueState, rules: ScoringRules): Pick7Row[] {
++  const season = new Map(buildSelectorStandings(state.matchDays, rules).map((s) => [s.selectorId, s]));
++  const rows: Pick7Row[] = state.users.map((u) => {
++    const current = u.squadHistory.at(-1)?.picks ?? [];
++    const status: Pick7Status = current.length === 0 ? "no_pick" : isFormationValid(current) ? "picked" : "needs_fix";
++    const s = season.get(u.id);
++    season.delete(u.id);
++    return {
++      id: u.id,
++      name: u.name,
++      status,
++      points: s?.points ?? 0,
++      rounds: s?.rounds ?? 0,
++      hits: s?.hits ?? 0,
++      totalPicks: s?.totalPicks ?? 0,
++      firstPickedAt: u.squadHistory.find((h) => h.picks.length > 0)?.at ?? null,
++      rank: null,
++      sharedRank: false,
++    };
++  });
++  // Selectors whose account is gone (or legacy v1 roster-id selectors) keep their season line.
++  for (const s of season.values()) {
++    rows.push({
++      id: s.selectorId,
++      name: getPlayer(s.selectorId)?.name ?? "Former member",
++      status: "no_pick",
++      points: s.points,
++      rounds: s.rounds,
++      hits: s.hits,
++      totalPicks: s.totalPicks,
++      firstPickedAt: null,
++      rank: null,
++      sharedRank: false,
++    });
++  }
++  return rankPick7(rows);
++}
++
++/**
++ * What the table looks like the instant a save or removal is sent, before the
++ * server answers. Points never change optimistically: they only come from played rounds.
++ */
++export function applyOptimistic(rows: Pick7Row[], userId: string, status: Pick7Status, now: string): Pick7Row[] {
++  if (!rows.some((r) => r.id === userId)) return rows;
++  return rankPick7(
++    rows.map((r) =>
++      r.id === userId ? { ...r, status, firstPickedAt: r.firstPickedAt ?? (status === "no_pick" ? null : now) } : r,
++    ),
++  );
++}
+diff --git a/lib/league/types.ts b/lib/league/types.ts
+index 600357d..3c4d1bf 100644
+--- a/lib/league/types.ts
++++ b/lib/league/types.ts
+@@ -127,7 +127,8 @@ export interface User {
+   /**
+    * Every change to the standing seven, oldest first. A match day uses the
+    * latest entry saved before its deadline, so changes made after a deadline
+-   * count from the next week — exactly like FPL.
++   * count from the next week — exactly like FPL. An entry with no picks means
++   * the user removed their seven ("no pick" from then on).
+    */
+   squadHistory: { picks: string[]; at: string }[];
+ }
+@@ -188,6 +189,7 @@ export type AuditAction =
+   | "draw.reset"
+   | "selection.submit"
+   | "squad.update"
++  | "squad.clear"
+   | "fixtures.create"
+   | "user.signup"
+   | "user.update"
+-- 
+2.43.0
+
