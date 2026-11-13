@@ -17,7 +17,6 @@ type Libs = {
  *     data-reveal          fade/rise in when scrolled into view
  *     data-reveal-group    stagger the direct children in
  *     data-count="42"      count up from 0
- *     data-pitch           the pinned "how it works" pitch (desktop) / simple draw (mobile)
  * - Elements already on screen when a route loads are never hidden, so nothing flashes.
  * - prefers-reduced-motion: none of this runs. Content is static and fully visible.
  */
@@ -124,43 +123,6 @@ function choreograph({ gsap, ScrollTrigger }: Libs): { revert: () => void } | un
     });
   });
 
-  const pitch = document.querySelector<HTMLElement>("[data-pitch]");
-  if (!pitch) return undefined;
-  const lines = pitch.querySelectorAll<SVGPathElement>(".pl");
-  const markers = gsap.utils.toArray<SVGGElement>(pitch.querySelectorAll("[data-step]"));
-  const captions = gsap.utils.toArray<HTMLElement>(pitch.querySelectorAll("[data-caption]"));
-
-  const mm = gsap.matchMedia();
-
-  // Desktop: pin the section and walk through the three steps as you scroll.
-  mm.add("(min-width: 960px) and (min-height: 640px)", () => {
-    gsap.set(lines, { strokeDasharray: 1, strokeDashoffset: 1 });
-    gsap.set(markers, { autoAlpha: 0, scale: 0.6, transformOrigin: "50% 50%" });
-    gsap.set(captions, { opacity: 0.35 });
-
-    const tl = gsap.timeline({
-      defaults: { ease: "none" },
-      scrollTrigger: { trigger: pitch, start: "top top", end: "+=160%", pin: true, scrub: 0.6, anticipatePin: 1 },
-    });
-    tl.to(lines, { strokeDashoffset: 0, duration: 1.2, stagger: 0.06 });
-    markers.forEach((m, i) => {
-      tl.to(m, { autoAlpha: 1, scale: 1, duration: 0.4, ease: "back.out(2)" });
-      tl.to(captions[i], { opacity: 1, duration: 0.3 }, "<");
-      tl.to({}, { duration: 0.35 }); // a beat on each step
-    });
-  });
-
-  // Phones and short screens: no pinning, just draw the lines as the pitch scrolls past.
-  mm.add("(max-width: 959px), (max-height: 639px)", () => {
-    if (!offscreen(pitch)) return;
-    gsap.fromTo(
-      lines,
-      { strokeDasharray: 1, strokeDashoffset: 1 },
-      { strokeDashoffset: 0, stagger: 0.05, ease: "none", scrollTrigger: { trigger: pitch, start: "top 85%", end: "center 55%", scrub: 0.5 } },
-    );
-    gsap.from(markers, { autoAlpha: 0, scale: 0.6, transformOrigin: "50% 50%", stagger: 0.15, scrollTrigger: { trigger: pitch, start: "top 60%", once: true } });
-  });
-
   ScrollTrigger.sort();
-  return mm;
+  return undefined;
 }

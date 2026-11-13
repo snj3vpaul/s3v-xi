@@ -1,5 +1,6 @@
 "use client";
 import { DROPINS, MEMBERS } from "@/config/club";
+import { Mascot } from "./Mascot";
 
 /** Toggleable player chips grouped as members / drop-ins. */
 export function PlayerChips({
@@ -7,11 +8,14 @@ export function PlayerChips({
   onToggle,
   max,
   only,
+  withFaces = false,
 }: {
   selected: string[];
   onToggle: (id: string) => void;
   max?: number;
   only?: string[];
+  /** Show each player's mascot head on their chip (Pick 7). */
+  withFaces?: boolean;
 }) {
   const full = max !== undefined && selected.length >= max;
   const group = (title: string, list: typeof MEMBERS) => {
@@ -27,11 +31,13 @@ export function PlayerChips({
               <button
                 type="button"
                 key={p.id}
-                className="chip"
+                className={`chip${withFaces ? " chip-face" : ""}`}
+                data-chip={p.id}
                 aria-pressed={on}
                 disabled={!on && full}
                 onClick={() => onToggle(p.id)}
               >
+                {withFaces && <Mascot id={p.id} variant="head" size={26} />}
                 {p.name}
                 {p.kind === "dropin" && (
                   <span className="badge badge-dropin" style={{ color: on ? "inherit" : undefined }}>
@@ -48,9 +54,9 @@ export function PlayerChips({
   };
   return (
     <div>
-      {full && (
+      {max !== undefined && (
         <p className="small muted" style={{ margin: "0.4rem 0 0" }}>
-          All {max} picked. Remove one to swap someone in.
+          {full ? `All ${max} picked. Remove one to swap someone in.` : "Tap a player to send them to your bench."}
         </p>
       )}
       {group("Members", MEMBERS)}
