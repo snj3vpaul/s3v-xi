@@ -1,5 +1,6 @@
 import { POINTS } from "@/lib/scoring/rules";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { isDropIn, playerName } from "@/config/club";
 import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
@@ -31,7 +32,9 @@ export default async function TablePage() {
       </header>
 
       {played.length === 0 ? (
-        <Empty>No scorecards yet. Everyone&apos;s joint top on zero.</Empty>
+        <Empty>
+          No scorecards yet. Everyone&apos;s joint top on zero. <Link href="/simulate">See how a Thursday gets scored →</Link>
+        </Empty>
       ) : (
         <>
           <section className="grid grid-3">

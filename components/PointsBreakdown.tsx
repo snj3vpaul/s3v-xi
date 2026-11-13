@@ -12,7 +12,7 @@ const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
  * "Where did my points come from?" — a season bar by source, then every round
  * with each pick's points itemised. Chips carry the exact reason as a tooltip.
  */
-export function PointsBreakdown({ data, openFirst = true }: { data: SelectorBreakdown; openFirst?: boolean }) {
+export function PointsBreakdown({ data, openFirst = true, example = false }: { data: SelectorBreakdown; openFirst?: boolean; example?: boolean }) {
   if (!data.rounds.length) return <p className="small muted" style={{ margin: 0 }}>No played rounds yet. You&apos;re on 0 until a match you picked for is played.</p>;
   const kinds = ORDER.filter((k) => data.byKind[k]);
   const pos = kinds.filter((k) => (data.byKind[k] ?? 0) > 0);
@@ -69,7 +69,8 @@ export function PointsBreakdown({ data, openFirst = true }: { data: SelectorBrea
             ))}
           </ul>
           <p className="small muted" style={{ margin: "0.4rem 0 0" }}>
-            <Link href={`/matches/${r.matchId}`}>Match report</Link> · <Link href="/rules">How is this scored?</Link>
+            {!example && <><Link href={`/matches/${r.matchId}`}>Match report</Link> · </>}
+            <Link href="/rules">How is this scored?</Link>
             {r.corrections > 0 && ` · Scorecard corrected ${r.corrections}× since first published (reasons in the match report)`}
           </p>
         </details>

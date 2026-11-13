@@ -699,3 +699,5 @@ details.round summary > span:first-child { flex: 1; text-align: left; }
   .bd-items { grid-area: items; }
   .bd-total { grid-area: total; }
 }
+.sim-rules li { margin-bottom: 0.45rem; }
+.example-banner { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px dashed var(--champagne); background: var(--surface-sunk); }

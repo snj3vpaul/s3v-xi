@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { CLUB, FORMATION, PICK7, POSITIONS, POSITION_LABEL, PICKABLE } from "@/config/club";
 import { FAIR_PLAY_BREACHES, FAIR_PLAY_LABEL, POINTS, POINTS_V1, RULES_V2_FROM } from "@/lib/scoring/rules";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
@@ -33,6 +34,10 @@ export default async function RulesPage() {
           Goals, assists, own goals, one Man of the Match per team, the winning side, fair play and rotation. Tap any score on the Pick 7 table to
           see exactly where it came from.
         </p>
+        <div className="row">
+          <Link className="btn btn-primary" href="/simulate">See a sample Thursday, scored</Link>
+          <Link className="btn" href="/stats?example=demo">See an example season</Link>
+        </div>
       </header>
 
       <section className="panel">

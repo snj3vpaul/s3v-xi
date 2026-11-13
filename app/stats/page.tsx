@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { ROSTER, isDropIn, playerName } from "@/config/club";
 import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
+import Link from "next/link";
+import { randomSimSeed, simulateSeason } from "@/lib/league/simulate";
 import { ChartFrame, Swatch } from "@/components/charts/ChartFrame";
 import { ContributionMatrix, MatrixLegend } from "@/components/charts/ContributionMatrix";
 import { GoalInvolvement } from "@/components/charts/GoalInvolvement";
@@ -13,8 +15,13 @@ import { Empty, Kicker, Name } from "@/components/ui";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Season charts" };
 
-export default async function StatsPage() {
-  const state = await getState();
+/** Weeks in the example season (`/stats?example=<seed>`). */
+const EXAMPLE_WEEKS = 8;
+
+export default async function StatsPage({ searchParams }: { searchParams: Promise<{ example?: string }> }) {
+  const { example } = await searchParams;
+  const exampleSeed = example?.replace(/[^a-z0-9]/gi, "").slice(0, 12) || null;
+  const state = exampleSeed ? simulateSeason(exampleSeed, EXAMPLE_WEEKS).state : await getState();
   const { played, standings, selectors } = deriveSeason(state);
 
   if (played.length === 0)
@@ -24,7 +31,15 @@ export default async function StatsPage() {
           <Kicker label="The numbers" no="Stats" />
           <h1>Season <em>charts.</em></h1>
         </header>
-        <Empty>Charts appear after the first scorecard is in.</Empty>
+        <Empty>
+          <span className="stack" style={{ alignItems: "center" }}>
+            <span>Charts appear after the first scorecard is in. Want to see how they&apos;ll look?</span>
+            <span className="row" style={{ justifyContent: "center" }}>
+              <Link className="btn btn-primary" href={`/stats?example=${randomSimSeed()}`}>See an example season</Link>
+              <Link className="btn" href="/simulate">Simulate a sample Thursday</Link>
+            </span>
+          </span>
+        </Empty>
       </main>
     );
 
@@ -58,6 +73,18 @@ export default async function StatsPage() {
         <h1>Season <em>charts.</em></h1>
         <p className="lede">{through}. Hover or tap any mark for exact values; every chart has a table view.</p>
       </header>
+      {exampleSeed && (
+        <div className="example-banner" role="note">
+          <span>
+            <b>Example season.</b> {played.length} made-up Thursdays run through the real scoring, so you can see how these charts work. None of it is real or saved.
+          </span>
+          <span className="row">
+            <Link className="btn btn-sm" href={`/stats?example=${randomSimSeed()}`}>Another example</Link>
+            <Link className="btn btn-sm" href="/simulate">One Thursday, explained</Link>
+            <Link href="/stats">Back to real stats</Link>
+          </span>
+        </div>
+      )}
 
       <ChartFrame
         title="The season race"
