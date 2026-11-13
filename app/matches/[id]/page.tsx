@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { playerName } from "@/config/club";
-import { fmtDate, matchSummary } from "@/lib/league/derive";
+import { fmtDate, matchSummary, selectorName } from "@/lib/league/derive";
 import { correctionDeadline, rulesFrom } from "@/lib/league/ledger";
 import { scoreSelection } from "@/lib/scoring/rules";
 import { isAdmin } from "@/lib/server/auth";
@@ -82,7 +82,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
               <tbody>
                 {sels.map((r) => (
                   <tr key={r.selectorId}>
-                    <td><Name id={r.selectorId} /></td>
+                    <td>{selectorName(state, r.selectorId)}</td>
                     <td className="r">{r.hits}/{r.picks.length}</td>
                     <td className="small hide-sm">{r.perPick.map((p) => `${playerName(p.playerId)}${p.played ? "" : " (DNP)"}`).join(", ")}</td>
                     <td className="r pts">{r.points}</td>

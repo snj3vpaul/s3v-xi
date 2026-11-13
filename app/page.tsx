@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { CLUB, MEMBERS, DROPINS } from "@/config/club";
 import { POINTS } from "@/lib/scoring/rules";
-import { deriveSeason, fmtDate, upcoming } from "@/lib/league/derive";
+import { deriveSeason, upcoming } from "@/lib/league/derive";
+import { SERIES, TEAM_NAMES } from "@/config/schedule";
+import { fmtKickoff } from "@/lib/league/schedule";
+import { CalendarLinks } from "@/components/CalendarLinks";
 import { getState } from "@/lib/server/store";
 import { Kicker, Name } from "@/components/ui";
 
@@ -27,8 +30,9 @@ export default async function Home() {
           reckon will deliver.
         </p>
         <div className="row rise rise-3">
-          <Link className="btn btn-primary" href="/draw">This week&apos;s draw</Link>
-          <Link className="btn" href="/pick">Pick your 7</Link>
+          <Link className="btn btn-primary" href="/join">Join the league</Link>
+          <Link className="btn" href="/draw">This week&apos;s draw</Link>
+          <Link className="btn" href="/team">Pick your 7</Link>
           <Link className="btn" href="/rules">How scoring works</Link>
         </div>
       </section>
@@ -43,9 +47,9 @@ export default async function Home() {
           <div className="l">Goals on the scoresheet</div>
         </div>
         <div className="panel stat-tile">
-          <div className="v">{next ? fmtDate(next.date) : "TBC"}</div>
+          <div className="v">{next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : "TBC"}</div>
           <div className="l">
-            Next match day{next ? ` · ${next.status === "open" ? "picks open" : "teams drawn"}` : ""}
+            Next: {TEAM_NAMES.A} vs {TEAM_NAMES.B}{next ? ` · ${next.status === "open" ? "Pick 7 open" : "teams drawn"}` : ""}
           </div>
         </div>
       </section>
@@ -73,15 +77,30 @@ export default async function Home() {
             <div className="no">03</div>
             <h3>Your Seven</h3>
             <p>
-              Before the draw, pick {CLUB.picksPerSelector} players you back to get on the scoresheet. Whatever side they
-              land on, their points become yours. Prediction, not drafting.
+              Make an account and pick {CLUB.picksPerSelector} of the 21 you back to get on the scoresheet. Whatever side they
+              land on, their points become yours. Your seven carries over every week — change it before Thursday&apos;s deadline.
             </p>
           </article>
         </div>
       </section>
 
       <section className="stack">
-        <Kicker label="The table" no="002" />
+        <Kicker label="Every Thursday" no="002" />
+        <div className="panel row spread">
+          <div>
+            <h3 style={{ fontSize: "1.6rem" }}>
+              {TEAM_NAMES.A} <em style={{ color: "var(--muted)" }}>vs</em> {TEAM_NAMES.B} · 10 pm
+            </h3>
+            <p className="muted small" style={{ margin: "0.3rem 0 0" }}>
+              Weekly until summer. Pick 7 locks at kick-off; reminders go out Wednesday evening and Thursday midday.
+            </p>
+          </div>
+          <CalendarLinks />
+        </div>
+      </section>
+
+      <section className="stack">
+        <Kicker label="The table" no="003" />
         {top3.length ? (
           <div className="panel">
             <ol className="stack" style={{ listStyle: "none", padding: 0, margin: 0 }}>

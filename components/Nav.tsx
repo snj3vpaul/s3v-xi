@@ -3,8 +3,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const LINKS = [
+  ["/team", "My Team"],
   ["/draw", "Draw"],
-  ["/pick", "Pick 7"],
   ["/matches", "Matches"],
   ["/table", "Table"],
   ["/stats", "Stats"],
@@ -12,7 +12,7 @@ const LINKS = [
   ["/admin", "Admin"],
 ] as const;
 
-export function Nav() {
+export function Nav({ userName }: { userName: string | null }) {
   const path = usePathname();
   return (
     <header className="topbar">
@@ -27,6 +27,9 @@ export function Nav() {
             </Link>
           ))}
         </nav>
+        <Link href={userName ? "/account" : "/login"} className="nav-account" aria-current={path.startsWith("/account") || path.startsWith("/login") || path.startsWith("/join") ? "page" : undefined}>
+          {userName ? userName.split(" ")[0] : "Log in"}
+        </Link>
       </div>
     </header>
   );

@@ -108,7 +108,7 @@ export function DrawControls({ matchId, defaults, attendees }: { matchId: string
       </div>
       {err && <div className="alert alert-error">{err}</div>}
       <p className="small muted">
-        Drawing locks attendance and closes Pick 7 for this match day. The seed is published so anyone can verify it.
+        Drawing locks attendance and everyone's Pick 7 for this match day (changes after that count from next week). The seed is published so anyone can verify it.
       </p>
     </div>
   );

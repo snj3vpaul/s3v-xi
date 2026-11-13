@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { CLUB } from "@/config/club";
 import { POINTS } from "@/lib/scoring/rules";
+import { SERIES, TEAM_NAMES } from "@/config/schedule";
+import { fmtDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
 import { Kicker } from "@/components/ui";
 
@@ -87,10 +89,19 @@ export default async function RulesPage() {
             <li>The draw uses a 256-bit crypto-random seed, published with the teams. Anyone can re-run it with “Verify draw”.</li>
           </ul>
           <h2 style={{ marginTop: "1.5rem" }}>Pick 7</h2>
+          <ul className="muted" style={{ margin: 0, paddingLeft: "1.2rem" }}>
+            <li>Create an account and pick {CLUB.picksPerSelector} different players from the 21 (yourself and drop-ins included).</li>
+            <li>
+              <b>Deadline:</b> kick-off, Thursday 10 pm — or the moment the teams are drawn, if that&apos;s earlier. Your seven as it stood at
+              the deadline is what counts.
+            </li>
+            <li><b>Carry-over:</b> your seven rolls into every following week until you change it. Unlimited free changes before each deadline.</li>
+            <li>You score exactly the points your seven earn that night, whichever team they&apos;re drawn on. A pick who doesn&apos;t play scores 0.</li>
+            <li>A “hit” is a pick who scores or assists — that&apos;s your accuracy.</li>
+          </ul>
+          <h2 style={{ marginTop: "1.5rem" }}>Fixtures</h2>
           <p className="muted">
-            Before the draw, pick {CLUB.picksPerSelector} different players (yourself included, drop-ins included). You score exactly the
-            points they score that match day, whichever team they&apos;re drawn on. A pick who doesn&apos;t play scores 0. A
-            “hit” is a pick who scores or assists — that&apos;s your accuracy.
+            Every Thursday at 10 pm (Toronto time), {TEAM_NAMES.A} vs {TEAM_NAMES.B}, until {fmtDate(SERIES.end)}. Bibs are drawn at random each week.
           </p>
         </section>
       </div>

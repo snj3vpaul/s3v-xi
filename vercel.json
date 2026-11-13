@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/reminders?slot=eve-before", "schedule": "0 23 * * 3" },
+    { "path": "/api/cron/reminders?slot=matchday", "schedule": "0 17 * * 4" }
+  ]
+}

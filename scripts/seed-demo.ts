@@ -14,7 +14,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { MEMBERS, DROPINS, ROSTER } from "../config/club";
 import { SeededRandom } from "../lib/draw/draw";
-import { DEFAULT_CONSTRAINTS, createMatchDay, initialState, recordDraw, saveScorecard, submitSelection, type Ctx } from "../lib/league/ledger";
+import { DEFAULT_CONSTRAINTS, createMatchDay, initialState, recordDraw, saveScorecard, setSquad, signUp, type Ctx } from "../lib/league/ledger";
+import { scryptSync, randomBytes } from "node:crypto";
 import type { GoalEvent, GoalKind, LeagueState, Side } from "../lib/league/types";
 
 const FILE = path.join(process.cwd(), ".data", "rsfc-league.json");
@@ -38,19 +39,29 @@ const weighted = (ids: string[], w: Record<string, number>) => {
 };
 
 let state = initialState();
-const dates = ["2026-09-12", "2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10", "2026-10-17", "2026-10-24", "2026-10-31", "2026-11-07"];
+// Demo accounts: password "demo-league" for all. Same hash format as lib/server/password.ts.
+const salt = randomBytes(16);
+const demoHash = `scrypt$${salt.toString("hex")}$${scryptSync("demo-league", salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex")}`;
+const userIds: string[] = [];
+for (const p of rng.shuffle(MEMBERS.map((m) => m.id)).slice(0, 12)) {
+  const name = ROSTER.find((r) => r.id === p)!.name;
+  const r = signUp(state, { email: `${p}@demo.rsfc`, name, passwordHash: demoHash, playerId: p }, ctxAt("2026-09-01T12:00:00Z"));
+  state = r.state;
+  userIds.push(r.user.id);
+}
+const dates = ["2026-09-10", "2026-09-17", "2026-09-24", "2026-10-01", "2026-10-08", "2026-10-15", "2026-10-22", "2026-10-29", "2026-11-05"];
 
 dates.forEach((date, di) => {
   const members = rng.shuffle(MEMBERS.map((p) => p.id)).slice(0, 13 + rng.int(5));
   const drops = rng.shuffle(DROPINS.map((p) => p.id)).slice(0, rng.int(3));
   const attendees = [...members, ...drops];
-  const c = createMatchDay(state, { date, attendees }, ctxAt(`${date}T13:00:00Z`));
+  const c = createMatchDay(state, { date, attendees, seriesId: "demo" }, ctxAt(`${date}T13:00:00Z`));
   state = c.state;
-  // Pick 7s from ~half the squad.
-  for (const sel of rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 8 + rng.int(6))) {
-    state = submitSelection(state, c.match.id, sel, rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 7), ctxAt(`${date}T13:30:00Z`));
+  // Some accounts tweak their seven each week; the rest carry over (FPL-style).
+  for (const uid of userIds) {
+    if (di === 0 || rng.int(3) === 0) state = setSquad(state, uid, rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 7), ctxAt(`${date}T15:00:00Z`));
   }
-  state = recordDraw(state, c.match.id, DEFAULT_CONSTRAINTS, ctxAt(`${date}T14:00:00Z`));
+  state = recordDraw(state, c.match.id, DEFAULT_CONSTRAINTS, ctxAt(`${date}T22:00:00-04:00`));
   const d = state.matchDays.find((m) => m.id === c.match.id)!.draw!;
   const team = (s: Side) => [...(s === "A" ? d.teamA : d.teamB), ...(d.floater ? [d.floater] : [])];
   const events: GoalEvent[] = [];
@@ -76,22 +87,16 @@ dates.forEach((date, di) => {
     events.push(e);
   }
   events.sort((a, b) => (a.minute ?? 0) - (b.minute ?? 0));
-  state = saveScorecard(state, c.match.id, events, {}, ctxAt(`${date}T16:00:00Z`));
+  state = saveScorecard(state, c.match.id, events, {}, ctxAt(`${date}T23:30:00-04:00`));
   if (di === 2) {
     // One demo correction so the audit trail has something to show.
     const fixed = events.map((e, i) => (i === 0 && e.kind === "open_play" ? { ...e, assistId: null } : e));
-    state = saveScorecard(state, c.match.id, fixed, { reason: "Demo: first goal was a solo run" }, ctxAt(`${date}T20:00:00Z`));
+    state = saveScorecard(state, c.match.id, fixed, { reason: "Demo: first goal was a solo run" }, ctxAt(`${date}T23:50:00-04:00`));
   }
 });
 
-// An upcoming match day with attendance taken and picks open.
-const next = createMatchDay(state, { date: "2026-11-14", attendees: rng.shuffle(MEMBERS.map((p) => p.id)).slice(0, 15).concat(["abrar"]) }, ctxAt("2026-11-12T18:00:00Z"));
-state = next.state;
-for (const sel of ["sanjeev", "archit", "vikram", "jedi"]) {
-  state = submitSelection(state, next.match.id, sel, rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 7), ctxAt("2026-11-12T19:00:00Z"));
-}
-
+// The real Thursday fixtures (19 Nov onwards) are generated automatically on first page load.
 state = { ...state, demo: true, version: 1 };
 mkdirSync(path.dirname(FILE), { recursive: true });
 writeFileSync(FILE, JSON.stringify(state, null, 2));
-console.log(`Demo season written to ${FILE}: ${dates.length} played match days + 1 upcoming.`);
+console.log(`Demo season written to ${FILE}: ${dates.length} played Thursdays, ${userIds.length} demo accounts (e.g. ${ROSTER.find((r) => r.id === state.users[0].playerId)!.id}@demo.rsfc / demo-league).`);

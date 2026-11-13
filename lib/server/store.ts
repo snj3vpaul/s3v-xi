@@ -13,7 +13,8 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { initialState, type Ctx } from "@/lib/league/ledger";
+import { ensureSeries, migrate, type Ctx } from "@/lib/league/ledger";
+import { SERIES } from "@/config/schedule";
 import type { LeagueState } from "@/lib/league/types";
 
 const KEY = process.env.RSFC_STORAGE_KEY || "rsfc:league";
@@ -70,13 +71,23 @@ async function writeFile(state: LeagueState) {
 
 // ---- Public API -----------------------------------------------------------
 
-export async function getState(): Promise<LeagueState> {
+async function readRaw(): Promise<LeagueState> {
   if (storageMode === "redis") {
     const raw = (await redis(["GET", KEY])) as string | null;
-    return raw ? (JSON.parse(raw) as LeagueState) : initialState();
+    return migrate(raw ? JSON.parse(raw) : null);
   }
-  if (storageMode === "memory") return memory ?? initialState();
-  return (await readFile()) ?? initialState();
+  if (storageMode === "memory") return migrate(memory);
+  return migrate(await readFile());
+}
+
+/**
+ * Read the league. The first read after a new weekly series is configured
+ * generates its fixtures (a one-off write).
+ */
+export async function getState(): Promise<LeagueState> {
+  const s = await readRaw();
+  if (!s.seriesCreated.includes(SERIES.id)) return mutate((x) => ensureSeries(x, ctx()));
+  return s;
 }
 
 export function ctx(): Ctx {
@@ -90,7 +101,7 @@ export function ctx(): Ctx {
 export async function mutate(fn: (s: LeagueState) => LeagueState): Promise<LeagueState> {
   if (storageMode === "redis") {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const current = await getState();
+      const current = await readRaw();
       const next = { ...fn(current), version: current.version + 1 };
       const ok = await redis(["EVAL", CAS, 2, KEY, `${KEY}:version`, JSON.stringify(next), String(current.version), String(next.version)]);
       if (ok === 1) return next;
@@ -98,7 +109,7 @@ export async function mutate(fn: (s: LeagueState) => LeagueState): Promise<Leagu
     throw new ConflictError("The league was being updated by someone else. Please try again.");
   }
   const run = async () => {
-    const current = storageMode === "memory" ? (memory ?? initialState()) : ((await readFile()) ?? initialState());
+    const current = storageMode === "memory" ? migrate(memory) : migrate(await readFile());
     const next = { ...fn(current), version: current.version + 1 };
     if (storageMode === "memory") memory = next;
     else await writeFile(next);

@@ -1,0 +1,196 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { CLUB, playerName } from "@/config/club";
+import { SERIES, TEAM_NAMES } from "@/config/schedule";
+import { deriveSeason, fmtDate, selectorName, upcoming } from "@/lib/league/derive";
+import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
+import { fmtKickoff } from "@/lib/league/schedule";
+import { playedMatches, scoreSelection } from "@/lib/scoring/rules";
+import { currentUser } from "@/lib/server/session";
+import { getState } from "@/lib/server/store";
+import { CalendarLinks } from "@/components/CalendarLinks";
+import { Countdown, TeamPicker } from "@/components/TeamPicker";
+import { Kicker, Points } from "@/components/ui";
+
+export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "My Team" };
+
+export default async function TeamPage() {
+  const [state, me] = await Promise.all([getState(), currentUser()]);
+  const now = new Date();
+  const next = nextDeadlineMatch(state, now);
+  const live = upcoming(state, now);
+  const lockedNow = live && live.status === "drawn" ? live : null;
+  const rules = rulesFrom(state.settings);
+  const { selectors } = deriveSeason(state);
+  const played = playedMatches(state.matchDays);
+  const last = played.at(-1);
+  const lastResults = last
+    ? last.selections.map((s) => scoreSelection(s, last, rules)).sort((a, b) => b.points - a.points || b.hits - a.hits)
+    : [];
+  const squad = me ? (currentSquad(me) ?? []) : [];
+  const myRow = me ? selectors.find((s) => s.selectorId === me.id) : undefined;
+  const myRounds = me
+    ? played
+        .map((m) => ({ m, sel: m.selections.find((s) => s.selectorId === me.id) }))
+        .filter((x) => x.sel)
+        .map(({ m, sel }) => ({ m, r: scoreSelection(sel!, m, rules) }))
+        .reverse()
+    : [];
+  const deadlineLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
+  const myLocked = me && lockedNow ? lockedNow.selections.find((s) => s.selectorId === me.id) : undefined;
+
+  return (
+    <main className="wrap stack-lg">
+      <header className="stack">
+        <Kicker label="Pick 7" no="My Team" />
+        <h1>
+          Back your <em>seven.</em>
+        </h1>
+        <p className="lede">
+          Every Thursday at 10 pm it&apos;s {TEAM_NAMES.A} vs {TEAM_NAMES.B}. Pick {CLUB.picksPerSelector} of the 21 before kick-off and bank
+          every point they score — whichever side the hat puts them on. Your seven carries over each week; change it whenever you like before
+          the deadline.
+        </p>
+      </header>
+
+      {!me ? (
+        <section className="panel stack" style={{ maxWidth: 640 }}>
+          <h2>Play Pick 7</h2>
+          <p className="muted" style={{ margin: 0 }}>Create a free account (email + password) to pick your seven and get a reminder before every deadline.</p>
+          <div className="row">
+            <Link className="btn btn-primary" href="/join">Create account</Link>
+            <Link className="btn" href="/login">Log in</Link>
+          </div>
+        </section>
+      ) : (
+        <>
+          {myLocked && lockedNow && (
+            <section className="panel stack" style={{ borderColor: "#1f6b47" }}>
+              <div className="row spread">
+                <h3>Locked for {fmtDate(lockedNow.date)}</h3>
+                <span className="badge badge-kit">Teams drawn</span>
+              </div>
+              <p style={{ margin: 0 }}>{myLocked.picks.map(playerName).join(", ")}</p>
+            </section>
+          )}
+
+          <section className="panel stack">
+            <div className="row spread" style={{ alignItems: "flex-start" }}>
+              <div>
+                <div className="kicker" style={{ marginBottom: "0.3rem" }}><b>Next deadline</b></div>
+                <h2>{next ? `${TEAM_NAMES.A} vs ${TEAM_NAMES.B}` : "No fixture scheduled"}</h2>
+                {next && <div className="muted">{deadlineLabel} · Pick 7 locks at kick-off (or at the draw, if earlier)</div>}
+              </div>
+              {next && (
+                <div style={{ textAlign: "right" }}>
+                  <div className="small muted">Time left</div>
+                  <Countdown to={next.kickoffAt} />
+                </div>
+              )}
+            </div>
+            {!squad.length && <div className="alert alert-warn">You haven&apos;t picked a team yet — choose {CLUB.picksPerSelector} players below.</div>}
+            <TeamPicker initial={squad} deadlineLabel={deadlineLabel} />
+            {lockedNow && !next && <p className="small muted">This week is locked. Changes you make now count from next week.</p>}
+          </section>
+
+          <div className="grid grid-2" style={{ alignItems: "start" }}>
+            <section className="panel stack">
+              <h3>My season</h3>
+              {myRow ? (
+                <div className="grid grid-3" style={{ gap: "0.5rem" }}>
+                  <div className="stat-tile"><div className="v num">{myRow.rank}{myRow.sharedRank ? "=" : ""}</div><div className="l">of {selectors.length} selectors</div></div>
+                  <div className="stat-tile"><div className="v num">{myRow.points}</div><div className="l">points</div></div>
+                  <div className="stat-tile"><div className="v num">{Math.round(myRow.hitRate * 100)}%</div><div className="l">hit rate</div></div>
+                </div>
+              ) : (
+                <p className="muted" style={{ margin: 0 }}>Your first round counts once a match you picked for is played.</p>
+              )}
+              {myRounds.length > 0 && (
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Match day</th><th className="r">Hits</th><th className="r">Pts</th></tr></thead>
+                    <tbody>
+                      {myRounds.map(({ m, r }) => (
+                        <tr key={m.id}>
+                          <td><Link href={`/matches/${m.id}`}>{fmtDate(m.date)}</Link></td>
+                          <td className="r">{r.hits}/{r.picks.length}</td>
+                          <td className="r pts"><Points v={r.points} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+            <section className="panel stack">
+              <h3>Never miss a Thursday</h3>
+              <p className="small muted" style={{ margin: 0 }}>
+                {me.emailReminders ? "You'll get a reminder email on Wednesday evening and Thursday midday." : "Reminder emails are off."}{" "}
+                <Link href="/account">Change</Link>. Add the fixtures to your calendar too:
+              </p>
+              <CalendarLinks />
+            </section>
+          </div>
+        </>
+      )}
+
+      {lockedNow && lockedNow.selections.length > 0 && (
+        <section className="panel stack">
+          <div className="panel-head">
+            <h2>{fmtDate(lockedNow.date)} — picks revealed</h2>
+            <Link href="/draw">See the teams</Link>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Selector</th><th>Their seven</th></tr></thead>
+              <tbody>
+                {lockedNow.selections.map((s) => (
+                  <tr key={s.selectorId}>
+                    <td>{selectorName(state, s.selectorId)}</td>
+                    <td className="small">{s.picks.map(playerName).join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {last && (
+        <section className="panel stack">
+          <div className="panel-head">
+            <h2>Last round · {fmtDate(last.date)}</h2>
+            <Link href={`/matches/${last.id}`}>Match report</Link>
+          </div>
+          {lastResults.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Selector</th><th className="r">Hits</th><th className="hide-sm">Picks (points)</th><th className="r">Pts</th></tr></thead>
+                <tbody>
+                  {lastResults.map((r) => (
+                    <tr key={r.selectorId}>
+                      <td>{selectorName(state, r.selectorId)}</td>
+                      <td className="r">{r.hits}/{r.picks.length}</td>
+                      <td className="small hide-sm">
+                        {r.perPick.map((p, i) => (
+                          <span key={p.playerId} className={p.played ? "" : "muted"}>
+                            {i > 0 && ", "}
+                            {playerName(p.playerId)} {p.played ? <Points v={p.points} /> : "(DNP)"}
+                          </span>
+                        ))}
+                      </td>
+                      <td className="r pts">{r.points}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted">No picks were locked for that match day.</p>
+          )}
+        </section>
+      )}
+    </main>
+  );
+}

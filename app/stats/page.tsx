@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ROSTER, isDropIn, playerName } from "@/config/club";
-import { deriveSeason, shortDate } from "@/lib/league/derive";
+import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
 import { ChartFrame, Swatch } from "@/components/charts/ChartFrame";
 import { ContributionMatrix, MatrixLegend } from "@/components/charts/ContributionMatrix";
@@ -116,7 +116,7 @@ export default async function StatsPage() {
         table={
           <table>
             <thead><tr><th>Selector</th><th className="r">Hits</th><th className="r">Picks</th><th className="r">Rate</th><th className="r">Pts</th></tr></thead>
-            <tbody>{selectors.map((s) => <tr key={s.selectorId}><td>{playerName(s.selectorId)}</td><td className="r">{s.hits}</td><td className="r">{s.totalPicks}</td><td className="r">{Math.round(s.hitRate * 100)}%</td><td className="r">{s.points}</td></tr>)}</tbody>
+            <tbody>{selectors.map((s) => <tr key={s.selectorId}><td>{selectorName(state, s.selectorId)}</td><td className="r">{s.hits}</td><td className="r">{s.totalPicks}</td><td className="r">{Math.round(s.hitRate * 100)}%</td><td className="r">{s.points}</td></tr>)}</tbody>
           </table>
         }
       >
@@ -125,7 +125,7 @@ export default async function StatsPage() {
             {[...selectors]
               .sort((a, b) => b.hitRate - a.hitRate || b.points - a.points)
               .map((s) => (
-                <SelectorGauge key={s.selectorId} id={s.selectorId} hitRate={s.hitRate} hits={s.hits} picks={s.totalPicks} points={s.points} />
+                <SelectorGauge key={s.selectorId} name={selectorName(state, s.selectorId)} hitRate={s.hitRate} hits={s.hits} picks={s.totalPicks} points={s.points} />
               ))}
           </div>
         ) : (

@@ -34,6 +34,7 @@ const match = (id: string, date: string, attendees: string[], events: GoalEvent[
   draw: null,
   events,
   selections: [],
+  kickoffAt: `${date}T22:00:00.000Z`,
   createdAt: `${date}T10:00:00.000Z`,
   scorecardAt: `${date}T12:00:00.000Z`,
   scorecardVersion: 1,

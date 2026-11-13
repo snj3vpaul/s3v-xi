@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { playerName } from "@/config/club";
 import { formatLabel } from "@/lib/draw/draw";
+import { SERIES, TEAM_NAMES } from "@/config/schedule";
+import { fmtKickoff } from "@/lib/league/schedule";
 import { fmtDate, upcoming } from "@/lib/league/derive";
 import { isAdmin } from "@/lib/server/auth";
 import { getState } from "@/lib/server/store";
@@ -17,6 +19,7 @@ export const metadata: Metadata = { title: "Match-day draw" };
 export default async function DrawPage() {
   const [state, admin] = await Promise.all([getState(), isAdmin()]);
   const m = upcoming(state);
+  const withTeam = state.users.filter((u) => u.squadHistory.length).length;
 
   return (
     <main className="wrap stack-lg">
@@ -38,7 +41,8 @@ export default async function DrawPage() {
       ) : (
         <section className="stack">
           <div className="panel-head">
-            <h2>{m.label || fmtDate(m.date)}</h2>
+            <h2>{m.label || `${TEAM_NAMES.A} vs ${TEAM_NAMES.B}`}</h2>
+            <span className="muted">{fmtKickoff(m.kickoffAt, SERIES.timeZone)}</span>
             <span className="badge badge-kit">{m.status === "open" ? "Picks open · not drawn" : "Teams drawn"}</span>
           </div>
 
@@ -56,8 +60,8 @@ export default async function DrawPage() {
                   </>
                 )}
                 <p className="small muted">
-                  {m.selections.length} pick-7 entr{m.selections.length === 1 ? "y" : "ies"} in so far.{" "}
-                  <Link href="/pick">Get yours in</Link> before the draw.
+                  {withTeam} account{withTeam === 1 ? " has" : "s have"} a Pick 7 team set. <Link href="/team">Check yours</Link> — it locks at
+                  kick-off or when the teams are drawn.
                 </p>
               </div>
               <div className="panel">
@@ -85,7 +89,7 @@ export default async function DrawPage() {
                 {m.draw.floater && (
                   <p className="small muted">
                     Odd numbers: {playerName(m.draw.floater)} is the floater — first half for Team{" "}
-                    {m.draw.floaterFirstHalf === "A" ? "Chalk" : "Kit"}, then swaps. Floater duty goes to whoever has floated least.
+                    {m.draw.floaterFirstHalf === "A" ? "White" : "Red"}, then swaps. Floater duty goes to whoever has floated least.
                   </p>
                 )}
                 {m.draw.rollingSubs > 0 && (

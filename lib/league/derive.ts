@@ -1,5 +1,5 @@
 /** Everything the pages show, derived from the league document in one place. */
-import { ROSTER, isDropIn } from "@/config/club";
+import { ROSTER, getPlayer, isDropIn } from "@/config/club";
 import { formatLabel } from "@/lib/draw/draw";
 import {
   buildSelectorStandings,
@@ -30,13 +30,23 @@ export function matchSummary(m: MatchDay, state: LeagueState) {
   };
 }
 
-/** Next match day still to be played (open or drawn), earliest first. */
-export function upcoming(state: LeagueState): MatchDay | null {
+/**
+ * The match day the Draw page should show: the earliest not-yet-played one
+ * whose kick-off was less than 6 hours ago (so an unplayed past week doesn't
+ * block the next one).
+ */
+export function upcoming(state: LeagueState, now = new Date()): MatchDay | null {
+  const cutoff = now.getTime() - 6 * 3_600_000;
   return (
     [...state.matchDays]
-      .filter((m) => m.status !== "played")
-      .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt))[0] ?? null
+      .filter((m) => m.status !== "played" && new Date(m.kickoffAt).getTime() > cutoff)
+      .sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt) || a.createdAt.localeCompare(b.createdAt))[0] ?? null
   );
+}
+
+/** Display name for a Pick 7 selector (an account; legacy data may hold a roster id). */
+export function selectorName(state: LeagueState, id: string): string {
+  return state.users.find((u) => u.id === id)?.name ?? getPlayer(id)?.name ?? "Former member";
 }
 
 export const fmtDate = (iso: string) =>

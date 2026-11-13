@@ -1,7 +1,6 @@
-import { Name } from "@/components/ui";
 
 /** Half-donut gauge of a selector's hit rate (share of picks who scored or assisted). */
-export function SelectorGauge({ id, hitRate, hits, picks, points }: { id: string; hitRate: number; hits: number; picks: number; points: number }) {
+export function SelectorGauge({ name, hitRate, hits, picks, points }: { name: string; hitRate: number; hits: number; picks: number; points: number }) {
   const r = 42;
   const cx = 56;
   const cy = 52;
@@ -24,7 +23,7 @@ export function SelectorGauge({ id, hitRate, hits, picks, points }: { id: string
           {pct}%
         </text>
       </svg>
-      <div style={{ marginTop: "0.25rem", display: "flex", justifyContent: "center" }}><Name id={id} /></div>
+      <div style={{ marginTop: "0.25rem" }}>{name}</div>
       <div className="small muted num">{hits}/{picks} hits · {points} pts</div>
     </div>
   );

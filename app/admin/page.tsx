@@ -8,6 +8,10 @@ import { getState, storageMode } from "@/lib/server/store";
 import { AdminLogin, AdminLogout } from "@/components/AdminLogin";
 import { DeleteMatchDay, NewMatchDay } from "@/components/NewMatchDay";
 import { SettingsForm } from "@/components/SettingsForm";
+import { UsersAdmin } from "@/components/UsersAdmin";
+import { emailConfigured } from "@/lib/server/email";
+import { SERIES } from "@/config/schedule";
+import { fmtKickoff } from "@/lib/league/schedule";
 import { Kicker } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +24,13 @@ const ACTION: Record<AuditEntry["action"], string> = {
   "draw.create": "Teams drawn",
   "draw.reset": "Draw reset",
   "selection.submit": "Pick 7 submitted",
+  "squad.update": "Pick 7 team changed",
+  "fixtures.create": "Weekly fixtures created",
+  "user.signup": "Account created",
+  "user.update": "Account updated",
+  "user.reset": "Password reset by admin",
+  "user.delete": "Account deleted",
+  "reminders.sent": "Reminder emails sent",
   "scorecard.create": "Scorecard published",
   "scorecard.correct": "Scorecard corrected",
   "settings.update": "Settings changed",
@@ -40,9 +51,14 @@ export default async function AdminPage() {
     );
 
   const state = await getState();
-  const matchDays = [...state.matchDays].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  // Upcoming fixtures first (soonest at the top), then played ones (latest first).
+  const matchDays = [
+    ...state.matchDays.filter((m) => m.status !== "played").sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt)),
+    ...state.matchDays.filter((m) => m.status === "played").sort((a, b) => b.kickoffAt.localeCompare(a.kickoffAt)),
+  ];
   const dateOf = new Map(state.matchDays.map((m) => [m.id, m.date]));
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Toronto" });
+  const userNames = new Map(state.users.map((u) => [u.id, u.name]));
 
   return (
     <main className="wrap stack-lg">
@@ -62,8 +78,10 @@ export default async function AdminPage() {
       </header>
 
       <section className="panel">
-        <h2>New match day</h2>
-        <p className="muted small">Step 1 of 3. Then draw the teams on the Draw page, then enter the scorecard after full time.</p>
+        <h2>Extra match day</h2>
+        <p className="muted small">
+          The weekly Thursday 10 pm fixtures are created automatically until {fmtDate(SERIES.end)}. Use this for a one-off extra game; delete a week below if it&apos;s called off.
+        </p>
         <NewMatchDay defaultDate={today} />
       </section>
 
@@ -76,7 +94,10 @@ export default async function AdminPage() {
               <tbody>
                 {matchDays.map((m) => (
                   <tr key={m.id}>
-                    <td><Link href={`/matches/${m.id}`}>{m.label || fmtDate(m.date)}</Link></td>
+                    <td>
+                      <Link href={`/matches/${m.id}`}>{m.label || fmtDate(m.date)}</Link>
+                      <div className="small muted">{fmtKickoff(m.kickoffAt, SERIES.timeZone)}{m.seriesId ? " · weekly" : ""}</div>
+                    </td>
                     <td>
                       {m.status === "played" ? `Played${m.scorecardVersion > 1 ? ` · v${m.scorecardVersion}` : ""}` : m.status === "drawn" ? "Drawn" : "Open"}
                     </td>
@@ -98,6 +119,26 @@ export default async function AdminPage() {
         )}
       </section>
 
+      <section className="panel stack">
+        <div className="panel-head">
+          <h2>Accounts ({state.users.length})</h2>
+          <span className="small muted">
+            Reminder emails: {emailConfigured() ? "on (Resend configured)" : "off — set RESEND_API_KEY"} · Sign-up code: {process.env.SIGNUP_CODE ? "required" : "not required"}
+          </span>
+        </div>
+        <UsersAdmin
+          users={state.users.map((u) => ({
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            player: u.playerId ? playerName(u.playerId) : null,
+            hasTeam: u.squadHistory.length > 0,
+            reminders: u.emailReminders,
+            createdAt: u.createdAt,
+          }))}
+        />
+      </section>
+
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <section className="panel">
           <h2>Settings</h2>
@@ -116,7 +157,7 @@ export default async function AdminPage() {
                   <span className="muted">{new Date(a.at).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "short", timeStyle: "short" })}</span>
                 </div>
                 <div className="muted">
-                  {a.actor === "admin" ? "Admin" : playerName(a.actor.replace("player:", ""))}
+                  {a.actor === "admin" ? "Admin" : a.actor === "system" ? "System" : a.actor.startsWith("user:") ? (userNames.get(a.actor.slice(5)) ?? "Former member") : playerName(a.actor.replace("player:", ""))}
                   {a.matchId && dateOf.get(a.matchId) ? ` · ${fmtDate(dateOf.get(a.matchId)!)}` : ""}
                   {a.reason ? ` · “${a.reason}”` : ""}
                 </div>

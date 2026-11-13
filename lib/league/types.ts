@@ -88,23 +88,62 @@ export interface DrawResult {
 
 export type MatchStatus = "open" | "drawn" | "played";
 
+/**
+ * A selector's seven for one match day. Snapshotted from the user's standing
+ * team (as it stood at the deadline) when the teams are drawn.
+ * `selectorId` is a user id (legacy v1 data may hold a roster player id).
+ */
 export interface Selection {
   selectorId: string;
   picks: string[];
   submittedAt: string;
 }
 
+/** A league account. Anyone with an account can play Pick 7. */
+export interface User {
+  id: string;
+  /** Lower-cased. */
+  email: string;
+  name: string;
+  /** "scrypt$<salt hex>$<hash hex>" — never sent to the browser. */
+  passwordHash: string;
+  /** Roster player this account belongs to (optional; one account per player). */
+  playerId: string | null;
+  emailReminders: boolean;
+  /** Bumped on password change/reset to sign out every existing session. */
+  sessionVersion: number;
+  createdAt: string;
+  /**
+   * Every change to the standing seven, oldest first. A match day uses the
+   * latest entry saved before its deadline, so changes made after a deadline
+   * count from the next week — exactly like FPL.
+   */
+  squadHistory: { picks: string[]; at: string }[];
+}
+
+export interface ReminderLog {
+  userId: string;
+  slot: string;
+  at: string;
+}
+
 export interface MatchDay {
   id: string;
-  /** ISO date (YYYY-MM-DD). */
+  /** ISO date (YYYY-MM-DD), in the club's time zone. */
   date: string;
+  /** Kick-off instant (UTC ISO). Also the Pick 7 deadline. */
+  kickoffAt: string;
+  /** Set when generated from the weekly series in config/schedule.ts. */
+  seriesId?: string;
+  /** Reminder emails already sent for this match day (prevents duplicates). */
+  reminders?: ReminderLog[];
   label?: string;
   status: MatchStatus;
   attendees: string[];
   draw: DrawResult | null;
   /** Goal-by-goal scorecard. Empty array + status "played" = a 0–0. */
   events: GoalEvent[];
-  /** Selections are accepted until the draw is made, then locked. */
+  /** Snapshotted from users' standing teams when the teams are drawn. */
   selections: Selection[];
   createdAt: string;
   /** First time a scorecard was saved. Starts the correction window. */
@@ -131,6 +170,13 @@ export type AuditAction =
   | "draw.create"
   | "draw.reset"
   | "selection.submit"
+  | "squad.update"
+  | "fixtures.create"
+  | "user.signup"
+  | "user.update"
+  | "user.reset"
+  | "user.delete"
+  | "reminders.sent"
   | "scorecard.create"
   | "scorecard.correct"
   | "settings.update";
@@ -138,7 +184,7 @@ export type AuditAction =
 export interface AuditEntry {
   id: string;
   at: string;
-  actor: "admin" | `player:${string}`;
+  actor: "admin" | "system" | `player:${string}` | `user:${string}`;
   action: AuditAction;
   matchId?: string;
   /** Free-text reason; required for scorecard corrections. */
@@ -149,12 +195,15 @@ export interface AuditEntry {
 }
 
 export interface LeagueState {
-  schemaVersion: 1;
+  schemaVersion: 2;
   /** Optimistic-concurrency counter, bumped on every write. */
   version: number;
   settings: LeagueSettings;
   matchDays: MatchDay[];
   audit: AuditEntry[];
+  users: User[];
+  /** Series ids whose fixtures have been generated (so deleted weeks stay deleted). */
+  seriesCreated: string[];
   /** True when this state was produced by `npm run seed:demo`. */
   demo?: boolean;
 }

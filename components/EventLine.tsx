@@ -23,7 +23,7 @@ export function EventLine({ e, rules }: { e: GoalEvent; rules: ScoringRules }) {
   return (
     <li className="row spread" style={{ padding: "0.45rem 0", borderBottom: "1px dashed var(--line-soft)" }}>
       <span className="row" style={{ gap: "0.5rem" }}>
-        <span className={`bib bib-${e.side}`} aria-label={`Team ${e.side === "A" ? "Chalk" : "Kit"}`} />
+        <span className={`bib bib-${e.side}`} aria-label={`Team ${e.side === "A" ? "White" : "Red"}`} />
         {e.minute != null && <span className="muted num small">{e.minute}&apos;</span>}
         <span>{describeEvent(e, rules)}</span>
       </span>

@@ -7,7 +7,7 @@ import { GOAL_KINDS, GOAL_KIND_LABEL, deflectionRulingOf, scoreMatch, scoreline,
 import { api } from "./api";
 
 const KNOWN = new Set(ROSTER.map((p) => p.id));
-const TEAM: Record<Side, string> = { A: "Chalk", B: "Kit" };
+const TEAM: Record<Side, string> = { A: "White", B: "Red" };
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `g${Date.now()}${Math.random().toString(16).slice(2)}`);
 
 function PlayerSelect({
@@ -130,9 +130,9 @@ export function ScorecardEditor({
   return (
     <div className="stack">
       <div className="panel row spread sticky-score">
-        <span className="row"><span className="bib bib-A" /> Chalk</span>
+        <span className="row"><span className="bib bib-A" /> White</span>
         <span className="score num">{score.A}–{score.B}</span>
-        <span className="row">Kit <span className="bib bib-B" /></span>
+        <span className="row">Red <span className="bib bib-B" /></span>
       </div>
 
       {locked && (
@@ -162,8 +162,8 @@ export function ScorecardEditor({
                 <div>
                   <label>Credited to</label>
                   <select value={e.side} disabled={locked} onChange={(x) => update(e.id, { side: x.target.value as Side })}>
-                    <option value="A">Team Chalk</option>
-                    <option value="B">Team Kit</option>
+                    <option value="A">Team White</option>
+                    <option value="B">Team Red</option>
                   </select>
                 </div>
                 <div>
@@ -239,8 +239,8 @@ export function ScorecardEditor({
 
       {!locked && (
         <div className="row">
-          <button type="button" className="btn" onClick={() => add("A")}>+ Chalk goal</button>
-          <button type="button" className="btn" onClick={() => add("B")}>+ Kit goal</button>
+          <button type="button" className="btn" onClick={() => add("A")}>+ White goal</button>
+          <button type="button" className="btn" onClick={() => add("B")}>+ Red goal</button>
         </div>
       )}
 

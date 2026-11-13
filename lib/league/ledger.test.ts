@@ -12,7 +12,8 @@ import {
   rulesFrom,
   saveScorecard,
   setAttendance,
-  submitSelection,
+  setSquad,
+  signUp,
   updateSettings,
   type Ctx,
 } from "./ledger";
@@ -33,16 +34,18 @@ function played(state: LeagueState, date: string, events: (teams: { A: string[];
 const goal = (id: string, scorerId: string, side: "A" | "B", assistId?: string): GoalEvent => ({ id, kind: "open_play", side, scorerId, assistId });
 
 describe("match-day lifecycle", () => {
-  it("L01 selections: exactly 7 different roster players; locked once teams are drawn", () => {
+  it("L01 Pick 7 squads: exactly 7 different roster players; snapshotted into the match at the draw", () => {
     const c = createMatchDay(initialState(), { date: "2026-05-01", attendees: SQUAD }, at("2026-04-30T10:00:00Z"));
-    expect(() => submitSelection(c.state, c.match.id, "sanjeev", SQUAD.slice(0, 6), at("2026-04-30T11:00:00Z"))).toThrow(LedgerError);
-    expect(() => submitSelection(c.state, c.match.id, "sanjeev", [...SQUAD.slice(0, 6), "messi"], at("2026-04-30T11:00:00Z"))).toThrow(/unknown/);
-    let s = submitSelection(c.state, c.match.id, "sanjeev", SQUAD.slice(0, 7), at("2026-04-30T11:00:00Z"));
-    s = submitSelection(s, c.match.id, "sanjeev", SQUAD.slice(1, 8), at("2026-04-30T11:05:00Z"));
-    expect(s.matchDays[0].selections).toHaveLength(1);
-    expect(s.audit.filter((a) => a.action === "selection.submit")).toHaveLength(2);
+    const u = signUp(c.state, { email: "a@b.co", name: "Sanjeev", passwordHash: "x" }, at("2026-04-30T10:01:00Z"));
+    const uid = u.user.id;
+    expect(() => setSquad(u.state, uid, SQUAD.slice(0, 6), at("2026-04-30T11:00:00Z"))).toThrow(LedgerError);
+    expect(() => setSquad(u.state, uid, [...SQUAD.slice(0, 6), "messi"], at("2026-04-30T11:00:00Z"))).toThrow(/unknown/);
+    expect(() => setSquad(u.state, uid, [...SQUAD.slice(0, 6), SQUAD[0]], at("2026-04-30T11:00:00Z"))).toThrow(/different/);
+    let s = setSquad(u.state, uid, SQUAD.slice(0, 7), at("2026-04-30T11:00:00Z"));
+    s = setSquad(s, uid, SQUAD.slice(1, 8), at("2026-04-30T11:05:00Z"));
+    expect(s.audit.filter((a) => a.action === "squad.update")).toHaveLength(2);
     s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-05-01T09:00:00Z"), SEED);
-    expect(() => submitSelection(s, c.match.id, "archit", SQUAD.slice(0, 7), at("2026-05-01T09:01:00Z"))).toThrow(/closed/);
+    expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: SQUAD.slice(1, 8), submittedAt: "2026-04-30T11:05:00.000Z" }]);
   });
 
   it("L02 attendance locks at the draw; recorded draws verify", () => {

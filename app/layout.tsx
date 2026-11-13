@@ -9,6 +9,8 @@ import "./globals.css";
 import { Nav } from "@/components/Nav";
 import { CLUB } from "@/config/club";
 import { storageMode } from "@/lib/server/store";
+import { currentUser } from "@/lib/server/session";
+import { DeadlineBanner } from "@/components/DeadlineBanner";
 
 export const metadata: Metadata = {
   title: { default: `${CLUB.leagueName} | ${CLUB.tagline}`, template: `%s · ${CLUB.leagueName}` },
@@ -19,7 +21,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: "#0C1925", width: "device-width", initialScale: 1 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = await currentUser();
   return (
     <html lang="en">
       <body>
@@ -30,7 +33,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         )}
-        <Nav />
+        <Nav userName={user?.name ?? null} />
+        <DeadlineBanner user={user} />
         {children}
         <footer className="site">
           <div className="wrap row spread">

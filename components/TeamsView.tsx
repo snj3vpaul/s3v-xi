@@ -6,7 +6,7 @@ export function TeamsView({ draw, score }: { draw: DrawResult; score?: Record<Si
   const team = (side: Side, ids: string[]) => (
     <div className="team">
       <h3>
-        <span className={`bib bib-${side}`} aria-hidden /> Team {side === "A" ? "Chalk" : "Kit"}
+        <span className={`bib bib-${side}`} aria-hidden /> Team {side === "A" ? "White" : "Red"}
         {score && <span className="score num" style={{ marginLeft: "auto" }}>{score[side]}</span>}
       </h3>
       <ul>
@@ -31,4 +31,4 @@ export function TeamsView({ draw, score }: { draw: DrawResult; score?: Record<Si
   );
 }
 
-export const TEAM_NAME: Record<Side, string> = { A: "Chalk", B: "Kit" };
+export const TEAM_NAME: Record<Side, string> = { A: "White", B: "Red" };

@@ -10,7 +10,11 @@ export const metadata: Metadata = { title: "Matches" };
 
 export default async function MatchesPage() {
   const state = await getState();
-  const list = [...state.matchDays].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  // Next three fixtures, then every played match day (latest first).
+  const list = [
+    ...state.matchDays.filter((m) => m.status !== "played" && new Date(m.kickoffAt).getTime() > Date.now() - 6 * 3_600_000).sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt)).slice(0, 3).reverse(),
+    ...state.matchDays.filter((m) => m.status === "played").sort((a, b) => b.kickoffAt.localeCompare(a.kickoffAt)),
+  ];
   return (
     <main className="wrap stack-lg">
       <header className="stack">
@@ -32,9 +36,9 @@ export default async function MatchesPage() {
                 </div>
                 {m.status === "played" ? (
                   <div className="row" style={{ gap: "1rem" }}>
-                    <span className="row"><span className="bib bib-A" /> Chalk</span>
+                    <span className="row"><span className="bib bib-A" /> White</span>
                     <span className="score num">{score.A}–{score.B}</span>
-                    <span className="row">Kit <span className="bib bib-B" /></span>
+                    <span className="row">Red <span className="bib bib-B" /></span>
                   </div>
                 ) : null}
                 <div className="small muted">

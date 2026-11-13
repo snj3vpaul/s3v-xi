@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { isDropIn, playerName } from "@/config/club";
-import { deriveSeason, shortDate } from "@/lib/league/derive";
+import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Empty, Kicker, Name } from "@/components/ui";
@@ -30,7 +30,7 @@ export default async function TablePage() {
               <div key={a.key} className="panel stat-tile">
                 <div className="l" style={{ marginTop: 0, color: "var(--gold)" }}>{a.title}</div>
                 <div className="v" style={{ fontSize: "1.7rem", marginTop: "0.35rem" }}>
-                  {a.winners.length ? a.winners.map(playerName).join(" & ") : "—"}
+                  {a.winners.length ? a.winners.map((w) => (a.key === "oracle" ? selectorName(state, w) : playerName(w))).join(" & ") : "—"}
                 </div>
                 <div className="l">{a.winners.length ? `${a.value} ${a.unit}` : "Nobody qualifies yet"}</div>
               </div>
@@ -92,7 +92,7 @@ export default async function TablePage() {
                     {selectors.map((s) => (
                       <tr key={s.selectorId}>
                         <td className="rank">{s.rank}{s.sharedRank ? "=" : ""}</td>
-                        <td><Name id={s.selectorId} /></td>
+                        <td>{selectorName(state, s.selectorId)}</td>
                         <td className="r">{s.rounds}</td>
                         <td className="r">{s.hits}/{s.totalPicks}</td>
                         <td className="r hide-sm">{Math.round(s.hitRate * 100)}%</td>

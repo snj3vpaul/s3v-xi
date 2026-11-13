@@ -8,6 +8,7 @@ Test files:
 - `lib/scoring/rules.test.ts`: points, aggregation, tie-breaks, selections, awards, validation
 - `lib/draw/draw.test.ts`: the match-day draw
 - `lib/league/ledger.test.ts`: lifecycle, corrections and recalculation
+- `lib/league/fpl.test.ts`: accounts, weekly fixtures, carry-over, calendar feed, reminders
 
 ## Edge-case table
 
@@ -46,7 +47,18 @@ Test files:
 | Corrections need a reason and only work inside the window | `saveScorecard`, `canCorrect` | R27 |
 | Editing an old match re-ranks the season and changes later form | derived standings | R28 |
 | Settings changes (second-assist toggle) recalculate everything and are audited | `updateSettings` | R31 |
-| Selections: exactly 7, locked once the teams are drawn | `submitSelection` | L01 |
+| Pick 7: exactly 7 different roster players, snapshotted at the draw | `setSquad`, `recordDraw` | L01 |
+| Pick 7 carries over week to week (FPL-style) | `squadAt`, `snapshotSelections` | C01 |
+| A change after the deadline counts from next week | `recordDraw` deadline = min(kick-off, draw) | C02, C03 |
+| Resetting a draw clears its snapshot | `resetDraw` | C04 |
+| Next deadline skips past or drawn fixtures | `nextDeadlineMatch` | C05 |
+| Every Thursday 10 pm until 17 Jun 2027 (31 fixtures) | `weeklyDates`, `ensureSeries` | F01, F03 |
+| Kick-off is correct across DST | `zonedToUtc` | F02 |
+| v1 data upgrades | `migrate` | F04 |
+| Unique email; one account per roster player | `signUp` | A01 |
+| A password change signs out other devices; hashes never reach the audit log | `updateAccount` | A02 |
+| Weekly reminders: only within 48h, opt-out respected, one per slot | `planReminders`, `recordReminders` | R01 (fpl.test) |
+| Calendar feed: RRULE, EXDATE for cancelled weeks, alarms, valid line folding | `buildCalendar` | I01 |
 | Attendance locks at the draw | `setAttendance` | L02 |
 | A scored match can't be deleted | `deleteMatchDay` | L03 |
 | Draw is reproducible from its seed | `drawTeams` | D01, D09 |

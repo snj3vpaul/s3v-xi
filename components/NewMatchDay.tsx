@@ -8,6 +8,7 @@ export function NewMatchDay({ defaultDate }: { defaultDate: string }) {
   const router = useRouter();
   const [date, setDate] = useState(defaultDate);
   const [label, setLabel] = useState("");
+  const [time, setTime] = useState("22:00");
   const [att, setAtt] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -19,7 +20,7 @@ export function NewMatchDay({ defaultDate }: { defaultDate: string }) {
         setBusy(true);
         setErr(null);
         try {
-          await api("/api/matchdays", "POST", { date, label, attendees: att });
+          await api("/api/matchdays", "POST", { date, time, label, attendees: att });
           router.push("/draw");
           router.refresh();
         } catch (e) {
@@ -35,6 +36,10 @@ export function NewMatchDay({ defaultDate }: { defaultDate: string }) {
           <input id="md-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </div>
         <div className="field">
+          <label htmlFor="md-time">Kick-off (Toronto time)</label>
+          <input id="md-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
+        </div>
+        <div className="field">
           <label htmlFor="md-label">Label (optional)</label>
           <input id="md-label" type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Season opener" />
         </div>
@@ -44,7 +49,7 @@ export function NewMatchDay({ defaultDate }: { defaultDate: string }) {
         <PlayerChips selected={att} onToggle={(id) => setAtt((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))} />
       </div>
       <div className="row">
-        <button className="btn btn-primary" disabled={busy}>Create match day</button>
+        <button className="btn btn-primary" disabled={busy}>Create extra match day</button>
         {err && <span className="small neg">{err}</span>}
       </div>
     </form>

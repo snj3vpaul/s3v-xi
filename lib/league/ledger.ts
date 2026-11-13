@@ -7,7 +7,9 @@
  * `before`, so a correction never silently overwrites anything.
  */
 
-import { CLUB, ROSTER, getPlayer, isDropIn } from "@/config/club";
+import { CLUB, ROSTER, isDropIn } from "@/config/club";
+import { SERIES } from "@/config/schedule";
+import { weeklyDates, zonedToUtc } from "./schedule";
 import { drawTeams, generateSeed } from "@/lib/draw/draw";
 import { DEFAULT_RULES, playedMatches, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
 import type {
@@ -17,6 +19,8 @@ import type {
   LeagueSettings,
   LeagueState,
   MatchDay,
+  Selection,
+  User,
 } from "./types";
 
 export class LedgerError extends Error {
@@ -50,7 +54,24 @@ export const DEFAULT_SETTINGS: LeagueSettings = {
 };
 
 export function initialState(): LeagueState {
-  return { schemaVersion: 1, version: 0, settings: DEFAULT_SETTINGS, matchDays: [], audit: [] };
+  return { schemaVersion: 2, version: 0, settings: DEFAULT_SETTINGS, matchDays: [], audit: [], users: [], seriesCreated: [] };
+}
+
+/** Upgrade any stored document to the current schema (v1 → v2 adds accounts & kick-off times). */
+export function migrate(raw: unknown): LeagueState {
+  const s = (raw ?? initialState()) as Partial<LeagueState> & { schemaVersion?: number };
+  return {
+    ...initialState(),
+    ...s,
+    schemaVersion: 2,
+    users: s.users ?? [],
+    seriesCreated: s.seriesCreated ?? [],
+    settings: { ...DEFAULT_SETTINGS, ...(s.settings ?? {}) },
+    matchDays: (s.matchDays ?? []).map((m) => ({
+      ...m,
+      kickoffAt: m.kickoffAt ?? zonedToUtc(m.date, SERIES.time, SERIES.timeZone).toISOString(),
+    })),
+  } as LeagueState;
 }
 
 export function rulesFrom(settings: LeagueSettings): ScoringRules {
@@ -88,15 +109,19 @@ function checkRoster(ids: readonly string[], what: string) {
 
 export function createMatchDay(
   state: LeagueState,
-  input: { date: string; label?: string; attendees?: string[] },
+  input: { date: string; time?: string; label?: string; attendees?: string[]; seriesId?: string },
   ctx: Ctx,
 ): { state: LeagueState; match: MatchDay } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new LedgerError("Date must be YYYY-MM-DD.");
+  const time = input.time ?? SERIES.time;
+  if (!/^\d{2}:\d{2}$/.test(time)) throw new LedgerError("Kick-off time must be HH:MM.");
   const attendees = [...new Set(input.attendees ?? [])];
   checkRoster(attendees, "Attendance");
   const match: MatchDay = {
     id: ctx.newId(),
     date: input.date,
+    kickoffAt: zonedToUtc(input.date, time, SERIES.timeZone).toISOString(),
+    ...(input.seriesId ? { seriesId: input.seriesId } : {}),
     label: input.label?.trim() || undefined,
     status: "open",
     attendees,
@@ -184,9 +209,12 @@ export function recordDraw(
   } catch (e) {
     throw new LedgerError((e as Error).message);
   }
+  // Pick 7 locks now: snapshot every user's seven as it stood at the deadline
+  // (kick-off, or the moment of the draw if that came first).
+  const deadline = new Date(Math.min(new Date(m.kickoffAt).getTime(), ctx.now.getTime())).toISOString();
   return replaceMatch(
     state,
-    { ...m, status: "drawn", draw },
+    { ...m, status: "drawn", draw, selections: snapshotSelections(state.users, deadline) },
     audit(ctx, { actor: "admin", action: "draw.create", matchId, after: draw }),
   );
 }
@@ -198,35 +226,198 @@ export function resetDraw(state: LeagueState, matchId: string, reason: string, c
   if (!reason.trim()) throw new LedgerError("Give a reason for resetting the draw (it's shown in the audit log).");
   return replaceMatch(
     state,
-    { ...m, status: "open", draw: null },
-    audit(ctx, { actor: "admin", action: "draw.reset", matchId, reason, before: m.draw }),
+    { ...m, status: "open", draw: null, selections: [] },
+    audit(ctx, { actor: "admin", action: "draw.reset", matchId, reason, before: { draw: m.draw, selections: m.selections } }),
   );
 }
 
 // ---------------------------------------------------------------------------
-// Selections
+// Pick 7 — standing team (FPL-style carry-over)
 // ---------------------------------------------------------------------------
 
-export function submitSelection(
-  state: LeagueState,
-  matchId: string,
-  selectorId: string,
-  picks: string[],
-  ctx: Ctx,
-): LeagueState {
-  const m = findMatch(state, matchId);
-  if (m.status !== "open") throw new LedgerError("Selections closed — the teams have been drawn.");
-  if (!getPlayer(selectorId)) throw new LedgerError("Unknown selector.");
+/** The user's seven as it stood at `atIso` (latest change at or before it), or null. */
+export function squadAt(user: Pick<User, "squadHistory">, atIso: string): string[] | null {
+  let best: string[] | null = null;
+  for (const h of user.squadHistory) if (h.at <= atIso) best = h.picks;
+  return best;
+}
+
+export function currentSquad(user: Pick<User, "squadHistory">): string[] | null {
+  return user.squadHistory.at(-1)?.picks ?? null;
+}
+
+export function snapshotSelections(users: User[], deadlineIso: string): Selection[] {
+  const out: Selection[] = [];
+  for (const u of users) {
+    const picks = squadAt(u, deadlineIso);
+    if (picks) {
+      const at = [...u.squadHistory].reverse().find((h) => h.at <= deadlineIso)!.at;
+      out.push({ selectorId: u.id, picks: [...picks], submittedAt: at });
+    }
+  }
+  return out;
+}
+
+/** Save a new standing seven. It applies to every match day whose deadline is still ahead. */
+export function setSquad(state: LeagueState, userId: string, picks: string[], ctx: Ctx): LeagueState {
+  const u = state.users.find((x) => x.id === userId);
+  if (!u) throw new LedgerError("Account not found.");
   const unique = [...new Set(picks)];
-  if (unique.length !== CLUB.picksPerSelector)
+  if (unique.length !== CLUB.picksPerSelector || picks.length !== CLUB.picksPerSelector)
     throw new LedgerError(`Pick exactly ${CLUB.picksPerSelector} different players.`);
   checkRoster(unique, "Picks");
-  const before = m.selections.find((s) => s.selectorId === selectorId) ?? null;
-  const sel = { selectorId, picks: unique, submittedAt: ctx.now.toISOString() };
+  const prev = currentSquad(u);
+  if (prev && prev.length === unique.length && prev.every((x) => unique.includes(x))) return state; // no change
+  const entry = { picks: unique, at: ctx.now.toISOString() };
+  return {
+    ...state,
+    users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, entry] } : x)),
+    audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "squad.update", before: prev, after: unique })],
+  };
+}
+
+/** The next match day whose Pick 7 deadline hasn't passed (still open, kick-off in the future). */
+export function nextDeadlineMatch(state: LeagueState, now: Date): MatchDay | null {
+  return (
+    [...state.matchDays]
+      .filter((m) => m.status === "open" && new Date(m.kickoffAt).getTime() > now.getTime())
+      .sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt))[0] ?? null
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function checkClaim(state: LeagueState, playerId: string | null | undefined, exceptUserId?: string) {
+  if (!playerId) return;
+  if (!ROSTER_IDS.has(playerId)) throw new LedgerError("That player isn't on the RSFC roster.");
+  const owner = state.users.find((u) => u.playerId === playerId && u.id !== exceptUserId);
+  if (owner) throw new LedgerError("That player already has an account. Ask an admin if this is you.");
+}
+
+export function signUp(
+  state: LeagueState,
+  input: { email: string; name: string; passwordHash: string; playerId?: string | null },
+  ctx: Ctx,
+): { state: LeagueState; user: User } {
+  const email = input.email.trim().toLowerCase();
+  const name = input.name.trim();
+  if (!EMAIL_RE.test(email) || email.length > 200) throw new LedgerError("Enter a valid email address.");
+  if (state.users.some((u) => u.email === email)) throw new LedgerError("An account with that email already exists. Log in instead.");
+  if (name.length < 1 || name.length > 40) throw new LedgerError("Name must be 1–40 characters.");
+  checkClaim(state, input.playerId);
+  const user: User = {
+    id: ctx.newId(),
+    email,
+    name,
+    passwordHash: input.passwordHash,
+    playerId: input.playerId || null,
+    emailReminders: true,
+    sessionVersion: 1,
+    createdAt: ctx.now.toISOString(),
+    squadHistory: [],
+  };
+  return {
+    user,
+    state: {
+      ...state,
+      users: [...state.users, user],
+      audit: [...state.audit, audit(ctx, { actor: `user:${user.id}`, action: "user.signup", after: { name, playerId: user.playerId } })],
+    },
+  };
+}
+
+export function updateAccount(
+  state: LeagueState,
+  userId: string,
+  patch: { name?: string; playerId?: string | null; emailReminders?: boolean; passwordHash?: string },
+  ctx: Ctx,
+  actor: "admin" | `user:${string}` = `user:${userId}`,
+): LeagueState {
+  const u = state.users.find((x) => x.id === userId);
+  if (!u) throw new LedgerError("Account not found.");
+  const next: User = { ...u };
+  if (patch.name !== undefined) {
+    const name = patch.name.trim();
+    if (name.length < 1 || name.length > 40) throw new LedgerError("Name must be 1–40 characters.");
+    next.name = name;
+  }
+  if (patch.playerId !== undefined) {
+    checkClaim(state, patch.playerId, userId);
+    next.playerId = patch.playerId || null;
+  }
+  if (patch.emailReminders !== undefined) next.emailReminders = !!patch.emailReminders;
+  if (patch.passwordHash) {
+    next.passwordHash = patch.passwordHash;
+    next.sessionVersion = u.sessionVersion + 1;
+  }
+  const { passwordHash: _a, squadHistory: _b, ...pub } = next;
+  return {
+    ...state,
+    users: state.users.map((x) => (x.id === userId ? next : x)),
+    audit: [
+      ...state.audit,
+      audit(ctx, { actor, action: patch.passwordHash && actor === "admin" ? "user.reset" : "user.update", after: { ...pub, passwordChanged: !!patch.passwordHash } }),
+    ],
+  };
+}
+
+export function deleteUser(state: LeagueState, userId: string, ctx: Ctx): LeagueState {
+  const u = state.users.find((x) => x.id === userId);
+  if (!u) throw new LedgerError("Account not found.");
+  return {
+    ...state,
+    users: state.users.filter((x) => x.id !== userId),
+    audit: [...state.audit, audit(ctx, { actor: "admin", action: "user.delete", before: { name: u.name, email: u.email } })],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Weekly fixtures
+// ---------------------------------------------------------------------------
+
+/**
+ * Create the weekly series' match days (once per series id). Kick-offs already
+ * in the past are skipped, and so are dates that already have a match day.
+ * Deleting a week later sticks: the series is never regenerated.
+ */
+export function ensureSeries(state: LeagueState, ctx: Ctx, series: typeof SERIES = SERIES): LeagueState {
+  if (state.seriesCreated.includes(series.id)) return state;
+  let next = state;
+  const created: string[] = [];
+  for (const date of weeklyDates(series.start, series.end, series.weekday)) {
+    if (next.matchDays.some((m) => m.date === date)) continue;
+    if (zonedToUtc(date, series.time, series.timeZone).getTime() <= ctx.now.getTime()) continue;
+    next = createMatchDay(next, { date, time: series.time, seriesId: series.id }, ctx).state;
+    created.push(date);
+  }
+  // Collapse the per-fixture audit entries into one.
+  const audits = next.audit.slice(0, state.audit.length);
+  return {
+    ...next,
+    seriesCreated: [...next.seriesCreated, series.id],
+    audit: [
+      ...audits,
+      audit(ctx, { actor: "system", action: "fixtures.create", after: { series: series.id, count: created.length, first: created[0], last: created.at(-1) } }),
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reminders
+// ---------------------------------------------------------------------------
+
+export function recordReminders(state: LeagueState, matchId: string, sent: { userId: string; slot: string }[], ctx: Ctx): LeagueState {
+  if (!sent.length) return state;
+  const m = findMatch(state, matchId);
+  const log = sent.map((x) => ({ ...x, at: ctx.now.toISOString() }));
   return replaceMatch(
     state,
-    { ...m, selections: [...m.selections.filter((s) => s.selectorId !== selectorId), sel] },
-    audit(ctx, { actor: `player:${selectorId}`, action: "selection.submit", matchId, before, after: sel }),
+    { ...m, reminders: [...(m.reminders ?? []), ...log] },
+    audit(ctx, { actor: "system", action: "reminders.sent", matchId, after: { count: sent.length, slot: sent[0].slot } }),
   );
 }
 
