@@ -1,15 +1,15 @@
 import { playerName, isDropIn } from "@/config/club";
 
-/** Sequential kit-green ramp for positive days; coral for negative; neutral for 0; dashed for did-not-play. */
+/** Sequential sand → forest ramp for positive days; brick for negative; sand for 0; dashed for did-not-play. */
 function cellStyle(v: number | undefined, max: number): React.CSSProperties {
   if (v === undefined) return {};
-  if (v < 0) return { background: "rgba(224, 96, 63, 0.75)", color: "var(--navy-900)" };
-  if (v === 0) return { background: "#1d3047", color: "var(--muted)" };
+  if (v < 0) return { background: "var(--s5)", color: "var(--bg)" };
+  if (v === 0) return { background: "var(--surface-2)", color: "var(--muted)" };
   const t = Math.min(1, v / Math.max(max, 1));
-  // interpolate #1e4a3e → #6be3a6 (dim → bright on the dark surface)
+  // interpolate #d9d3bd → #2f5a44 (pale sage-sand → forest on the bone surface)
   const lerp = (a: number, b: number) => Math.round(a + (b - a) * (0.15 + 0.85 * t));
-  const bg = `rgb(${lerp(0x1e, 0x6b)}, ${lerp(0x4a, 0xe3)}, ${lerp(0x3e, 0xa6)})`;
-  return { background: bg, color: t > 0.45 ? "var(--navy-900)" : "var(--chalk)" };
+  const bg = `rgb(${lerp(0xd9, 0x2f)}, ${lerp(0xd3, 0x5a)}, ${lerp(0xbd, 0x44)})`;
+  return { background: bg, color: t > 0.5 ? "var(--bg)" : "var(--text)" };
 }
 
 export function ContributionMatrix({
@@ -53,10 +53,10 @@ export function ContributionMatrix({
 export function MatrixLegend() {
   return (
     <>
-      <span><span className="swatch" style={{ background: "#2a6a52" }} /> few pts</span>
-      <span><span className="swatch" style={{ background: "#6be3a6" }} /> many pts</span>
-      <span><span className="swatch" style={{ background: "#1d3047" }} /> played, 0</span>
-      <span><span className="swatch" style={{ background: "rgba(224, 96, 63, 0.75)" }} /> negative</span>
+      <span><span className="swatch" style={{ background: "#b9bfa5" }} /> few pts</span>
+      <span><span className="swatch" style={{ background: "#2f5a44" }} /> many pts</span>
+      <span><span className="swatch" style={{ background: "var(--surface-2)" }} /> played, 0</span>
+      <span><span className="swatch" style={{ background: "var(--s5)" }} /> negative</span>
       <span><span className="swatch" style={{ border: "1px dashed var(--line)" }} /> didn&apos;t play</span>
     </>
   );

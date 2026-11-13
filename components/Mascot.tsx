@@ -4,8 +4,8 @@ import { mascotLook, mascotPhase } from "@/lib/league/mascot";
 import type { MascotLook } from "@/config/mascots";
 
 const INK = "#16110e";
-const KIT = "#3fd38a";
-const NAVY = "#0c1925";
+const KIT = "#4c7d62";
+const NAVY = "#171412";
 
 function Hair({ look }: { look: MascotLook }) {
   const c = look.hairColor;
@@ -141,7 +141,7 @@ export function Mascot({
             <rect x="32" y="105.5" width="16" height="7.5" rx="3.75" fill={look.boots} />
             <rect x="52" y="105.5" width="16" height="7.5" rx="3.75" fill={look.boots} />
             {/* shorts */}
-            <path d="M33 80 h34 v10 q0 3 -3 3 h-11 l-3 -4 l-3 4 h-11 q-3 0 -3 -3 z" fill="#f2efe6" />
+            <path d="M33 80 h34 v10 q0 3 -3 3 h-11 l-3 -4 l-3 4 h-11 q-3 0 -3 -3 z" fill="#f5f0e6" />
             <path d="M33 80 h34 v2.6 h-34 z" fill="#000" opacity="0.12" />
             {/* arms */}
             <g className="arm-l">
@@ -155,8 +155,8 @@ export function Mascot({
             {/* shirt */}
             <path d="M31 63 q0 -9 9 -10 h20 q9 1 9 10 v20 h-38 z" fill={KIT} />
             <path d="M60 53 q9 1 9 10 v20 h-7 v-18 q0 -9 -6 -12 z" fill="#000" opacity="0.12" />
-            <path d="M43.5 53 l6.5 7.5 l6.5 -7.5 z" fill="#f2efe6" />
-            <text x="50" y="77.5" textAnchor="middle" fontFamily="var(--display)" fontWeight="800" fontSize="13" fill={NAVY}>
+            <path d="M43.5 53 l6.5 7.5 l6.5 -7.5 z" fill="#f5f0e6" />
+            <text x="50" y="77.5" textAnchor="middle" fontFamily="var(--display)" fontWeight="600" fontSize="13" fill={NAVY}>
               {initial}
             </text>
           </g>

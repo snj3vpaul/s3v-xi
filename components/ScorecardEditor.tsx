@@ -147,7 +147,7 @@ export function ScorecardEditor({
           const myIssues = issues.filter((x) => x.eventId === e.id);
           const other: Side = e.side === "A" ? "B" : "A";
           return (
-            <li key={e.id} className="panel stack" style={{ borderColor: myIssues.some((x) => x.level === "error") ? "#6b3a32" : undefined }}>
+            <li key={e.id} className="panel stack" style={{ borderColor: myIssues.some((x) => x.level === "error") ? "var(--danger)" : undefined }}>
               <div className="row spread">
                 <span className="display" style={{ fontSize: "1.2rem" }}>
                   <span className={`bib bib-${e.side}`} /> Goal {i + 1} · Team {TEAM[e.side]}

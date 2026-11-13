@@ -107,22 +107,22 @@ function kitFor(kind: OrbKind, panels: Panel[]): Kit {
     case "draw":
       // White vs Red: the ball is split down the middle.
       return {
-        color: (p) => (p.center.x < 0 ? (r() < 0.5 ? "#ecebe4" : "#d9d7cf") : r() < 0.5 ? "#c9352c" : "#a8261f"),
+        color: (p) => (p.center.x < 0 ? (r() < 0.5 ? "#f5f0e6" : "#e7dcc8") : r() < 0.5 ? "#9e3b2e" : "#7e2d23"),
         glow: new Set(),
-        glowColor: "#ffffff",
-        edge: "#ffffff",
+        glowColor: "#c9a85c",
+        edge: "#c9a85c",
       };
     case "scoresheet": {
-      const greens = ["#14713f", "#0f5c35", "#1f9e5a", "#0b4a2a"];
-      return { color: () => greens[Math.floor(r() * greens.length)], glow: pickIdx(5, (p) => !p.pent), glowColor: "#d9a52c", edge: "#c9f5de" };
+      const greens = ["#26302a", "#2f5a44", "#3e6b52", "#1e2a23"];
+      return { color: () => greens[Math.floor(r() * greens.length)], glow: pickIdx(5, (p) => !p.pent), glowColor: "#d9a441", edge: "#c9a85c" };
     }
     case "seven": {
-      const navy = ["#13263d", "#1a3350", "#0e1d2f", "#22406a"];
-      return { color: () => navy[Math.floor(r() * navy.length)], glow: pickIdx(7, () => true), glowColor: "#22c06e", edge: "#9cc3ff" };
+      const espresso = ["#2b2118", "#1c1a17", "#3a3128", "#241e18"];
+      return { color: () => espresso[Math.floor(r() * espresso.length)], glow: pickIdx(7, () => true), glowColor: "#c9a85c", edge: "#c9a85c" };
     }
     case "thursday":
     default:
-      return { color: (p) => (p.pent ? "#0c1925" : r() < 0.5 ? "#f2efe6" : "#dedbd2"), glow: new Set(), glowColor: "#ffffff", edge: "#ffffff" };
+      return { color: (p) => (p.pent ? "#171412" : r() < 0.5 ? "#f5f0e6" : "#e7dcc8"), glow: new Set(), glowColor: "#c9a85c", edge: "#c9a85c" };
   }
 }
 
@@ -171,7 +171,7 @@ function buildBall(T: THREE, kind: OrbKind, panels: Panel[]): THREENS.Group {
     const gg = new T.BufferGeometry();
     gg.setAttribute("position", new T.Float32BufferAttribute(glowPos, 3));
     const gm = new T.MeshStandardMaterial({
-      color: "#06150d",
+      color: "#120e08",
       emissive: kit.glowColor,
       emissiveIntensity: 1.25,
       metalness: 0,
@@ -185,7 +185,7 @@ function buildBall(T: THREE, kind: OrbKind, panels: Panel[]): THREENS.Group {
 
   const eg = new T.BufferGeometry();
   eg.setAttribute("position", new T.Float32BufferAttribute(edges, 3));
-  group.add(new T.LineSegments(eg, new T.LineBasicMaterial({ color: kit.edge, transparent: true, opacity: 0.28 })));
+  group.add(new T.LineSegments(eg, new T.LineBasicMaterial({ color: kit.edge, transparent: true, opacity: 0.35 })));
   return group;
 }
 
@@ -219,16 +219,16 @@ void main(){
   float bands = smoothstep(-0.25, 0.25, sin(p.x * 95.0 + fbm(p.xz * 14.0) * 1.6));
   float grain = fbm(p.xz * 260.0 + uTime * 0.01);
   float rough = fbm(p.xz * 40.0);
-  vec3 turf = mix(vec3(0.040, 0.070, 0.056), vec3(0.070, 0.120, 0.090), bands);
-  turf = mix(turf, vec3(0.09, 0.10, 0.10), rough * 0.45) + grain * 0.035;
+  vec3 turf = mix(vec3(0.055, 0.062, 0.050), vec3(0.090, 0.105, 0.080), bands);
+  turf = mix(turf, vec3(0.11, 0.10, 0.085), rough * 0.45) + grain * 0.035;
   // Chalk halfway line running away from the camera.
   float line = 1.0 - smoothstep(0.0009, 0.0024, abs(p.x));
-  turf = mix(turf, vec3(0.55), line * 0.35);
+  turf = mix(turf, vec3(0.62, 0.58, 0.50), line * 0.32);
   // Floodlit from behind the horizon.
   vec3 L = normalize(vec3(-0.25, 0.85, -0.55));
   float diff = clamp(dot(n, L), 0.0, 1.0);
   float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 5.0);
-  vec3 col = turf * (0.18 + 0.75 * diff) + vec3(0.55, 0.74, 0.66) * rim * 0.95;
+  vec3 col = turf * (0.18 + 0.8 * diff) + vec3(0.79, 0.66, 0.40) * rim * 0.9;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -239,7 +239,7 @@ const ATMO_FRAG = /* glsl */ `
 varying vec3 vN;
 void main(){
   float i = pow(clamp(0.55 - dot(vN, vec3(0.0, 0.0, 1.0)), 0.0, 1.0), 4.0);
-  gl_FragColor = vec4(vec3(0.62, 0.78, 0.72) * i * 0.9, 1.0);
+  gl_FragColor = vec4(vec3(0.82, 0.70, 0.46) * i * 0.85, 1.0);
 }`;
 
 /* ------------------------------------------------------------------ */
@@ -284,7 +284,7 @@ export function createOrbitScene(T: THREE, RoomEnvironment: new () => THREENS.Sc
   host.appendChild(canvas);
 
   const scene = new T.Scene();
-  scene.background = new T.Color("#04080d");
+  scene.background = new T.Color("#12110e");
   const pmrem = new T.PMREMGenerator(renderer);
   const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
   scene.environment = envRT.texture;
@@ -294,10 +294,10 @@ export function createOrbitScene(T: THREE, RoomEnvironment: new () => THREENS.Sc
   camera.position.set(0, 0, 10);
 
   scene.add(new T.AmbientLight(0xffffff, 0.12));
-  const key = new T.DirectionalLight(0xffffff, 1.9);
+  const key = new T.DirectionalLight(0xfff1dc, 2.0);
   key.position.set(-4, 6, 6);
   scene.add(key);
-  const rim = new T.DirectionalLight(0x8fe3c0, 2.2);
+  const rim = new T.DirectionalLight(0xd9b877, 2.4);
   rim.position.set(5, 1, -6);
   scene.add(rim);
 
@@ -312,7 +312,7 @@ export function createOrbitScene(T: THREE, RoomEnvironment: new () => THREENS.Sc
     star.push(rad * Math.sin(ph) * Math.cos(th), rad * Math.cos(ph), -Math.abs(rad * Math.sin(ph) * Math.sin(th)) - 5);
   }
   starGeo.setAttribute("position", new T.Float32BufferAttribute(star, 3));
-  const stars = new T.Points(starGeo, new T.PointsMaterial({ color: 0xcfd8e3, size: 0.09, sizeAttenuation: true, transparent: true, opacity: 0.75 }));
+  const stars = new T.Points(starGeo, new T.PointsMaterial({ color: 0xe9dfc9, size: 0.09, sizeAttenuation: true, transparent: true, opacity: 0.75 }));
   scene.add(stars);
 
   // Pitch planet
@@ -340,7 +340,7 @@ export function createOrbitScene(T: THREE, RoomEnvironment: new () => THREENS.Sc
   });
 
   // Small satellite balls drifting around the featured one
-  const satMat = new T.MeshStandardMaterial({ color: "#5d7690", metalness: 0.5, roughness: 0.45, flatShading: true });
+  const satMat = new T.MeshStandardMaterial({ color: "#9c7a46", metalness: 0.75, roughness: 0.35, flatShading: true });
   const sats = [0.16, 0.11, 0.2, 0.09, 0.13].map((r, i) => {
     const m = new T.Mesh(new T.IcosahedronGeometry(r, 1), satMat);
     scene.add(m);

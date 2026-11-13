@@ -66,7 +66,7 @@ export default async function TeamPage() {
       ) : (
         <>
           {myLocked && lockedNow && (
-            <section className="panel stack" style={{ borderColor: "#1f6b47" }}>
+            <section className="panel stack" style={{ borderColor: "var(--accent)" }}>
               <div className="row spread">
                 <h3>Locked for {fmtDate(lockedNow.date)}</h3>
                 <span className="badge badge-kit">Teams drawn</span>

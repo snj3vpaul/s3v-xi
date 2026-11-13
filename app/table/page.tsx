@@ -28,7 +28,7 @@ export default async function TablePage() {
           <section className="grid grid-3">
             {awards.map((a) => (
               <div key={a.key} className="panel stat-tile">
-                <div className="l" style={{ marginTop: 0, color: "var(--gold)" }}>{a.title}</div>
+                <div className="l" style={{ marginTop: 0, color: "var(--ochre)" }}>{a.title}</div>
                 <div className="v" style={{ fontSize: "1.7rem", marginTop: "0.35rem" }}>
                   {a.winners.length ? a.winners.map((w) => (a.key === "oracle" ? selectorName(state, w) : playerName(w))).join(" & ") : "—"}
                 </div>

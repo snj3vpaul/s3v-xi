@@ -11,7 +11,7 @@ export function SelectorGauge({ name, hitRate, hits, picks, points }: { name: st
   const t = Math.max(0, Math.min(1, hitRate));
   const pct = Math.round(t * 100);
   return (
-    <div className="panel" style={{ padding: "0.8rem", textAlign: "center", background: "var(--navy-900)" }}>
+    <div className="panel" style={{ padding: "0.8rem", textAlign: "center", background: "var(--bg)" }}>
       <svg viewBox="0 0 112 62" width="100%" style={{ maxWidth: 150 }} role="img" aria-label={`Hit rate ${pct}%`}>
         <path d={`M${arc(0)} A${r},${r} 0 0 1 ${arc(1)}`} fill="none" stroke="var(--line-soft)" strokeWidth={10} strokeLinecap="round" />
         {t > 0 && (
@@ -19,7 +19,7 @@ export function SelectorGauge({ name, hitRate, hits, picks, points }: { name: st
             <title>{`${hits} of ${picks} picks hit`}</title>
           </path>
         )}
-        <text x={cx} y={cy - 4} textAnchor="middle" fill="var(--chalk)" fontFamily="var(--display)" fontWeight={800} fontSize={20}>
+        <text x={cx} y={cy - 4} textAnchor="middle" fill="var(--text)" fontFamily="var(--display)" fontWeight={400} fontSize={22}>
           {pct}%
         </text>
       </svg>

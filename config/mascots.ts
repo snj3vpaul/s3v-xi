@@ -30,7 +30,7 @@ export interface MascotLook {
 
 export const SKIN_TONES = ["#f1c7a3", "#e2a77f", "#c98a5e", "#a8693f", "#8a5232", "#6b3d24"];
 export const HAIR_COLORS = ["#16110e", "#2b1d15", "#4a3020", "#7a4a2a", "#b98a4e", "#8f8f8f"];
-export const BOOT_COLORS = ["#3fd38a", "#ff8a3d", "#ff5fa2", "#3ac8e8", "#f2efe6", "#e9b949", "#8f78e6"];
-export const SOCK_COLORS = ["#f2efe6", "#0c1925", "#3fd38a"];
+export const BOOT_COLORS = ["#4c7d62", "#c9a85c", "#b5654a", "#6e8ca8", "#f5f0e6", "#d9a441", "#7b5a84", "#2b2118"];
+export const SOCK_COLORS = ["#f5f0e6", "#2b2118", "#4c7d62"];
 
 export const LOOK_OVERRIDES: Partial<Record<string, Partial<MascotLook>>> = {};

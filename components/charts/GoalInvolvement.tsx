@@ -24,9 +24,9 @@ function Tip({ active, payload }: { active?: boolean; payload?: { payload: Invol
 function NameTick({ x, y, payload, rows }: { x?: number | string; y?: number | string; payload?: { value: string }; rows: InvolvementRow[] }) {
   const r = rows.find((q) => q.id === payload?.value);
   return (
-    <text x={x} y={y} dy={4} textAnchor="end" fill="var(--chalk-2)" fontSize={12}>
+    <text x={x} y={y} dy={4} textAnchor="end" fill="var(--text-2)" fontSize={12}>
       {r?.name}
-      {r?.dropin && <tspan fill="var(--gold)" fontSize={10} fontWeight={700}> · D</tspan>}
+      {r?.dropin && <tspan fill="var(--ochre)" fontSize={10} fontWeight={700}> · D</tspan>}
     </text>
   );
 }
@@ -51,11 +51,11 @@ export function GoalInvolvement({ rows }: { rows: InvolvementRow[] }) {
           <CartesianGrid horizontal={false} stroke="var(--line-soft)" />
           <XAxis type="number" allowDecimals={false} stroke="var(--muted)" tick={{ fill: "var(--muted)", fontSize: 11 }} tickLine={false} axisLine={false} />
           <YAxis type="category" dataKey="id" width={96} tickLine={false} axisLine={false} tick={(p) => <NameTick {...p} rows={data} />} interval={0} />
-          <Tooltip content={<Tip />} cursor={{ fill: "rgba(242,239,230,0.05)" }} />
-          <Bar dataKey="goals" stackId="gi" name="Goals" stroke="var(--navy-800)" strokeWidth={2} isAnimationActive={false}>
+          <Tooltip content={<Tip />} cursor={{ fill: "rgba(43,33,24,0.05)" }} />
+          <Bar dataKey="goals" stackId="gi" name="Goals" stroke="var(--surface)" strokeWidth={2} isAnimationActive={false}>
             {data.map((r) => <Cell key={r.id} fill={r.dropin ? "url(#hatch-goal)" : "var(--s1)"} />)}
           </Bar>
-          <Bar dataKey="assists" stackId="gi" name="Assists" stroke="var(--navy-800)" strokeWidth={2} radius={[0, 4, 4, 0]} isAnimationActive={false}>
+          <Bar dataKey="assists" stackId="gi" name="Assists" stroke="var(--surface)" strokeWidth={2} radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {data.map((r) => <Cell key={r.id} fill={r.dropin ? "url(#hatch-assist)" : "var(--s2)"} />)}
           </Bar>
         </BarChart>

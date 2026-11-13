@@ -80,7 +80,7 @@ export default async function StatsPage() {
             <>
               <span><Swatch color="var(--s1)" /> Goals</span>
               <span><Swatch color="var(--s2)" /> Assists</span>
-              <span><Swatch color="var(--chalk-2)" hatch /> Hatched · <span style={{ color: "var(--gold)" }}>D</span> = drop-in</span>
+              <span><Swatch color="var(--text-2)" hatch /> Hatched · <span style={{ color: "var(--ochre)" }}>D</span> = drop-in</span>
             </>
           }
           table={
@@ -96,7 +96,7 @@ export default async function StatsPage() {
         <ChartFrame title="Form guide" units="Points in each player's last five match days played (oldest → newest)">
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.5rem" }}>
             {active.map((r) => (
-              <div key={r.playerId} className="row spread" style={{ padding: "0.35rem 0.5rem", background: "var(--navy-900)", borderRadius: 8 }}>
+              <div key={r.playerId} className="row spread" style={{ padding: "0.35rem 0.5rem", background: "var(--bg)", borderRadius: 8 }}>
                 <span className="small" style={{ whiteSpace: "nowrap" }}><Name id={r.playerId} /></span>
                 <Sparkline values={r.form} width={64} height={22} />
               </div>

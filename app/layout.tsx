@@ -1,10 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import "@fontsource/barlow-condensed/600.css";
-import "@fontsource/barlow-condensed/700.css";
-import "@fontsource/barlow-condensed/700-italic.css";
-import "@fontsource/barlow-condensed/800.css";
-import "@fontsource/barlow-condensed/800-italic.css";
-import "@fontsource-variable/inter/index.css";
+import "@fontsource-variable/fraunces/full.css";
+import "@fontsource-variable/fraunces/full-italic.css";
+import "@fontsource-variable/manrope/index.css";
+import "@fontsource-variable/jetbrains-mono/index.css";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
 import { CLUB } from "@/config/club";
@@ -21,7 +19,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export const viewport: Viewport = { themeColor: "#0C1925", width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { themeColor: "#F5F0E6", width: "device-width", initialScale: 1 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
