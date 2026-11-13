@@ -7,8 +7,8 @@ NEW_FILES_LIST="${1:-.rsfc-files}"
 if [ ! -f "$NEW_FILES_LIST" ]; then
   echo "Missing $NEW_FILES_LIST (it ships in the RSFC League zip)." >&2; exit 1
 fi
-git ls-files | while read -r f; do
-  if ! grep -qxF "$f" "$NEW_FILES_LIST"; then git rm -q -- "$f"; echo "removed  $f"; fi
+git -c core.quotepath=off ls-files | while read -r f; do
+  if ! grep -qxF "$f" "$NEW_FILES_LIST"; then git --literal-pathspecs rm -q -- "$f"; echo "removed  $f"; fi
 done
 git rm -qf --ignore-unmatch -- "$NEW_FILES_LIST"; rm -f "$NEW_FILES_LIST"
 echo "Done. Review with 'git status', then commit."
