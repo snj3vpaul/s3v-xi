@@ -51,7 +51,19 @@
  *   5. anyone still level shares the rank (competition ranking: 1, 2, 2, 4).
  */
 
-import type { DeflectionRuling, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, MatchDay, RulesVersion, Side } from "@/lib/league/types";
+import type {
+  DeflectionRuling,
+  DrawResult,
+  FairPlayBreach,
+  FairPlayLoss,
+  GoalEvent,
+  GoalKind,
+  MatchDay,
+  RotationLapse,
+  RotationMiss,
+  RulesVersion,
+  Side,
+} from "@/lib/league/types";
 
 // ---------------------------------------------------------------------------
 // Point values & rule switches
@@ -72,6 +84,12 @@ export const POINTS_V2 = {
   ownGoal: -2,
   motm: 4,
   fairPlay: 1,
+  /** Each player on the winning side. */
+  win: 3,
+  /** The floater (half a game each side) when there's a winner. */
+  floaterWin: 2,
+  /** Skipped a goalkeeper or sub stint. */
+  rotationMiss: -2,
 } as const;
 
 /** The current point values, for pages that show "the rules". */
@@ -93,6 +111,21 @@ export const FAIR_PLAY_LABEL: Record<FairPlayBreach, { short: string; long: stri
   card: { short: "Card", long: "Shown a card or sent to the sin-bin" },
   dissent: { short: "Dissent", long: "Formally warned for arguing with the ref, scorekeeper or an opponent" },
   dangerous: { short: "Dangerous", long: "Called for a dangerous challenge: slide tackle, high foot, or contact from behind" },
+};
+
+export const ROTATION_LAPSES: readonly RotationLapse[] = ["gk", "sub"];
+export const ROTATION_LABEL: Record<RotationLapse, string> = { gk: "Skipped GK turn", sub: "Skipped sub turn" };
+
+/** Labels for every kind of point, in breakdown order. */
+export const POINT_KIND_LABEL: Record<ContributionKind, { icon: string; label: string }> = {
+  goal: { icon: "⚽", label: "Goals" },
+  assist: { icon: "🅰️", label: "Assists" },
+  second_assist: { icon: "🅰️", label: "Pre-assists" },
+  own_goal: { icon: "🙈", label: "Own goals" },
+  motm: { icon: "⭐", label: "Man of the Match" },
+  win: { icon: "🏆", label: "Wins" },
+  fair_play: { icon: "🤝", label: "Fair play" },
+  rotation: { icon: "🔄", label: "Missed rotation" },
 };
 
 /** Goal types the v2 scorecard offers (v1 also had header and deflection). */
@@ -132,7 +165,7 @@ export const GOAL_KIND_LABEL: Record<GoalKind, string> = {
 // Single event → contributions
 // ---------------------------------------------------------------------------
 
-export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play";
+export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play" | "win" | "rotation";
 
 export interface Contribution {
   playerId: string;
@@ -227,9 +260,12 @@ function scoreEventV2(e: GoalEvent, rules: ScoringRules): EventScore {
 // Match → per-player lines
 // ---------------------------------------------------------------------------
 
-/** What scoring needs from a match. `date`/`rulesVersion` pick the rule set; v2 also reads MOTM and fair play. */
+/** What scoring needs from a match. `date`/`rulesVersion` pick the rule set; v2 also reads MOTM, conduct and the draw. */
 export type ScorableMatch = Pick<MatchDay, "events" | "attendees"> &
-  Partial<Pick<MatchDay, "date" | "rulesVersion" | "motm" | "fairPlayLost">>;
+  Partial<Pick<MatchDay, "date" | "rulesVersion" | "motm" | "fairPlayLost" | "rotationMissed" | "noResult">> & {
+    /** Needed for the v2 win bonus (who was on which side). */
+    draw?: Pick<DrawResult, "teamA" | "teamB" | "floater"> | null;
+  };
 
 export interface PlayerMatchLine {
   playerId: string;
@@ -241,50 +277,111 @@ export interface PlayerMatchLine {
   motm: number;
   /** v2: fair-play points kept (0/1 per match). */
   fairPlay: number;
+  /** v2: on the winning side (0/1 per match). */
+  wins: number;
+  /** v2: rotation stints missed (0/1 per match). */
+  rotationMissed: number;
   points: number;
 }
 
 export function emptyLine(playerId: string): PlayerMatchLine {
-  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, points: 0 };
+  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, points: 0 };
+}
+
+/** One line of a player's points breakdown — every point a player earns comes from exactly one of these. */
+export interface PointItem {
+  kind: ContributionKind;
+  points: number;
+  /** Short human explanation, e.g. "White won 4–3" or "Skipped GK turn". */
+  detail: string;
+  /** The scorecard entry it came from (goals, assists, own goals). */
+  eventId?: string;
+}
+
+/** Which side won on the scoreboard, or null for a draw / no result. */
+export function winnerOf(match: Pick<ScorableMatch, "events" | "noResult">): Side | null {
+  if (match.noResult) return null;
+  const s = scoreline(match.events);
+  return s.A === s.B ? null : s.A > s.B ? "A" : "B";
+}
+
+const SIDE_NAME: Record<Side, string> = { A: "White", B: "Red" };
+
+/**
+ * Every point in one match, itemised per player. scoreMatch() totals these, so
+ * the breakdown users see is, by construction, exactly what they were scored.
+ * Every attendee gets an entry (possibly empty) so "played, 0" ≠ "didn't play".
+ */
+export function matchItems(match: ScorableMatch, rules: ScoringRules = DEFAULT_RULES): Map<string, PointItem[]> {
+  const version = rulesVersionOf(match);
+  const items = new Map<string, PointItem[]>();
+  const push = (id: string, item: PointItem) => {
+    const list = items.get(id);
+    if (list) list.push(item);
+    else items.set(id, [item]);
+  };
+  for (const id of match.attendees) items.set(id, []);
+
+  match.events.forEach((e, i) => {
+    const n = `Goal ${i + 1}`;
+    for (const c of scoreEvent(e, rules, version).contributions) {
+      const detail =
+        c.kind === "goal" ? `${n}${e.kind === "penalty" ? " (pen)" : e.kind === "free_kick" ? " (free kick)" : ""}`
+        : c.kind === "own_goal" ? `${n}, own goal`
+        : c.kind === "assist" ? `${n}, assist`
+        : `${n}, pre-assist`;
+      push(c.playerId, { kind: c.kind, points: c.points, detail, eventId: e.id });
+    }
+  });
+  if (version !== 2) return items;
+
+  for (const side of ["A", "B"] as Side[]) {
+    const id = match.motm?.[side];
+    if (id) push(id, { kind: "motm", points: POINTS_V2.motm, detail: `Man of the Match (${SIDE_NAME[side]})` });
+  }
+
+  const win = winnerOf(match);
+  if (win && match.draw) {
+    const s = scoreline(match.events);
+    const score = `${SIDE_NAME[win]} won ${Math.max(s.A, s.B)}–${Math.min(s.A, s.B)}`;
+    const team = win === "A" ? match.draw.teamA : match.draw.teamB;
+    for (const id of match.attendees) {
+      if (team.includes(id)) push(id, { kind: "win", points: POINTS_V2.win, detail: score });
+      else if (match.draw.floater === id) push(id, { kind: "win", points: POINTS_V2.floaterWin, detail: `${score} (floater, half a game each side)` });
+    }
+  }
+
+  const lostFair = new Map((match.fairPlayLost ?? []).map((f) => [f.playerId, f.reason]));
+  const missed = new Map((match.rotationMissed ?? []).map((r) => [r.playerId, r.reason]));
+  for (const id of match.attendees) {
+    if (!lostFair.has(id)) push(id, { kind: "fair_play", points: POINTS_V2.fairPlay, detail: "Fair play" });
+    const r = missed.get(id);
+    if (r) push(id, { kind: "rotation", points: POINTS_V2.rotationMiss, detail: ROTATION_LABEL[r] });
+  }
+  return items;
 }
 
 /**
- * Per-player lines for one match. Every attendee gets a line (0 if they didn't
- * score) so "played, no points" is distinguishable from "didn't play".
+ * Per-player lines for one match: the totals of matchItems(). Every attendee
+ * gets a line (0 if they didn't score) so "played, no points" is
+ * distinguishable from "didn't play".
  */
 export function scoreMatch(match: ScorableMatch, rules: ScoringRules = DEFAULT_RULES): Map<string, PlayerMatchLine> {
-  const version = rulesVersionOf(match);
   const lines = new Map<string, PlayerMatchLine>();
-  const line = (id: string) => {
-    let l = lines.get(id);
-    if (!l) lines.set(id, (l = emptyLine(id)));
-    return l;
-  };
-  for (const id of match.attendees) line(id);
-  for (const e of match.events) {
-    for (const c of scoreEvent(e, rules, version).contributions) {
-      const l = line(c.playerId);
-      l.points += c.points;
-      if (c.kind === "goal") l.goals += 1;
-      else if (c.kind === "assist") l.assists += 1;
-      else if (c.kind === "second_assist") l.secondAssists += 1;
-      else if (c.kind === "own_goal") l.ownGoals += 1;
+  for (const [id, list] of matchItems(match, rules)) {
+    const l = emptyLine(id);
+    for (const it of list) {
+      l.points += it.points;
+      if (it.kind === "goal") l.goals += 1;
+      else if (it.kind === "assist") l.assists += 1;
+      else if (it.kind === "second_assist") l.secondAssists += 1;
+      else if (it.kind === "own_goal") l.ownGoals += 1;
+      else if (it.kind === "motm") l.motm += 1;
+      else if (it.kind === "fair_play") l.fairPlay += 1;
+      else if (it.kind === "win") l.wins += 1;
+      else if (it.kind === "rotation") l.rotationMissed += 1;
     }
-  }
-  if (version === 2) {
-    for (const id of new Set([match.motm?.A, match.motm?.B])) {
-      if (!id) continue;
-      const l = line(id);
-      l.motm += 1;
-      l.points += POINTS_V2.motm;
-    }
-    const lost = new Set((match.fairPlayLost ?? []).map((f) => f.playerId));
-    for (const id of match.attendees) {
-      if (lost.has(id)) continue;
-      const l = line(id);
-      l.fairPlay += 1;
-      l.points += POINTS_V2.fairPlay;
-    }
+    lines.set(id, l);
   }
   return lines;
 }
@@ -358,6 +455,8 @@ export function buildStandings(
       r.ownGoals += l.ownGoals;
       r.motm += l.motm;
       r.fairPlay += l.fairPlay;
+      r.wins += l.wins;
+      r.rotationMissed += l.rotationMissed;
       r.points += l.points;
       r.perMatch[m.id] = l.points;
       if (m.attendees.includes(l.playerId)) r.played += 1;
@@ -669,7 +768,12 @@ export function validateScorecard(
  * must name players who attended, once each, with a listed reason.
  */
 export function validateAwards(
-  input: { motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
+  input: {
+    motm?: Partial<Record<Side, string | null>> | null;
+    fairPlayLost?: FairPlayLoss[] | null;
+    rotationMissed?: RotationMiss[] | null;
+    rotationChecked?: boolean;
+  },
   ctx: MatchContext,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -692,5 +796,13 @@ export function validateAwards(
     if (seen.has(f.playerId)) err("Fair play: list each player once.");
     seen.add(f.playerId);
   }
+  const seenRot = new Set<string>();
+  for (const r of input.rotationMissed ?? []) {
+    if (!ROTATION_LAPSES.includes(r.reason)) err(`Unknown rotation reason "${r.reason}".`);
+    if (!ctx.attendees.includes(r.playerId)) err(`Rotation: "${r.playerId}" didn't attend this match day.`);
+    if (seenRot.has(r.playerId)) err("Rotation: list each player once.");
+    seenRot.add(r.playerId);
+  }
+  if (!input.rotationChecked) err("Confirm you've checked who went in goal and who subbed.");
   return issues;
 }

@@ -36,7 +36,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
         <h1>{m.scorecardAt ? <>Correct the <em>scoresheet.</em></> : <>Full time. <em>Who scored?</em></>}</h1>
         <p className="muted">
           {version === 2
-            ? "Log each goal, pick a Man of the Match for each team, and untick anyone who lost their fair-play point."
+            ? "Log each goal, pick a Man of the Match for each team, then check conduct: fair play and who did their goalkeeper and sub stints."
             : "One entry per goal, in order. Pick the type first — it decides who can get an assist."}{" "}
           <Link href={`/matches/${m.id}`}>Match report →</Link>
         </p>
@@ -58,6 +58,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
             initial={m.events}
             initialMotm={m.motm ?? null}
             initialFairPlayLost={m.fairPlayLost ?? []}
+            initialRotation={{ missed: m.rotationMissed ?? [], checked: !!m.rotationChecked, noResult: !!m.noResult }}
             version={version}
             settings={state.settings}
             isCorrection={m.scorecardAt !== null}

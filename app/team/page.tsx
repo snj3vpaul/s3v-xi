@@ -5,7 +5,8 @@ import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtDate, selectorName, upcoming } from "@/lib/league/derive";
 import { currentSquad, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
 import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
-import { buildPick7Table } from "@/lib/league/pick7Table";
+import { buildPick7Table, selectorBreakdown } from "@/lib/league/pick7Table";
+import { PointsBreakdown } from "@/components/PointsBreakdown";
 import { Pick7Table } from "@/components/Pick7Table";
 import { fmtKickoff } from "@/lib/league/schedule";
 import { playedMatches, scoreSelection } from "@/lib/scoring/rules";
@@ -37,13 +38,7 @@ export default async function TeamPage() {
   const stars = currentStars(state.matchDays);
   const ownership = lastOwnership(state.matchDays);
   const myRow = me ? pick7.find((r) => r.id === me.id && r.rank !== null) : undefined;
-  const myRounds = me
-    ? played
-        .map((m) => ({ m, sel: m.selections.find((s) => s.selectorId === me.id) }))
-        .filter((x) => x.sel)
-        .map(({ m, sel }) => ({ m, r: scoreSelection(sel!, m, rules) }))
-        .reverse()
-    : [];
+  const myBreakdown = me ? selectorBreakdown(state, rules, me.id) : null;
   const deadlineLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
   const myLocked = me && lockedNow ? lockedNow.selections.find((s) => s.selectorId === me.id) : undefined;
 
@@ -120,22 +115,7 @@ export default async function TeamPage() {
               ) : (
                 <p className="muted" style={{ margin: 0 }}>Pick your seven to join the table on 0 points.</p>
               )}
-              {myRounds.length > 0 && (
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Match day</th><th className="r">Hits</th><th className="r">Pts</th></tr></thead>
-                    <tbody>
-                      {myRounds.map(({ m, r }) => (
-                        <tr key={m.id}>
-                          <td><Link href={`/matches/${m.id}`}>{fmtDate(m.date)}</Link></td>
-                          <td className="r">{r.hits}/{r.picks.length}</td>
-                          <td className="r pts"><Points v={r.points} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              {myBreakdown && myBreakdown.rounds.length > 0 && <PointsBreakdown data={myBreakdown} />}
             </section>
             <section className="panel stack">
               <h3>Never miss a Thursday</h3>

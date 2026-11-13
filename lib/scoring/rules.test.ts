@@ -50,7 +50,7 @@ const ON: ScoringRules = { ...DEFAULT_RULES, secondAssistEnabled: true };
 describe("point values", () => {
   it("R00 point table matches the brief", () => {
     expect(POINTS_V1).toEqual({ goal: 5, assist: 3, ownGoal: -2, secondAssist: 1 });
-    expect(POINTS).toEqual({ goal: 3, assist: 2, ownGoal: -2, motm: 4, fairPlay: 1 });
+    expect(POINTS).toEqual({ goal: 3, assist: 2, ownGoal: -2, motm: 4, fairPlay: 1, win: 3, floaterWin: 2, rotationMiss: -2 });
     expect(DEFAULT_RULES).toEqual({ secondAssistEnabled: false, deflectionDefault: "own_goal" });
   });
 });
@@ -188,7 +188,7 @@ describe("match & season aggregation", () => {
 
 describe("tie-breaks", () => {
   const row = (playerId: string, points: number, goals: number, assists: number, perMatch: Record<string, number> = {}): StandingRow => ({
-    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, played: 0, form: [], rank: 0, sharedRank: false,
+    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, played: 0, form: [], rank: 0, sharedRank: false,
   });
 
   it("R17 level on points → more goals ranks higher", () => {

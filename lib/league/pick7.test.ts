@@ -197,8 +197,8 @@ describe("v2 scoring", () => {
     const save = (input: Parameters<typeof saveScorecard>[3]) => saveScorecard(s, id, [], input, at("2026-11-20T04:00:00Z"));
     expect(() => save({ motm: { A: d.teamA[0], B: null } })).toThrow(LedgerError);
     expect(() => save({ motm: { A: d.teamB[0], B: d.teamB[1] } })).toThrow(LedgerError);
-    expect(() => save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: "inder", reason: "foul" }] })).toThrow(LedgerError);
-    s = save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: d.teamA[1], reason: "card" }] });
+    expect(() => save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: "inder", reason: "foul" }], rotationChecked: true })).toThrow(LedgerError);
+    s = save({ motm: { A: d.teamA[0], B: d.teamB[0] }, fairPlayLost: [{ playerId: d.teamA[1], reason: "card" }], rotationChecked: true });
     const m = s.matchDays[0];
     expect(m.status).toBe("played");
     expect(m.motm).toEqual({ A: d.teamA[0], B: d.teamB[0] });

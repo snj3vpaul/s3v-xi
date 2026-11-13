@@ -110,9 +110,11 @@ export default async function Home() {
                   <div><dt>Assist</dt><dd className="num">+{POINTS.assist}</dd></div>
                   <div><dt>Own goal</dt><dd className="num neg">{POINTS.ownGoal}</dd></div>
                   <div><dt>MOTM</dt><dd className="num">+{POINTS.motm}</dd></div>
+                  <div><dt>Win</dt><dd className="num">+{POINTS.win}</dd></div>
                   <div><dt>Fair play</dt><dd className="num">+{POINTS.fairPlay}</dd></div>
+                  <div><dt>Skip GK/sub</dt><dd className="num neg">{POINTS.rotationMiss}</dd></div>
                 </dl>
-                <p className="chapter-body">Five numbers. Easy to keep, hard to argue with.</p>
+                <p className="chapter-body">Seven numbers. Easy to keep, hard to argue with.</p>
               </div>
             </div>
           </article>

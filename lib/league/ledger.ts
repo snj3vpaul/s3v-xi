@@ -18,6 +18,7 @@ import type {
   DrawConstraints,
   FairPlayLoss,
   GoalEvent,
+  RotationMiss,
   LeagueSettings,
   LeagueState,
   MatchDay,
@@ -476,7 +477,14 @@ export function saveScorecard(
   state: LeagueState,
   matchId: string,
   events: GoalEvent[],
-  input: { reason?: string; motm?: Partial<Record<Side, string | null>> | null; fairPlayLost?: FairPlayLoss[] | null },
+  input: {
+    reason?: string;
+    motm?: Partial<Record<Side, string | null>> | null;
+    fairPlayLost?: FairPlayLoss[] | null;
+    rotationMissed?: RotationMiss[] | null;
+    rotationChecked?: boolean;
+    noResult?: boolean;
+  },
   ctx: Ctx,
 ): LeagueState {
   const m = findMatch(state, matchId);
@@ -513,13 +521,18 @@ export function saveScorecard(
       ? {
           motm: { A: input.motm?.A ?? null, B: input.motm?.B ?? null },
           fairPlayLost: (input.fairPlayLost ?? []).map((f) => ({ playerId: f.playerId, reason: f.reason })),
+          rotationMissed: (input.rotationMissed ?? []).map((r) => ({ playerId: r.playerId, reason: r.reason })),
+          rotationChecked: true,
+          noResult: !!input.noResult,
         }
       : {}),
   };
   const snap = (x: MatchDay) => ({
     version: x.scorecardVersion,
     events: x.events,
-    ...(version === 2 ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [] } : {}),
+    ...(version === 2
+      ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [], rotationMissed: x.rotationMissed ?? [], noResult: !!x.noResult }
+      : {}),
   });
   return replaceMatch(
     state,

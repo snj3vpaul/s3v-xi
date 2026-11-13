@@ -25,7 +25,7 @@ export default async function TablePage() {
         <Kicker label="Season standings" no={`${played.length} match day${played.length === 1 ? "" : "s"}`} />
         <h1>The <em>table.</em></h1>
         <p className="lede">
-          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Fair play +{POINTS.fairPlay}.
+          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Win +{POINTS.win} · Fair play +{POINTS.fairPlay} · Missed rotation {POINTS.rotationMiss}.
           Ties split by goals, then assists, then head-to-head, then shared.
         </p>
       </header>

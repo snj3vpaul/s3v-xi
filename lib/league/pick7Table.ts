@@ -12,7 +12,15 @@
  * points, and a removed seven keeps whatever it had already earned.
  */
 import { getPlayer } from "@/config/club";
-import { buildSelectorStandings, type ScoringRules } from "@/lib/scoring/rules";
+import {
+  buildSelectorStandings,
+  matchItems,
+  playedMatches,
+  scoreline,
+  type ContributionKind,
+  type PointItem,
+  type ScoringRules,
+} from "@/lib/scoring/rules";
 import { isFormationValid } from "./pick7";
 import type { LeagueState } from "./types";
 
@@ -108,4 +116,72 @@ export function applyOptimistic(rows: Pick7Row[], userId: string, status: Pick7S
       r.id === userId ? { ...r, status, firstPickedAt: r.firstPickedAt ?? (status === "no_pick" ? null : now) } : r,
     ),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Points breakdown — "where did my points come from?"
+// ---------------------------------------------------------------------------
+
+export interface PickBreakdown {
+  playerId: string;
+  name: string;
+  played: boolean;
+  items: PointItem[];
+  total: number;
+}
+
+export interface RoundBreakdown {
+  matchId: string;
+  date: string;
+  /** e.g. "White 4–3 Red" */
+  result: string;
+  total: number;
+  picks: PickBreakdown[];
+  /** Times this round's scorecard was corrected (shown as a note). */
+  corrections: number;
+}
+
+export interface SelectorBreakdown {
+  id: string;
+  rounds: RoundBreakdown[];
+  /** Season points by source, for the "where your points came from" bar. */
+  byKind: Partial<Record<ContributionKind, number>>;
+  total: number;
+}
+
+/**
+ * Every played round a selector was entered in, newest first, with each pick's
+ * points itemised. Built from the same matchItems() the scores come from, so
+ * the breakdown always adds up to the table.
+ */
+export function selectorBreakdown(state: LeagueState, rules: ScoringRules, selectorId: string): SelectorBreakdown {
+  const rounds: RoundBreakdown[] = [];
+  const byKind: Partial<Record<ContributionKind, number>> = {};
+  for (const m of playedMatches(state.matchDays)) {
+    const sel = m.selections.find((s) => s.selectorId === selectorId);
+    if (!sel) continue;
+    const items = matchItems(m, rules);
+    const score = scoreline(m.events);
+    const picks = [...new Set(sel.picks)].map((id) => {
+      const list = items.get(id) ?? [];
+      for (const it of list) byKind[it.kind] = (byKind[it.kind] ?? 0) + it.points;
+      return {
+        playerId: id,
+        name: getPlayer(id)?.name ?? id,
+        played: m.attendees.includes(id),
+        items: list,
+        total: list.reduce((t, it) => t + it.points, 0),
+      };
+    });
+    rounds.push({
+      matchId: m.id,
+      date: m.date,
+      result: m.noResult ? `White ${score.A}–${score.B} Red (no result)` : `White ${score.A}–${score.B} Red`,
+      total: picks.reduce((t, p) => t + p.total, 0),
+      picks: picks.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
+      corrections: Math.max(0, m.scorecardVersion - 1),
+    });
+  }
+  rounds.reverse();
+  return { id: selectorId, rounds, byKind, total: rounds.reduce((t, r) => t + r.total, 0) };
 }

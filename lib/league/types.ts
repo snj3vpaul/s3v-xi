@@ -94,6 +94,14 @@ export type RulesVersion = 1 | 2;
 /** Why a player lost their fair-play point. Each is a yes/no thing someone saw happen. */
 export type FairPlayBreach = "foul" | "card" | "dissent" | "dangerous";
 
+/** Which rotation duty a player skipped. */
+export type RotationLapse = "gk" | "sub";
+
+export interface RotationMiss {
+  playerId: string;
+  reason: RotationLapse;
+}
+
 export interface FairPlayLoss {
   playerId: string;
   reason: FairPlayBreach;
@@ -168,6 +176,12 @@ export interface MatchDay {
   motm?: Record<Side, string | null>;
   /** v2: everyone who played keeps +1 fair play unless listed here. */
   fairPlayLost?: FairPlayLoss[];
+  /** v2: players who skipped a GK or sub stint (−2 each). */
+  rotationMissed?: RotationMiss[];
+  /** v2: the scorekeeper confirmed they checked rotation (required to publish). */
+  rotationChecked?: boolean;
+  /** v2: abandoned / no result — no win bonus, everything else counts. */
+  noResult?: boolean;
 }
 
 export interface LeagueSettings {

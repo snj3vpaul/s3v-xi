@@ -16,14 +16,23 @@ export default async function RulesPage() {
     ["Assist", `+${POINTS.assist}`, "The last pass before the goal. One per goal at most, and none on penalties or direct free kicks."],
     ["Own goal", `${POINTS.ownGoal}`, "To the player who put it in. If in doubt, it's the attacker's goal. There are no deflection rulings."],
     ["Man of the Match", `+${POINTS.motm}`, `Exactly one per team: one for ${TEAM_NAMES.A}, one for ${TEAM_NAMES.B}.`],
+    [
+      "Winning team",
+      `+${POINTS.win}`,
+      `Every player on the side that wins, subs included. The floater (odd numbers) gets +${POINTS.floaterWin} whenever there's a winner. A draw or an abandoned match: no bonus.`,
+    ],
     ["Fair play", `+${POINTS.fairPlay}`, "Everyone who plays starts with it, and keeps it unless the scorekeeper records one of the breaches below."],
+    ["Missed rotation", `${POINTS.rotationMiss}`, "Everyone takes a turn in goal and on the bench. Skip your goalkeeper or sub stint and you lose 2, and so does everyone who picked you."],
   ];
   return (
     <main className="wrap stack-lg">
       <header className="stack">
         <Kicker label="The rulebook" no="Rules" />
-        <h1>Five numbers. <em>That&apos;s it.</em></h1>
-        <p className="lede">Points come from the scoresheet: goals, assists, own goals, one Man of the Match per team, and a fair-play point.</p>
+        <h1>Seven numbers. <em>No black boxes.</em></h1>
+        <p className="lede">
+          Goals, assists, own goals, one Man of the Match per team, the winning side, fair play and rotation. Tap any score on the Pick 7 table to
+          see exactly where it came from.
+        </p>
       </header>
 
       <section className="panel">

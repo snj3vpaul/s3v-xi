@@ -2,7 +2,18 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ROSTER, playerName } from "@/config/club";
-import type { DrawResult, FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, LeagueSettings, RulesVersion, Side } from "@/lib/league/types";
+import type {
+  DrawResult,
+  FairPlayBreach,
+  FairPlayLoss,
+  GoalEvent,
+  GoalKind,
+  LeagueSettings,
+  RotationLapse,
+  RotationMiss,
+  RulesVersion,
+  Side,
+} from "@/lib/league/types";
 import {
   FAIR_PLAY_BREACHES,
   FAIR_PLAY_LABEL,
@@ -10,6 +21,11 @@ import {
   GOAL_KINDS_V2,
   GOAL_KIND_LABEL,
   POINTS_V2,
+  POINT_KIND_LABEL,
+  ROTATION_LABEL,
+  ROTATION_LAPSES,
+  matchItems,
+  winnerOf,
   deflectionRulingOf,
   scoreMatch,
   scoreline,
@@ -74,6 +90,7 @@ export function ScorecardEditor({
   initial,
   initialMotm,
   initialFairPlayLost,
+  initialRotation,
   version,
   settings,
   isCorrection,
@@ -86,6 +103,7 @@ export function ScorecardEditor({
   initial: GoalEvent[];
   initialMotm: Record<Side, string | null> | null;
   initialFairPlayLost: FairPlayLoss[];
+  initialRotation: { missed: RotationMiss[]; checked: boolean; noResult: boolean };
   version: RulesVersion;
   settings: LeagueSettings;
   isCorrection: boolean;
@@ -97,6 +115,9 @@ export function ScorecardEditor({
   const [events, setEvents] = useState<GoalEvent[]>(initial);
   const [motm, setMotm] = useState<Record<Side, string | null>>(initialMotm ?? { A: null, B: null });
   const [fairPlayLost, setFairPlayLost] = useState<FairPlayLoss[]>(initialFairPlayLost);
+  const [rotationMissed, setRotationMissed] = useState<RotationMiss[]>(initialRotation.missed);
+  const [rotationChecked, setRotationChecked] = useState(initialRotation.checked);
+  const [noResult, setNoResult] = useState(initialRotation.noResult);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -109,16 +130,22 @@ export function ScorecardEditor({
     [events, attendees, draw, settings, version],
   );
   const awardIssues = useMemo(
-    () => (v2 ? validateAwards({ motm, fairPlayLost }, matchCtx) : []),
+    () => (v2 ? validateAwards({ motm, fairPlayLost, rotationMissed, rotationChecked }, matchCtx) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [v2, motm, fairPlayLost, attendees, draw],
+    [v2, motm, fairPlayLost, rotationMissed, rotationChecked, attendees, draw],
   );
   const errors = [...issues, ...awardIssues].filter((i) => i.level === "error");
   const score = scoreline(events);
-  const lines = [...scoreMatch({ attendees, events, rulesVersion: version, motm, fairPlayLost }, rules).values()]
+  const scorable = { attendees, events, rulesVersion: version, motm, fairPlayLost, rotationMissed, noResult, draw };
+  const items = matchItems(scorable, rules);
+  const winner = winnerOf({ events, noResult });
+  const lines = [...scoreMatch(scorable, rules).values()]
     .filter((l) => l.points !== 0 || l.goals || l.assists)
     .sort((a, b) => b.points - a.points || playerName(a.playerId).localeCompare(playerName(b.playerId)));
   const lostBy = new Map(fairPlayLost.map((f) => [f.playerId, f.reason]));
+  const missedBy = new Map(rotationMissed.map((r) => [r.playerId, r.reason]));
+  const setMiss = (id: string, reason: RotationLapse | null) =>
+    setRotationMissed((xs) => [...xs.filter((x) => x.playerId !== id), ...(reason ? [{ playerId: id, reason }] : [])]);
   const setBreach = (id: string, reason: FairPlayBreach | null) =>
     setFairPlayLost((xs) => [...xs.filter((x) => x.playerId !== id), ...(reason ? [{ playerId: id, reason }] : [])]);
   const teamOf = (side: Side) => [...(side === "A" ? draw.teamA : draw.teamB), ...(draw.floater ? [draw.floater] : [])];
@@ -157,7 +184,7 @@ export function ScorecardEditor({
       await api(`/api/matchdays/${matchId}/scorecard`, "PUT", {
         events: clean,
         reason: isCorrection ? reason : undefined,
-        ...(v2 ? { motm, fairPlayLost } : {}),
+        ...(v2 ? { motm, fairPlayLost, rotationMissed, rotationChecked, noResult } : {}),
       });
       setMsg({ ok: true, text: isCorrection ? "Correction saved and logged. Standings recalculated." : "Scorecard published. The table is updated." });
       setReason("");
@@ -173,9 +200,22 @@ export function ScorecardEditor({
     <div className="stack">
       <div className="panel row spread sticky-score">
         <span className="row"><span className="bib bib-A" /> White</span>
-        <span className="score num">{score.A}–{score.B}</span>
+        <span className="score-wrap">
+          <span className="score num">{score.A}–{score.B}</span>
+          {v2 && (
+            <span className="small muted">
+              {noResult ? "No result" : winner ? `${TEAM[winner]} win · +${POINTS_V2.win} each` : "Draw · no win bonus"}
+            </span>
+          )}
+        </span>
         <span className="row">Red <span className="bib bib-B" /></span>
       </div>
+      {v2 && (
+        <label className="row" style={{ gap: "0.5rem", textTransform: "none", letterSpacing: 0, fontFamily: "inherit", fontSize: "0.9rem", color: "var(--text)" }}>
+          <input type="checkbox" checked={noResult} disabled={locked} onChange={(x) => setNoResult(x.target.checked)} />
+          Match abandoned / no result (goals, MOTM and conduct still count; nobody gets the win bonus)
+        </label>
+      )}
 
       {locked && (
         <div className="alert alert-warn">The correction window closed on {deadline?.slice(0, 10)}. This scorecard is final (widen the window in Settings if you must).</div>
@@ -322,54 +362,94 @@ export function ScorecardEditor({
           </div>
 
           <div className="panel stack">
-            <h3>Fair play <span className="muted small">+{POINTS_V2.fairPlay} each, on by default</span></h3>
-            <p className="small muted" style={{ margin: 0 }}>
-              Untick anyone who broke a rule, and tap what happened:{" "}
-              {FAIR_PLAY_BREACHES.map((b, i) => (
-                <span key={b}>{i > 0 && " · "}<b>{FAIR_PLAY_LABEL[b].short}</b>: {FAIR_PLAY_LABEL[b].long.toLowerCase()}</span>
-              ))}
-              .
-            </p>
-            <div>
-              {byName(attendees).map((id) => {
-                const lost = lostBy.get(id);
-                const keeps = lost === undefined;
-                return (
-                  <div key={id} className="fair-row">
-                    <label>
-                      <input type="checkbox" checked={keeps} disabled={locked} onChange={(x) => setBreach(id, x.target.checked ? null : "foul")} />
-                      {playerName(id)}
-                    </label>
-                    {!keeps && (
-                      <div className="chips" role="radiogroup" aria-label={`Why ${playerName(id)} lost fair play`}>
-                        {FAIR_PLAY_BREACHES.map((b) => (
-                          <button
-                            key={b}
-                            type="button"
-                            role="radio"
-                            className="chip"
-                            aria-checked={lost === b}
-                            aria-pressed={lost === b}
-                            disabled={locked}
-                            title={FAIR_PLAY_LABEL[b].long}
-                            onClick={() => setBreach(id, b)}
-                          >
-                            {FAIR_PLAY_LABEL[b].short}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="row spread">
+              <h3>Conduct</h3>
+              <span className="small muted">
+                {rotationMissed.length ? `${rotationMissed.length} missed rotation` : `All ${attendees.length} rotated`} ·{" "}
+                {fairPlayLost.length ? `${fairPlayLost.length} lost fair play` : "all fair"}
+              </span>
             </div>
+            <p className="small muted" style={{ margin: 0 }}>
+              Everyone starts ticked. Untick <b>Fair play</b> (+{POINTS_V2.fairPlay}) for a foul conceded, card, dissent warning or dangerous
+              challenge. Untick <b>Rotated</b> ({POINTS_V2.rotationMiss}) for anyone who skipped their goalkeeper or sub stint.
+            </p>
+            {(["A", "B"] as Side[]).map((side) => (
+              <div key={side}>
+                <div className="pos-head" style={{ margin: "0.5rem 0 0.2rem" }}>
+                  <span><span className={`bib bib-${side}`} /> {TEAM[side]}</span>
+                  {side === "A" && (
+                    <button type="button" className="btn btn-sm" disabled={locked || !rotationMissed.length} onClick={() => setRotationMissed([])}>
+                      Mark all rotated
+                    </button>
+                  )}
+                </div>
+                {byName(teamOf(side).filter((id) => attendees.includes(id) && (side === "A" || id !== draw.floater))).map((id) => {
+                  const lost = lostBy.get(id);
+                  const miss = missedBy.get(id);
+                  return (
+                    <div key={id} className="conduct-row">
+                      <span className="conduct-name">
+                        {playerName(id)}
+                        {id === draw.floater && <span className="badge badge-muted" style={{ marginLeft: "0.35rem" }}>floater</span>}
+                      </span>
+                      <label className="conduct-toggle">
+                        <input type="checkbox" checked={lost === undefined} disabled={locked} onChange={(x) => setBreach(id, x.target.checked ? null : "foul")} />
+                        Fair play
+                      </label>
+                      <label className="conduct-toggle">
+                        <input type="checkbox" checked={miss === undefined} disabled={locked} onChange={(x) => setMiss(id, x.target.checked ? null : "gk")} />
+                        Rotated
+                      </label>
+                      {lost !== undefined && (
+                        <div className="chips" role="radiogroup" aria-label={`Why ${playerName(id)} lost fair play`}>
+                          {FAIR_PLAY_BREACHES.map((b) => (
+                            <button key={b} type="button" role="radio" className="chip" aria-checked={lost === b} aria-pressed={lost === b} disabled={locked} title={FAIR_PLAY_LABEL[b].long} onClick={() => setBreach(id, b)}>
+                              {FAIR_PLAY_LABEL[b].short}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {miss !== undefined && (
+                        <div className="chips" role="radiogroup" aria-label={`Which turn ${playerName(id)} skipped`}>
+                          {ROTATION_LAPSES.map((r) => (
+                            <button key={r} type="button" role="radio" className="chip" aria-checked={miss === r} aria-pressed={miss === r} disabled={locked} onClick={() => setMiss(id, r)}>
+                              {ROTATION_LABEL[r]}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            <label className="confirm-row">
+              <input type="checkbox" checked={rotationChecked} disabled={locked} onChange={(x) => setRotationChecked(x.target.checked)} />
+              I&apos;ve checked who went in goal and who subbed.
+            </label>
           </div>
         </>
       )}
 
       <div className="panel stack">
         <h3>Points preview</h3>
-        {lines.length ? (
+        {v2 ? (
+          <ul className="breakdown-list">
+            {lines.map((l) => (
+              <li key={l.playerId}>
+                <span className="bd-name">{playerName(l.playerId)}</span>
+                <span className="bd-items">
+                  {(items.get(l.playerId) ?? []).map((it, k) => (
+                    <span key={k} className={`bd-chip${it.points < 0 ? " neg" : ""}`} title={it.detail}>
+                      {POINT_KIND_LABEL[it.kind].icon} {it.points > 0 ? "+" : ""}{it.points}
+                    </span>
+                  ))}
+                </span>
+                <b className={`bd-total num${l.points < 0 ? " neg" : ""}`}>{l.points}</b>
+              </li>
+            ))}
+          </ul>
+        ) : lines.length ? (
           <div className="chips">
             {lines.map((l) => (
               <span key={l.playerId} className="chip">

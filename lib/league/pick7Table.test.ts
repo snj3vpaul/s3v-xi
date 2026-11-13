@@ -68,7 +68,7 @@ describe("Pick 7 table", () => {
     s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
     expect(row(s, ids.Ana).points).toBe(0); // drawn, not played
     const d = s.matchDays[0].draw!;
-    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] } }, at("2026-11-20T04:00:00Z"));
+    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] }, rotationChecked: true }, at("2026-11-20T04:00:00Z"));
     // Everyone in SEVEN played (+1 fair play each), plus MOTM +4 for any of them.
     const motm = [d.teamA[0], d.teamB[0]].filter((x) => SEVEN.includes(x)).length;
     expect(row(s, ids.Ana)).toMatchObject({ rounds: 1, points: 7 + 4 * motm, rank: 1 });
@@ -98,7 +98,7 @@ describe("Pick 7 table", () => {
     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
     s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
     const d = s.matchDays[0].draw!;
-    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] } }, at("2026-11-20T04:00:00Z"));
+    s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] }, rotationChecked: true }, at("2026-11-20T04:00:00Z"));
     const before = row(s, ids.Ana).points;
     s = clearSquad(s, ids.Ana, at("2026-11-21T10:00:00Z"));
     expect(row(s, ids.Ana)).toMatchObject({ status: "no_pick", points: before, rank: 1 });

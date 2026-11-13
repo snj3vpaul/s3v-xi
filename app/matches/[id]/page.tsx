@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { playerName } from "@/config/club";
 import { fmtDate, matchSummary, selectorName } from "@/lib/league/derive";
 import { correctionDeadline, rulesFrom } from "@/lib/league/ledger";
-import { FAIR_PLAY_LABEL, rulesVersionOf, scoreSelection } from "@/lib/scoring/rules";
+import { FAIR_PLAY_LABEL, ROTATION_LABEL, rulesVersionOf, scoreSelection, winnerOf } from "@/lib/scoring/rules";
 import { isAdmin } from "@/lib/server/auth";
 import { getState } from "@/lib/server/store";
 import { EventLine } from "@/components/EventLine";
@@ -56,6 +56,20 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                 <b>Man of the Match:</b> {[m.motm?.A && `${playerName(m.motm.A)} (White)`, m.motm?.B && `${playerName(m.motm.B)} (Red)`].filter(Boolean).join(" · ")}
               </p>
             )}
+            {v2 && (
+              <p className="small" style={{ marginBottom: 0 }}>
+                <b>Result:</b>{" "}
+                {m.noResult ? "No result (abandoned), no win bonus" : (() => {
+                  const w = winnerOf(m);
+                  return w ? `${w === "A" ? "White" : "Red"} win, +3 to each of their players` : "Draw, no win bonus";
+                })()}
+              </p>
+            )}
+            {v2 && (m.rotationMissed?.length ?? 0) > 0 && (
+              <p className="small muted" style={{ marginBottom: 0 }}>
+                <b>Missed rotation:</b> {m.rotationMissed!.map((r) => `${playerName(r.playerId)} (${ROTATION_LABEL[r.reason].toLowerCase()})`).join(", ")}
+              </p>
+            )}
             {v2 && (m.fairPlayLost?.length ?? 0) > 0 && (
               <p className="small muted" style={{ marginBottom: 0 }}>
                 <b>Lost fair play:</b> {m.fairPlayLost!.map((f) => `${playerName(f.playerId)} (${FAIR_PLAY_LABEL[f.reason].short.toLowerCase()})`).join(", ")}
@@ -69,7 +83,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                 <thead>
                   <tr>
                     <th>Player</th><th className="r">G</th><th className="r">A</th><th className="r">OG</th>
-                    {v2 && <><th className="r" title="Man of the Match">MOTM</th><th className="r" title="Fair play">FP</th></>}
+                    {v2 && (
+                      <>
+                        <th className="r" title="Winning team (+3)">Win</th>
+                        <th className="r" title="Man of the Match (+4)">MOTM</th>
+                        <th className="r" title="Fair play (+1)">FP</th>
+                        <th className="r" title="Missed rotation (−2)">Rot</th>
+                      </>
+                    )}
                     <th className="r">Pts</th>
                   </tr>
                 </thead>
@@ -80,7 +101,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                       <td className="r">{l.goals}</td>
                       <td className="r">{l.assists + (rules.secondAssistEnabled ? l.secondAssists : 0)}</td>
                       <td className="r">{l.ownGoals}</td>
-                      {v2 && <><td className="r">{l.motm ? "★" : ""}</td><td className="r">{l.fairPlay ? "✓" : "–"}</td></>}
+                      {v2 && (
+                        <>
+                          <td className="r">{l.wins ? "🏆" : ""}</td>
+                          <td className="r">{l.motm ? "★" : ""}</td>
+                          <td className="r">{l.fairPlay ? "✓" : "–"}</td>
+                          <td className="r">{l.rotationMissed ? <span className="neg">−2</span> : "✓"}</td>
+                        </>
+                      )}
                       <td className="r pts"><Points v={l.points} /></td>
                     </tr>
                   ))}
