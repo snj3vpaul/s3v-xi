@@ -25,7 +25,7 @@ import { weeklyDates, zonedToUtc } from "./schedule";
 let n = 0;
 const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `id${++n}` });
 const SEVEN = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder"];
-const OTHER = ["vineet", "gurinder", "raunak", "sanjeev", "jedi", "tadas", "jaskaran"];
+const OTHER = ["vineet", "inder", "raunak", "sanjeev", "jedi", "tadas", "jaskaran"];
 const SQUAD16 = [...SEVEN, ...OTHER, "gurnaam", "harpreet"];
 
 describe("weekly fixtures (Thursday 10 pm, White vs Red, until summer)", () => {

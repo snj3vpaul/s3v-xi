@@ -21,7 +21,7 @@ import type { GoalEvent, LeagueState } from "./types";
 
 let idn = 0;
 const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `id${++idn}` });
-const SQUAD = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder", "vineet", "gurinder", "raunak", "sanjeev", "jedi", "tadas", "jaskaran", "gurnaam", "savi"];
+const SQUAD = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder", "vineet", "inder", "raunak", "sanjeev", "jedi", "tadas", "jaskaran", "gurnaam", "savi"];
 const SEED = "b".repeat(64);
 
 function played(state: LeagueState, date: string, events: (teams: { A: string[]; B: string[] }) => GoalEvent[]) {

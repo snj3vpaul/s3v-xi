@@ -36,7 +36,7 @@ const MEMBER_NAMES = [
   "Danial",
   "Karminder",
   "Vineet",
-  "Gurinder",
+  "Inder",
   "Raunak",
   "Sanjeev",
   "Jedi",
@@ -48,7 +48,7 @@ const MEMBER_NAMES = [
   "Nakul",
 ] as const;
 
-const DROPIN_NAMES = ["Savi", "Abrar", "Inder"] as const;
+const DROPIN_NAMES = ["Savi", "Abrar"] as const;
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
