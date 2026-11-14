@@ -61,8 +61,12 @@ export interface DrawConstraints {
 }
 
 export interface DrawResult {
-  /** Algorithm id — lets a future change of algorithm keep old draws verifiable. */
-  algorithm: "sha256-ctr-fisher-yates-v1";
+  /**
+   * How the teams were made. "manual" = the team sheet the admin entered
+   * (captains pick sides over WhatsApp); seed/attempt/constraints are then
+   * unused. "sha256-ctr-fisher-yates-v1" = the old random draw (legacy data).
+   */
+  algorithm: "sha256-ctr-fisher-yates-v1" | "manual";
   /** 256-bit hex seed from crypto.randomBytes. Publish it; anyone can re-run the draw. */
   seed: string;
   /** Which attempt (0-based) under this seed satisfied the constraints. */
@@ -86,7 +90,27 @@ export interface DrawResult {
   drawnAt: string;
 }
 
+/** "drawn" = teams are set (team sheet entered); the name is kept for stored data. */
 export type MatchStatus = "open" | "drawn" | "played";
+
+/** Scoring rule set. 1 = original (+5/+3, deflections, second assist). 2 = simplified (+3/+2, MOTM, fair play). */
+export type RulesVersion = 1 | 2;
+
+/** Why a player lost their fair-play point. Each is a yes/no thing someone saw happen. */
+export type FairPlayBreach = "foul" | "card" | "dissent" | "dangerous";
+
+/** Which rotation duty a player skipped. */
+export type RotationLapse = "gk" | "sub";
+
+export interface RotationMiss {
+  playerId: string;
+  reason: RotationLapse;
+}
+
+export interface FairPlayLoss {
+  playerId: string;
+  reason: FairPlayBreach;
+}
 
 /**
  * A selector's seven for one match day. Snapshotted from the user's standing
@@ -96,6 +120,8 @@ export type MatchStatus = "open" | "drawn" | "played";
 export interface Selection {
   selectorId: string;
   picks: string[];
+  /** One of `picks`: their points count double. Missing on older sevens (no captain, no doubling). */
+  captain?: string | null;
   submittedAt: string;
 }
 
@@ -116,9 +142,10 @@ export interface User {
   /**
    * Every change to the standing seven, oldest first. A match day uses the
    * latest entry saved before its deadline, so changes made after a deadline
-   * count from the next week — exactly like FPL.
+   * count from the next week — exactly like FPL. An entry with no picks means
+   * the user removed their seven ("no pick" from then on).
    */
-  squadHistory: { picks: string[]; at: string }[];
+  squadHistory: { picks: string[]; at: string; captain?: string | null }[];
 }
 
 export interface ReminderLog {
@@ -150,6 +177,18 @@ export interface MatchDay {
   scorecardAt: string | null;
   /** Bumped on every scorecard correction. */
   scorecardVersion: number;
+  /** Pins the scoring rules. Unset: v2 for match days on/after RULES_V2_FROM, else v1. */
+  rulesVersion?: RulesVersion;
+  /** v2: Man of the Match for each team (+4). */
+  motm?: Record<Side, string | null>;
+  /** v2: everyone who played keeps +1 fair play unless listed here. */
+  fairPlayLost?: FairPlayLoss[];
+  /** v2: players who skipped a GK or sub stint (−2 each). */
+  rotationMissed?: RotationMiss[];
+  /** v2: the scorekeeper confirmed they checked rotation (required to publish). */
+  rotationChecked?: boolean;
+  /** v2: abandoned / no result — no win bonus, everything else counts. */
+  noResult?: boolean;
 }
 
 export interface LeagueSettings {
@@ -169,8 +208,10 @@ export type AuditAction =
   | "matchday.attendance"
   | "draw.create"
   | "draw.reset"
+  | "teams.set"
   | "selection.submit"
   | "squad.update"
+  | "squad.clear"
   | "fixtures.create"
   | "user.signup"
   | "user.update"

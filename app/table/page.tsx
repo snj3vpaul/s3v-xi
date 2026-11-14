@@ -1,7 +1,13 @@
+import { POINTS } from "@/lib/scoring/rules";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { isDropIn, playerName } from "@/config/club";
 import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
+import { currentUser } from "@/lib/server/session";
+import { rulesFrom } from "@/lib/league/ledger";
+import { buildPick7Table } from "@/lib/league/pick7Table";
+import { Pick7Table } from "@/components/Pick7Table";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Empty, Kicker, Name } from "@/components/ui";
 
@@ -9,7 +15,8 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Table" };
 
 export default async function TablePage() {
-  const state = await getState();
+  const [state, me] = await Promise.all([getState(), currentUser()]);
+  const pick7 = buildPick7Table(state, rulesFrom(state.settings));
   const { played, standings, selectors, awards } = deriveSeason(state);
   const dateOf = Object.fromEntries(played.map((m) => [m.id, shortDate(m.date)]));
 
@@ -18,17 +25,22 @@ export default async function TablePage() {
       <header className="stack">
         <Kicker label="Season standings" no={`${played.length} match day${played.length === 1 ? "" : "s"}`} />
         <h1>The <em>table.</em></h1>
-        <p className="lede">Goal +5 · Assist +3 · Own goal −2. Ties split by goals, then assists, then head-to-head, then shared.</p>
+        <p className="lede">
+          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Win +{POINTS.win} · Fair play +{POINTS.fairPlay} · Missed rotation {POINTS.rotationMiss}.
+          Ties split by goals, then assists, then head-to-head, then shared.
+        </p>
       </header>
 
       {played.length === 0 ? (
-        <Empty>No scorecards yet. Everyone&apos;s joint top on zero.</Empty>
+        <Empty>
+          No scorecards yet. Everyone&apos;s joint top on zero. <Link href="/simulate">See how a Thursday gets scored →</Link>
+        </Empty>
       ) : (
         <>
           <section className="grid grid-3">
             {awards.map((a) => (
               <div key={a.key} className="panel stat-tile">
-                <div className="l" style={{ marginTop: 0, color: "var(--gold)" }}>{a.title}</div>
+                <div className="l" style={{ marginTop: 0, color: "var(--ochre)" }}>{a.title}</div>
                 <div className="v" style={{ fontSize: "1.7rem", marginTop: "0.35rem" }}>
                   {a.winners.length ? a.winners.map((w) => (a.key === "oracle" ? selectorName(state, w) : playerName(w))).join(" & ") : "—"}
                 </div>
@@ -51,7 +63,7 @@ export default async function TablePage() {
                   <tr>
                     <th>#</th><th>Player</th><th className="r">P</th><th className="r">G</th><th className="r">A</th>
                     {state.settings.secondAssistEnabled && <th className="r hide-sm">2A</th>}
-                    <th className="r hide-sm">OG</th><th className="hide-sm">Form</th><th className="r">Pts</th>
+                    <th className="r hide-sm">OG</th><th className="r hide-sm" title="Man of the Match">MOTM</th><th className="hide-sm">Form</th><th className="r">Pts</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -64,6 +76,7 @@ export default async function TablePage() {
                       <td className="r">{r.assists}</td>
                       {state.settings.secondAssistEnabled && <td className="r hide-sm">{r.secondAssists}</td>}
                       <td className="r hide-sm">{r.ownGoals}</td>
+                      <td className="r hide-sm">{r.motm}</td>
                       <td className="hide-sm">
                         <Sparkline values={r.form} labels={played.filter((m) => m.id in r.perMatch).slice(-5).map((m) => dateOf[m.id])} />
                       </td>
@@ -79,35 +92,16 @@ export default async function TablePage() {
             </p>
           </section>
 
-          <section className="panel">
-            <div className="panel-head">
-              <h2>Pick 7 selectors</h2>
-              <span className="small muted">Hit = a pick who scored or assisted</span>
-            </div>
-            {selectors.length ? (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>#</th><th>Selector</th><th className="r">Rounds</th><th className="r">Hits</th><th className="r hide-sm">Hit rate</th><th className="r">Pts</th></tr></thead>
-                  <tbody>
-                    {selectors.map((s) => (
-                      <tr key={s.selectorId}>
-                        <td className="rank">{s.rank}{s.sharedRank ? "=" : ""}</td>
-                        <td>{selectorName(state, s.selectorId)}</td>
-                        <td className="r">{s.rounds}</td>
-                        <td className="r">{s.hits}/{s.totalPicks}</td>
-                        <td className="r hide-sm">{Math.round(s.hitRate * 100)}%</td>
-                        <td className="r pts">{s.points}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="muted">No pick-7 entries on played match days yet.</p>
-            )}
-          </section>
         </>
       )}
+
+      <section className="panel" id="pick7">
+        <div className="panel-head">
+          <h2>Pick 7 table</h2>
+          <span className="small muted">Hit = a pick who scored or assisted</span>
+        </div>
+        <Pick7Table initial={pick7} meId={me?.id ?? null} />
+      </section>
     </main>
   );
 }

@@ -4,12 +4,10 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   ["/team", "My Team"],
-  ["/draw", "Draw"],
   ["/matches", "Matches"],
   ["/table", "Table"],
   ["/stats", "Stats"],
   ["/rules", "Rules"],
-  ["/admin", "Admin"],
 ] as const;
 
 export function Nav({ userName }: { userName: string | null }) {

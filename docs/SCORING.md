@@ -9,6 +9,39 @@ Test files:
 - `lib/draw/draw.test.ts`: the match-day draw
 - `lib/league/ledger.test.ts`: lifecycle, corrections and recalculation
 - `lib/league/fpl.test.ts`: accounts, weekly fixtures, carry-over, calendar feed, reminders
+- `lib/league/pick7.test.ts`: Pick 7 formation, star budget, ownership re-rating, and v2 scoring
+- `lib/league/pick7Table.test.ts`: the live Pick 7 table (no pick vs picked on 0, edits, removal)
+- `lib/league/winRotation.test.ts`: win bonus, rotation penalty, and the breakdown adding up
+
+## Two rule sets
+
+Each match day is scored under one rule set, chosen by `rulesVersionOf` (pinned on the match as
+`rulesVersion`, otherwise by date against `RULES_V2_FROM` = 2026-11-19):
+
+| | v1 (before 19 Nov 2026) | v2 (from 19 Nov 2026) |
+|---|---|---|
+| Goal | +5 | +3 |
+| Assist | +3 (penalty only if recorded; never free kick) | +2 (never on penalties or free kicks) |
+| Own goal | −2 | −2 |
+| Second assist | +1 if enabled | not scored |
+| Deflections | admin ruling | not recorded (own goal or goal) |
+| Man of the Match | — | +4, one per team (required to save) |
+| Fair play | — | +1 to every attendee unless a breach is recorded: foul, card/sin-bin, dissent warning, dangerous challenge |
+| Winning team | — | +3 to each player on the side that wins (subs included); floater +2 when there's a winner; draw or "no result" = 0 |
+| Missed rotation | — | −2 to a player who skipped their GK or sub stint. The scorekeeper must confirm rotation was checked before publishing |
+
+Every v2 point is itemised by `matchItems()`; `scoreMatch()` totals those items, and `selectorBreakdown()` (in
+`lib/league/pick7Table.ts`) serves the same items to the Pick 7 "where did my points come from" view, so the breakdown
+always adds up to the table (test B01).
+
+The edge-case table below documents v1; the v2 cases are tests S01–S06, W01–W05, R01–R02 and B01, and Pick 7 cases P01–P08 and T01–T08.
+
+## Pick 7 balance (`lib/league/pick7.ts`)
+
+- Formation `FORMATION` in `config/club.ts`: exactly 2 DEF · 2 CM · 1 CAM · 2 ATT. Players without a position stay on the roster but can't be picked.
+- Star budget `PICK7.starBudget` over each player's 1–3★ rating. Ratings start at the base stars in `config/club.ts` and move after each v2 draw: >60% ownership +1★, <10% −1★ (needs ≥4 locked teams). Derived from history, never stored.
+- A saved seven pushed over budget by a re-rating stays legal; edits may not raise its total.
+- At the draw only formation-valid sevens are entered; older sevens get a "fix your team" reminder and banner.
 
 ## Edge-case table
 

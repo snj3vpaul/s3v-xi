@@ -220,7 +220,8 @@ export function verifyDraw(draw: DrawResult, isDropIn: (id: string) => boolean):
 }
 
 /** "8v8", "8v8 · 1 rolling sub each", "7v7 + floater". */
-export function formatLabel(d: Pick<DrawResult, "perSide" | "rollingSubs" | "floater">): string {
+export function formatLabel(d: Pick<DrawResult, "perSide" | "rollingSubs" | "floater"> & Partial<Pick<DrawResult, "algorithm" | "teamA" | "teamB">>): string {
+  if (d.algorithm === "manual" && d.teamA && d.teamB) return `${d.teamA.length}v${d.teamB.length}`;
   let s = `${d.perSide}v${d.perSide}`;
   if (d.rollingSubs > 0) s += ` · ${d.rollingSubs} rolling sub${d.rollingSubs > 1 ? "s" : ""} each`;
   if (d.floater) s += " · 1 floater";

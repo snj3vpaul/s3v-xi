@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CLUB } from "@/config/club";
 import type { LeagueSettings } from "@/lib/league/types";
 import { api } from "./api";
 
@@ -10,7 +9,6 @@ export function SettingsForm({ settings }: { settings: LeagueSettings }) {
   const [s, setS] = useState(settings);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const set = <K extends keyof LeagueSettings>(k: K, v: LeagueSettings[K]) => setS((x) => ({ ...x, [k]: v }));
-  const dc = s.defaultConstraints;
   return (
     <form
       className="stack"
@@ -45,19 +43,6 @@ export function SettingsForm({ settings }: { settings: LeagueSettings }) {
       <div className="field" style={{ maxWidth: 240 }}>
         <label htmlFor="cw">Correction window (days)</label>
         <input id="cw" type="number" min={0} max={365} value={s.correctionWindowDays} onChange={(e) => set("correctionWindowDays", Number(e.target.value))} />
-      </div>
-      <h3 style={{ marginTop: "1rem" }}>Draw defaults</h3>
-      <label className="check">
-        <input type="checkbox" checked={dc.splitDropIns} onChange={(e) => set("defaultConstraints", { ...dc, splitDropIns: e.target.checked })} />
-        <span>Split drop-ins evenly</span>
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={dc.avoidRepeat} onChange={(e) => set("defaultConstraints", { ...dc, avoidRepeat: e.target.checked })} />
-        <span>Avoid repeating last match day&apos;s teams</span>
-      </label>
-      <div className="field" style={{ maxWidth: 240 }}>
-        <label htmlFor="mps2">Max per side on the pitch</label>
-        <input id="mps2" type="number" min={CLUB.minPerSide} max={11} value={dc.maxPerSide} onChange={(e) => set("defaultConstraints", { ...dc, maxPerSide: Number(e.target.value) })} />
       </div>
       <div className="row">
         <button className="btn btn-primary">Save settings</button>

@@ -16,7 +16,7 @@ export function Sparkline({ values, labels = [], width = 92, height = 26 }: { va
       <line x1={pad} x2={width - pad} y1={y(0)} y2={y(0)} stroke="var(--line)" strokeWidth={1} strokeDasharray="2 3" />
       <path d={d} fill="none" stroke="var(--s1)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       {values.map((v, i) => (
-        <circle key={i} cx={x(i)} cy={y(v)} r={i === last ? 3.5 : 6} fill={i === last ? (v < 0 ? "var(--s5)" : "var(--s1)") : "transparent"} stroke={i === last ? "var(--navy-800)" : "none"} strokeWidth={i === last ? 1.5 : 0}>
+        <circle key={i} cx={x(i)} cy={y(v)} r={i === last ? 3.5 : 6} fill={i === last ? (v < 0 ? "var(--s5)" : "var(--s1)") : "transparent"} stroke={i === last ? "var(--surface)" : "none"} strokeWidth={i === last ? 1.5 : 0}>
           <title>{`${labels[i] ? labels[i] + ": " : ""}${v} pts`}</title>
         </circle>
       ))}

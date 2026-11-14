@@ -1,14 +1,35 @@
+import { Fragment } from "react";
 import Link from "next/link";
-import { CLUB, MEMBERS, DROPINS } from "@/config/club";
+import { CLUB, PICKABLE, ROSTER } from "@/config/club";
 import { POINTS } from "@/lib/scoring/rules";
 import { deriveSeason, upcoming } from "@/lib/league/derive";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtKickoff } from "@/lib/league/schedule";
 import { CalendarLinks } from "@/components/CalendarLinks";
 import { getState } from "@/lib/server/store";
-import { Kicker, Name } from "@/components/ui";
+import { Name } from "@/components/ui";
+import { Mascot } from "@/components/Mascot";
+import { OrbitStage, type OrbChapter } from "@/components/home/orbit/OrbitStage";
 
 export const dynamic = "force-dynamic";
+
+/** Headline words, each in its own mask so the line can rise in word by word (pure CSS, no JS needed). */
+function Words({ text, from = 0 }: { text: string; from?: number }) {
+  return text.split(" ").map((w, i) => (
+    <Fragment key={i}>
+      {i > 0 && " "}
+      <span className="w">
+        <span style={{ ["--i" as string]: from + i }}>{w}</span>
+      </span>
+    </Fragment>
+  ));
+}
+
+const CHAPTERS: OrbChapter[] = [
+  { no: "01", name: "The scoresheet", tag: "Where every point comes from", href: "/rules", kind: "scoresheet" },
+  { no: "02", name: "Your seven", tag: "Pick 7, FPL-style", href: "/team", kind: "seven" },
+  { no: "03", name: "Thursday, 10\u00a0pm", tag: "Fixtures & results", href: "/matches", kind: "thursday" },
+];
 
 export default async function Home() {
   const state = await getState();
@@ -16,115 +37,158 @@ export default async function Home() {
   const next = upcoming(state);
   const goals = standings.reduce((s, r) => s + r.goals, 0);
   const top3 = standings.filter((r) => r.played > 0).slice(0, 3);
+  const squad = PICKABLE.length;
+  const nextLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
+  // Chapter 03's line-up: the season's top seven so far, or seven from the squad before a ball is kicked.
+  const ranked = standings.filter((r) => r.played > 0).map((r) => r.playerId);
+  const lineup = [...ranked, ...ROSTER.map((p) => p.id).filter((id) => !ranked.includes(id))].slice(0, CLUB.picksPerSelector);
 
   return (
-    <main className="wrap stack-lg">
-      <section className="hero pitchlines">
-        <div className="eyebrow rise">Free to play · Grassroots soccer · {CLUB.name}</div>
-        <h1 className="rise rise-2">
-          Your club. <em>Your seven.</em>
-        </h1>
-        <p className="lede rise rise-3">
-          {CLUB.strapline} Every match day the hat splits whoever turns up into two teams. The scoresheet
-          does the rest — goals, assists, and the odd own goal. Before kick-off, pick the seven teammates you
-          reckon will deliver.
-        </p>
-        <div className="row rise rise-3">
-          <Link className="btn btn-primary" href="/join">Join the league</Link>
-          <Link className="btn" href="/draw">This week&apos;s draw</Link>
-          <Link className="btn" href="/team">Pick your 7</Link>
-          <Link className="btn" href="/rules">How scoring works</Link>
+    <main className="home">
+      <section className="orbit theme-night" data-orbit aria-label="How RSFC League works">
+        <OrbitStage chapters={CHAPTERS} label={`The Thursday series · ${CLUB.name}`} />
+
+        <div className="orbit-track">
+          <article className="chapter chapter-hero" aria-labelledby="hero-title">
+            <div className="wrap">
+              <div className="chapter-copy">
+                <p className="eyebrow hero-in" style={{ ["--i" as string]: 0 }}>
+                  Free to play · Grassroots soccer · {CLUB.name}
+                </p>
+                <h1 id="hero-title" className="hero-title">
+                  <Words text="Your club." from={1} /> <em><Words text="Your seven." from={3} /></em>
+                </h1>
+                <p className="lede hero-in" style={{ ["--i" as string]: 5 }}>
+                  {CLUB.strapline} The hat splits whoever turns up into two teams, and the scoresheet does the rest. Before
+                  kick-off, back the seven you reckon will deliver.
+                </p>
+                <div className="hero-actions hero-in" style={{ ["--i" as string]: 6 }}>
+                  <Link className="btn btn-primary btn-lg" href="/team">Pick your {CLUB.picksPerSelector}</Link>
+                  <Link className="text-link" href="/rules">How scoring works <span aria-hidden="true">→</span></Link>
+                </div>
+                <p className="next-fixture hero-in" style={{ ["--i" as string]: 7 }}>
+                  <span className="dot" aria-hidden="true" />
+                  {next ? (
+                    <>
+                      Next: <b>{TEAM_NAMES.A} vs {TEAM_NAMES.B}</b> · {nextLabel} · {next.draw ? "teams posted · Pick 7 open" : "Pick 7 open"}
+                    </>
+                  ) : (
+                    <>Next fixture to be confirmed</>
+                  )}
+                </p>
+              </div>
+            </div>
+          </article>
+
+          <article className="chapter" id="ch-1" aria-labelledby="ch-1-title">
+            <div className="wrap">
+              <div className="chapter-copy" data-reveal>
+                <p className="kicker"><b>Chapter / 01</b></p>
+                <h2 id="ch-1-title" className="chapter-title">
+                  The scoresheet <Link href="/rules" className="chapter-go" aria-label="Read the scoring rules">↗</Link>
+                </h2>
+                <p className="chapter-tag">Where every point comes from</p>
+                <dl className="chapter-points">
+                  <div><dt>Goal</dt><dd className="num">+{POINTS.goal}</dd></div>
+                  <div><dt>Assist</dt><dd className="num">+{POINTS.assist}</dd></div>
+                  <div><dt>Own goal</dt><dd className="num neg">{POINTS.ownGoal}</dd></div>
+                  <div><dt>MOTM</dt><dd className="num">+{POINTS.motm}</dd></div>
+                  <div><dt>Win</dt><dd className="num">+{POINTS.win}</dd></div>
+                  <div><dt>Fair play</dt><dd className="num">+{POINTS.fairPlay}</dd></div>
+                  <div><dt>Skip GK/sub</dt><dd className="num neg">{POINTS.rotationMiss}</dd></div>
+                </dl>
+                <p className="chapter-body">Seven numbers. Easy to keep, hard to argue with.</p>
+              </div>
+            </div>
+          </article>
+
+          <article className="chapter" id="ch-2" aria-labelledby="ch-2-title">
+            <div className="wrap">
+              <div className="chapter-copy" data-reveal>
+                <p className="kicker"><b>Chapter / 02</b></p>
+                <h2 id="ch-2-title" className="chapter-title">
+                  Your seven <Link href="/team" className="chapter-go" aria-label="Pick your seven">↗</Link>
+                </h2>
+                <p className="chapter-tag">Pick {CLUB.picksPerSelector}, FPL-style</p>
+                <p className="chapter-body">
+                  Back {CLUB.picksPerSelector} of the {squad} before kick-off: 2 defenders, 2 CMs, a CAM and 2 attackers, within a
+                  star budget. Whichever side they land on, their points are yours, and your seven carries over until you change it.
+                </p>
+                <ul className="chapter-lineup" aria-label={ranked.length ? "Top seven so far" : "Seven from the squad"}>
+                  {lineup.map((id) => (
+                    <li key={id}>
+                      <Mascot id={id} size={74} />
+                      <Name id={id} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </article>
+
+          <article className="chapter" id="ch-3" aria-labelledby="ch-3-title">
+            <div className="wrap">
+              <div className="chapter-copy" data-reveal>
+                <p className="kicker"><b>Chapter / 03</b></p>
+                <h2 id="ch-3-title" className="chapter-title">
+                  Thursday, 10&nbsp;pm <Link href="/matches" className="chapter-go" aria-label="Fixtures and results">↗</Link>
+                </h2>
+                <p className="chapter-tag">{next ? <>Next: {nextLabel}</> : "Weekly until summer"}</p>
+                <p className="chapter-body">
+                  Captains draft {TEAM_NAMES.A} and {TEAM_NAMES.B} on WhatsApp, and the admin posts the official team sheet each week.
+                  Pick 7 locks at kick-off. The match ends at 11&nbsp;pm and the scores go up straight after.
+                </p>
+                <CalendarLinks />
+              </div>
+            </div>
+          </article>
         </div>
       </section>
 
-      <section className="grid grid-3">
-        <div className="panel stat-tile">
-          <div className="v num">{played.length}</div>
-          <div className="l">Match days played</div>
-        </div>
-        <div className="panel stat-tile">
-          <div className="v num">{goals}</div>
-          <div className="l">Goals on the scoresheet</div>
-        </div>
-        <div className="panel stat-tile">
-          <div className="v">{next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : "TBC"}</div>
-          <div className="l">
-            Next: {TEAM_NAMES.A} vs {TEAM_NAMES.B}{next ? ` · ${next.status === "open" ? "Pick 7 open" : "teams drawn"}` : ""}
+      <div className="wrap stack-lg home-tail">
+        <section className="scoreline" aria-label="Season so far" data-reveal-group>
+          <div className="score-cell">
+            <div className="v num" data-count={played.length}>{played.length}</div>
+            <div className="l">Match days played</div>
           </div>
-        </div>
-      </section>
-
-      <section className="stack">
-        <Kicker label="The idea" no="001" />
-        <div className="grid grid-3">
-          <article className="panel feature">
-            <div className="no">01</div>
-            <h3>The Draw</h3>
-            <p>
-              Nobody picks their mates. A seeded, crypto-random draw splits the {MEMBERS.length} members and{" "}
-              {DROPINS.length} drop-ins who turn up into two even sides — and anyone can re-run the seed to check it.
-            </p>
-          </article>
-          <article className="panel feature">
-            <div className="no">02</div>
-            <h3>The Scoresheet</h3>
-            <p>
-              Points come from one place only: the match scorecard. Goal +{POINTS.goal}. Assist +{POINTS.assist}. Own goal{" "}
-              {POINTS.ownGoal}. That&apos;s it. No ratings, no opinions, no arguments (well, fewer).
-            </p>
-          </article>
-          <article className="panel feature">
-            <div className="no">03</div>
-            <h3>Your Seven</h3>
-            <p>
-              Make an account and pick {CLUB.picksPerSelector} of the 21 you back to get on the scoresheet. Whatever side they
-              land on, their points become yours. Your seven carries over every week — change it before Thursday&apos;s deadline.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section className="stack">
-        <Kicker label="Every Thursday" no="002" />
-        <div className="panel row spread">
-          <div>
-            <h3 style={{ fontSize: "1.6rem" }}>
-              {TEAM_NAMES.A} <em style={{ color: "var(--muted)" }}>vs</em> {TEAM_NAMES.B} · 10 pm
-            </h3>
-            <p className="muted small" style={{ margin: "0.3rem 0 0" }}>
-              Weekly until summer. Pick 7 locks at kick-off; reminders go out Wednesday evening and Thursday midday.
-            </p>
+          <div className="score-cell">
+            <div className="v num" data-count={goals}>{goals}</div>
+            <div className="l">Goals on the scoresheet</div>
           </div>
-          <CalendarLinks />
-        </div>
-      </section>
+          <div className="score-cell">
+            <div className="v num" data-count={squad}>{squad}</div>
+            <div className="l">Players in the hat</div>
+          </div>
+        </section>
 
-      <section className="stack">
-        <Kicker label="The table" no="003" />
-        {top3.length ? (
-          <div className="panel">
-            <ol className="stack" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <section className="stack" aria-labelledby="the-table">
+          <div className="row spread">
+            <h2 id="the-table">The table</h2>
+            {top3.length > 0 && (
+              <div className="row">
+                <Link className="text-link" href="/table">Full table <span aria-hidden="true">→</span></Link>
+                <Link className="text-link" href="/stats">Season charts <span aria-hidden="true">→</span></Link>
+              </div>
+            )}
+          </div>
+          {top3.length ? (
+            <ol className="podium-list" data-reveal-group>
               {top3.map((r) => (
-                <li key={r.playerId} className="row spread">
-                  <span className="row">
-                    <span className="rank">{r.rank}</span>
-                    <Name id={r.playerId} />
-                  </span>
-                  <span className="pts num">{r.points}</span>
+                <li key={r.playerId}>
+                  <span className="rank">{r.rank}</span>
+                  <Mascot id={r.playerId} variant="head" size={44} />
+                  <span className="who"><Name id={r.playerId} /></span>
+                  <span className="pts num">{r.points}<small> pts</small></span>
                 </li>
               ))}
             </ol>
-            <div className="row" style={{ marginTop: "1rem" }}>
-              <Link className="btn btn-sm" href="/table">Full table</Link>
-              <Link className="btn btn-sm" href="/stats">Season charts</Link>
+          ) : (
+            <div className="panel muted" data-reveal>
+              The table fills up after the first scorecard. Until then, everyone&apos;s level on zero. Enjoy it.
             </div>
-          </div>
-        ) : (
-          <div className="panel muted">
-            The table fills up after the first scorecard. Until then, everyone&apos;s level on zero — enjoy it.
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      </div>
     </main>
   );
 }

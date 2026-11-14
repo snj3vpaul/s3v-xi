@@ -7,19 +7,24 @@
  * `before`, so a correction never silently overwrites anything.
  */
 
-import { CLUB, ROSTER, isDropIn } from "@/config/club";
+import { CLUB, ROSTER, isDropIn, playerName } from "@/config/club";
 import { SERIES } from "@/config/schedule";
 import { weeklyDates, zonedToUtc } from "./schedule";
 import { drawTeams, generateSeed } from "@/lib/draw/draw";
-import { DEFAULT_RULES, playedMatches, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
+import { DEFAULT_RULES, playedMatches, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
+import { checkTeam, currentStars, isFormationValid } from "./pick7";
 import type {
   AuditEntry,
   DrawConstraints,
+  DrawResult,
+  FairPlayLoss,
   GoalEvent,
+  RotationMiss,
   LeagueSettings,
   LeagueState,
   MatchDay,
   Selection,
+  Side,
   User,
 } from "./types";
 
@@ -131,6 +136,7 @@ export function createMatchDay(
     createdAt: ctx.now.toISOString(),
     scorecardAt: null,
     scorecardVersion: 0,
+    rulesVersion: rulesVersionOf({ date: input.date }),
   };
   return {
     match,
@@ -181,6 +187,7 @@ export function floaterCounts(matches: MatchDay[]): Record<string, number> {
   return out;
 }
 
+/** @deprecated Legacy random draw (locked Pick 7 at the draw). Match days now use setTeamSheet. */
 export function recordDraw(
   state: LeagueState,
   matchId: string,
@@ -219,6 +226,71 @@ export function recordDraw(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Team sheet — captains pick sides over WhatsApp; the admin enters them here
+// ---------------------------------------------------------------------------
+
+/**
+ * Set (or change) who played for White and Red. Also sets attendance. Can be
+ * edited any time until the scorecard is in. Pick 7 isn't locked by this:
+ * picks lock at kick-off.
+ */
+export function setTeamSheet(
+  state: LeagueState,
+  matchId: string,
+  input: { teamA: string[]; teamB: string[] },
+  ctx: Ctx,
+): LeagueState {
+  const m = findMatch(state, matchId);
+  if (m.scorecardAt) throw new LedgerError("This match already has a scorecard, so its teams are final.");
+  const teamA = [...new Set(input.teamA ?? [])];
+  const teamB = [...new Set(input.teamB ?? [])];
+  if (!teamA.length || !teamB.length) throw new LedgerError("Put at least one player on each team.");
+  const both = teamA.filter((id) => teamB.includes(id));
+  if (both.length) throw new LedgerError(`${both.map(playerName).join(", ")} can't be on both teams.`);
+  checkRoster([...teamA, ...teamB], "Team sheet");
+  const attendees = [...teamA, ...teamB];
+  const draw: DrawResult = {
+    algorithm: "manual",
+    seed: "",
+    attempt: 0,
+    constraints: DEFAULT_CONSTRAINTS,
+    attendees: [...attendees].sort(),
+    floaterCounts: {},
+    previousTeams: null,
+    teamA,
+    teamB,
+    floater: null,
+    floaterFirstHalf: null,
+    perSide: Math.min(teamA.length, teamB.length),
+    rollingSubs: 0,
+    drawnAt: ctx.now.toISOString(),
+  };
+  return replaceMatch(
+    state,
+    { ...m, status: "drawn", attendees, draw },
+    audit(ctx, {
+      actor: "admin",
+      action: "teams.set",
+      matchId,
+      before: m.draw ? { teamA: m.draw.teamA, teamB: m.draw.teamB } : null,
+      after: { teamA, teamB },
+    }),
+  );
+}
+
+/**
+ * The sevens locked for a match day: stored once the scorecard is in (or by a
+ * legacy draw); before that, worked out from history as at kick-off once
+ * kick-off has passed; none while picks are still open.
+ */
+export function lockedSelections(state: LeagueState, m: MatchDay, now: Date): Selection[] {
+  if (m.scorecardAt || m.selections.length) return m.selections;
+  if (now.getTime() < new Date(m.kickoffAt).getTime()) return [];
+  return snapshotSelections(state.users, m.kickoffAt);
+}
+
+/** @deprecated Legacy random draw; match days now use setTeamSheet. Kept for old data and tests. */
 export function resetDraw(state: LeagueState, matchId: string, reason: string, ctx: Ctx): LeagueState {
   const m = findMatch(state, matchId);
   if (!m.draw) throw new LedgerError("No draw to reset.");
@@ -235,31 +307,50 @@ export function resetDraw(state: LeagueState, matchId: string, reason: string, c
 // Pick 7 — standing team (FPL-style carry-over)
 // ---------------------------------------------------------------------------
 
-/** The user's seven as it stood at `atIso` (latest change at or before it), or null. */
+/** The user's seven as it stood at `atIso` (latest change at or before it), or null (none / removed). */
 export function squadAt(user: Pick<User, "squadHistory">, atIso: string): string[] | null {
   let best: string[] | null = null;
   for (const h of user.squadHistory) if (h.at <= atIso) best = h.picks;
-  return best;
+  return best?.length ? best : null;
 }
 
+/** The user's current seven, or null if they never picked or removed it. */
 export function currentSquad(user: Pick<User, "squadHistory">): string[] | null {
-  return user.squadHistory.at(-1)?.picks ?? null;
+  const last = user.squadHistory.at(-1)?.picks;
+  return last?.length ? last : null;
 }
 
+/**
+ * Lock every user's seven as it stood at the deadline. Only sevens in the
+ * current formation are entered; an old pre-formation seven sits that week out
+ * (the user is reminded and keeps it to fix). Stars aren't re-checked here: a
+ * team saved within budget stays legal when ratings move.
+ */
 export function snapshotSelections(users: User[], deadlineIso: string): Selection[] {
   const out: Selection[] = [];
   for (const u of users) {
     const picks = squadAt(u, deadlineIso);
-    if (picks) {
-      const at = [...u.squadHistory].reverse().find((h) => h.at <= deadlineIso)!.at;
-      out.push({ selectorId: u.id, picks: [...picks], submittedAt: at });
+    if (picks && isFormationValid(picks)) {
+      const entry = [...u.squadHistory].reverse().find((h) => h.at <= deadlineIso)!;
+      const captain = entry.captain && picks.includes(entry.captain) ? entry.captain : null;
+      out.push({ selectorId: u.id, picks: [...picks], captain, submittedAt: entry.at });
     }
   }
   return out;
 }
 
-/** Save a new standing seven. It applies to every match day whose deadline is still ahead. */
-export function setSquad(state: LeagueState, userId: string, picks: string[], ctx: Ctx): LeagueState {
+/** The user's current captain (null if none, or the seven was removed). */
+export function currentCaptain(user: Pick<User, "squadHistory">): string | null {
+  const last = user.squadHistory.at(-1);
+  return last?.picks.length && last.captain && last.picks.includes(last.captain) ? last.captain : null;
+}
+
+/**
+ * Save a new standing seven. It applies to every match day whose deadline is
+ * still ahead. `captain` (one of the seven) scores double; the API requires it.
+ * Left undefined, the previous captain is kept if they're still in the seven.
+ */
+export function setSquad(state: LeagueState, userId: string, picks: string[], ctx: Ctx, captain?: string | null): LeagueState {
   const u = state.users.find((x) => x.id === userId);
   if (!u) throw new LedgerError("Account not found.");
   const unique = [...new Set(picks)];
@@ -267,20 +358,53 @@ export function setSquad(state: LeagueState, userId: string, picks: string[], ct
     throw new LedgerError(`Pick exactly ${CLUB.picksPerSelector} different players.`);
   checkRoster(unique, "Picks");
   const prev = currentSquad(u);
-  if (prev && prev.length === unique.length && prev.every((x) => unique.includes(x))) return state; // no change
-  const entry = { picks: unique, at: ctx.now.toISOString() };
+  const check = checkTeam(unique, currentStars(state.matchDays), prev);
+  if (!check.valid) throw new LedgerError(`That seven isn't valid: ${check.errors.join("; ")}.`, check.errors);
+  const prevCaptain = currentCaptain(u);
+  const cap = captain === undefined ? (prevCaptain && unique.includes(prevCaptain) ? prevCaptain : null) : captain;
+  if (cap !== null && !unique.includes(cap)) throw new LedgerError("Your captain has to be one of your seven.");
+  if (prev && prev.length === unique.length && prev.every((x) => unique.includes(x)) && cap === prevCaptain) return state; // no change
+  const entry = { picks: unique, at: ctx.now.toISOString(), captain: cap };
   return {
     ...state,
     users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, entry] } : x)),
-    audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "squad.update", before: prev, after: unique })],
+    audit: [
+      ...state.audit,
+      audit(ctx, { actor: `user:${userId}`, action: "squad.update", before: prev ? { picks: prev, captain: prevCaptain } : null, after: { picks: unique, captain: cap } }),
+    ],
   };
 }
 
-/** The next match day whose Pick 7 deadline hasn't passed (still open, kick-off in the future). */
+/**
+ * Remove the standing seven: the user goes back to "no pick" for every match
+ * day whose deadline is still ahead. Weeks already locked keep their snapshot,
+ * and points already earned stay on the table.
+ */
+export function clearSquad(state: LeagueState, userId: string, ctx: Ctx): LeagueState {
+  const u = state.users.find((x) => x.id === userId);
+  if (!u) throw new LedgerError("Account not found.");
+  const prev = currentSquad(u);
+  if (!prev) return state; // nothing to remove
+  return {
+    ...state,
+    users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, { picks: [], at: ctx.now.toISOString() }] } : x)),
+    audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "squad.clear", before: prev })],
+  };
+}
+
+/**
+ * The next match day whose Pick 7 deadline (kick-off) hasn't passed. Posting
+ * the team sheet early doesn't close picks; a legacy random draw did.
+ */
 export function nextDeadlineMatch(state: LeagueState, now: Date): MatchDay | null {
   return (
     [...state.matchDays]
-      .filter((m) => m.status === "open" && new Date(m.kickoffAt).getTime() > now.getTime())
+      .filter(
+        (m) =>
+          m.status !== "played" &&
+          (m.status === "open" || m.draw?.algorithm === "manual") &&
+          new Date(m.kickoffAt).getTime() > now.getTime(),
+      )
       .sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt))[0] ?? null
   );
 }
@@ -445,22 +569,28 @@ export function saveScorecard(
   state: LeagueState,
   matchId: string,
   events: GoalEvent[],
-  input: { reason?: string },
+  input: {
+    reason?: string;
+    motm?: Partial<Record<Side, string | null>> | null;
+    fairPlayLost?: FairPlayLoss[] | null;
+    rotationMissed?: RotationMiss[] | null;
+    rotationChecked?: boolean;
+    noResult?: boolean;
+  },
   ctx: Ctx,
 ): LeagueState {
   const m = findMatch(state, matchId);
-  if (!m.draw) throw new LedgerError("Draw the teams before entering a scorecard.");
-  const issues = validateScorecard(
-    events,
-    {
-      knownPlayers: ROSTER_IDS,
-      attendees: m.attendees,
-      teamA: m.draw.teamA,
-      teamB: m.draw.teamB,
-      floater: m.draw.floater,
-    },
-    rulesFrom(state.settings),
-  );
+  if (!m.draw) throw new LedgerError("Enter the team sheet before the scorecard.");
+  const version = rulesVersionOf(m);
+  const matchCtx = {
+    knownPlayers: ROSTER_IDS,
+    attendees: m.attendees,
+    teamA: m.draw.teamA,
+    teamB: m.draw.teamB,
+    floater: m.draw.floater,
+  };
+  const issues = validateScorecard(events, matchCtx, rulesFrom(state.settings), version);
+  if (version === 2) issues.push(...validateAwards(input, matchCtx));
   const errors = issues.filter((i) => i.level === "error");
   if (errors.length) throw new LedgerError("The scorecard has errors.", errors);
 
@@ -476,9 +606,29 @@ export function saveScorecard(
     ...m,
     status: "played",
     events: events.map((e) => ({ ...e })),
+    // Pick 7 locks at kick-off: store the sevens as they stood then (or now, if
+    // the scorecard somehow comes in before kick-off). Corrections keep them.
+    selections: m.scorecardAt || m.selections.length ? m.selections : snapshotSelections(state.users, new Date(Math.min(new Date(m.kickoffAt).getTime(), ctx.now.getTime())).toISOString()),
     scorecardAt: m.scorecardAt ?? ctx.now.toISOString(),
     scorecardVersion: m.scorecardVersion + 1,
+    rulesVersion: version,
+    ...(version === 2
+      ? {
+          motm: { A: input.motm?.A ?? null, B: input.motm?.B ?? null },
+          fairPlayLost: (input.fairPlayLost ?? []).map((f) => ({ playerId: f.playerId, reason: f.reason })),
+          rotationMissed: (input.rotationMissed ?? []).map((r) => ({ playerId: r.playerId, reason: r.reason })),
+          rotationChecked: true,
+          noResult: !!input.noResult,
+        }
+      : {}),
   };
+  const snap = (x: MatchDay) => ({
+    version: x.scorecardVersion,
+    events: x.events,
+    ...(version === 2
+      ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [], rotationMissed: x.rotationMissed ?? [], noResult: !!x.noResult }
+      : {}),
+  });
   return replaceMatch(
     state,
     next,
@@ -487,8 +637,8 @@ export function saveScorecard(
       action: isCorrection ? "scorecard.correct" : "scorecard.create",
       matchId,
       reason: input.reason?.trim() || undefined,
-      before: isCorrection ? { version: m.scorecardVersion, events: m.events } : undefined,
-      after: { version: next.scorecardVersion, events: next.events },
+      before: isCorrection ? snap(m) : undefined,
+      after: snap(next),
     }),
   );
 }

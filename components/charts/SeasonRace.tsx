@@ -63,7 +63,7 @@ export function SeasonRace({ labels, series, initial }: { labels: string[]; seri
               aria-pressed={on}
               disabled={!on && focus.length >= MAX}
               onClick={() => setFocus((f) => (on ? f.filter((x) => x !== s.id) : [...f, s.id]))}
-              style={on ? { background: "transparent", color: "var(--chalk)", borderColor: colorOf.get(s.id) } : undefined}
+              style={on ? { background: "transparent", color: "var(--text)", borderColor: colorOf.get(s.id) } : undefined}
             >
               {on && <span className="swatch" style={{ background: colorOf.get(s.id) }} />}
               {s.name}
@@ -79,7 +79,7 @@ export function SeasonRace({ labels, series, initial }: { labels: string[]; seri
             <YAxis domain={[lo, hi]} ticks={ticks} allowDecimals={false} tick={{ fill: "var(--muted)", fontSize: 11 }} tickLine={false} axisLine={false} />
             <ReferenceLine y={0} stroke="var(--line)" />
             <Tooltip
-              cursor={{ stroke: "var(--chalk-2)", strokeDasharray: "3 3" }}
+              cursor={{ stroke: "var(--text-2)", strokeDasharray: "3 3" }}
               content={({ active, payload, label }) => {
                 if (!active || !payload) return null;
                 const rows = payload
@@ -112,11 +112,11 @@ export function SeasonRace({ labels, series, initial }: { labels: string[]; seri
                   stroke={colorOf.get(s.id)}
                   strokeWidth={2.25}
                   dot={false}
-                  activeDot={{ r: 4, stroke: "var(--navy-800)", strokeWidth: 2 }}
+                  activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }}
                   isAnimationActive={false}
                   label={({ index, x, y }: { index?: number; x?: number | string; y?: number | string }) =>
                     index === last ? (
-                      <text key={`l-${s.id}`} x={Number(x) + 6} y={Number(y) + (labelShift.get(s.id) ?? 0)} dy={4} fill="var(--chalk)" fontSize={11}>
+                      <text key={`l-${s.id}`} x={Number(x) + 6} y={Number(y) + (labelShift.get(s.id) ?? 0)} dy={4} fill="var(--text)" fontSize={11}>
                         {s.name}
                       </text>
                     ) : (
