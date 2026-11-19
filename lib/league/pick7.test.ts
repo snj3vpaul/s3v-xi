@@ -35,13 +35,13 @@ function withUsers(count: number, s: LeagueState = initialState()) {
 }
 
 describe("formation", () => {
-  it("P01 the formation adds up to 7, and all 22 roster players are pickable", () => {
+  it("P01 the formation adds up to 7, and all 23 roster players are pickable", () => {
     expect(Object.values(FORMATION).reduce((a, b) => a + b, 0)).toBe(7);
-    expect(PICKABLE).toHaveLength(22);
+    expect(PICKABLE).toHaveLength(23);
     expect(ROSTER.every((p) => p.position !== null)).toBe(true);
     expect(ROSTER.some((p) => p.id === "gurinder")).toBe(false); // left the club
     const per = (pos: string) => PICKABLE.filter((p) => p.position === pos).length;
-    expect([per("DEF"), per("CM"), per("CAM"), per("ATT")]).toEqual([6, 7, 4, 5]);
+    expect([per("DEF"), per("CM"), per("CAM"), per("ATT")]).toEqual([6, 8, 4, 5]);
   });
 
   it("P02 exactly 2 DEF · 2 CM · 1 CAM · 2 ATT, no duplicates, no unpositioned players", () => {
