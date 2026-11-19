@@ -5,14 +5,20 @@
  *  - The match ball at the centre, clear-coated, turning under floodlights.
  *  - A 60-tick match clock around it. The arc fills as the count rises: one
  *    fun 60-minute match, minute by minute.
- *  - Three orbits around the ball, one per principle, each lighting up in turn:
- *    Respect (gold), No hard fouls (green), A fun 60 minutes (bone).
- *    They're orbits rather than walls: the principles keep the game turning.
+ *  - Three orbits around the ball, one per principle. As the count passes each
+ *    third, that orbit lights up and its satellite leaves the orbit to dock
+ *    beside the ball, where the principle's label is pinned to it:
+ *    Respect (gold, left), No hard fouls (green, right), A fun 60 minutes (bone, below).
  *  - Floodlight dust that drifts in toward the ball as the count rises, and
  *    scatters in a burst at 100.
  *
- * Bloom (UnrealBloomPass) makes the arc, ticks and orbits glow. Written
- * against the three module and addons passed in so they stay code-split.
+ * Bloom (UnrealBloomPass) makes the arc, ticks and orbits glow.
+ *
+ * Performance: the dust moves entirely in its vertex shader (no per-frame CPU
+ * work or buffer uploads), bloom renders at half resolution, the pixel ratio
+ * is capped, and if the first second runs slow the scene drops to 1× and
+ * turns bloom off. Written against the three module and addons passed in so
+ * they stay code-split.
  */
 import type * as THREENS from "three";
 import type { EffectComposer as EC } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -33,6 +39,8 @@ export interface LoaderScene {
   setProgress(p: number): void;
   /** The final whistle: a pulse and a burst of dust. */
   burst(): void;
+  /** Stop rendering (keeps the last frame) so the exit fade stays smooth. */
+  pause(): void;
   dispose(): void;
 }
 
@@ -40,9 +48,13 @@ export interface LoaderScene {
 export const PRINCIPLE_COLORS = ["#e2c27a", "#7fc49a", "#f5f0e6"] as const;
 const GOLD = "#c9a85c";
 
-export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement): LoaderScene {
-  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+/** Where each principle's satellite docks beside the ball (world-group space). */
+const DOCKS: [number, number, number][] = [[-1.5, 0.25, 0.6], [1.5, 0.25, 0.6], [0, -1.42, 0.6]];
+
+export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement, labels: (HTMLElement | null)[] = []): LoaderScene {
+  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: "high-performance", stencil: false });
+  let dpr = Math.min(1.5, window.devicePixelRatio || 1);
+  renderer.setPixelRatio(dpr);
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -183,13 +195,22 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement):
     const sat = new T.Mesh(keep(new T.SphereGeometry(0.055, 16, 16)), satMat);
     g.add(ring, sat);
     world.add(g);
-    return { g, ringMat, satMat, sat, radius: 1.55 + i * 0.12, base: new T.Color(col), level: 0, speed: 1.2 + i * 0.35, phase: i * 2.1 };
+    // The satellite docks beside the ball: a separate marker in world space.
+    const dockMat = keep(new T.MeshBasicMaterial({ color: new T.Color(col).multiplyScalar(2), transparent: true, opacity: 0, toneMapped: false }));
+    const dock = new T.Mesh(keep(new T.SphereGeometry(0.07, 20, 20)), dockMat);
+    dock.position.set(...DOCKS[i]);
+    const halo = new T.Mesh(keep(new T.RingGeometry(0.11, 0.125, 48)), keep(new T.MeshBasicMaterial({ color: new T.Color(col), transparent: true, opacity: 0, toneMapped: false })));
+    dock.add(halo);
+    world.add(dock);
+    return {
+      g, ringMat, satMat, sat, dock, dockMat, halo, radius: 1.55 + i * 0.12, base: new T.Color(col),
+      level: 0, speed: 1.2 + i * 0.35, phase: i * 2.1, from: new T.Vector3(), label: labels[i] ?? null, labelOn: false,
+    };
   });
 
-  // ---- Floodlight dust ---------------------------------------------------------
-  const DUST = 1400;
+  // ---- Floodlight dust (animated in the vertex shader) -------------------------
+  const DUST = window.innerWidth < 700 ? 700 : 1200;
   const home = new Float32Array(DUST * 3);
-  const dustPos = new Float32Array(DUST * 3);
   const seeds = new Float32Array(DUST);
   for (let i = 0; i < DUST; i++) {
     const r = 3.2 + Math.random() * 6;
@@ -198,25 +219,43 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement):
     home.set([r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph) * 0.7, r * Math.sin(ph) * Math.sin(th) - 1], i * 3);
     seeds[i] = Math.random();
   }
-  dustPos.set(home);
   const dustGeo = keep(new T.BufferGeometry());
-  dustGeo.setAttribute("position", new T.BufferAttribute(dustPos, 3));
-  const dustTex = (() => {
-    const c = document.createElement("canvas");
-    c.width = c.height = 64;
-    const x = c.getContext("2d")!;
-    const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0, "rgba(255,244,224,1)");
-    g.addColorStop(0.35, "rgba(255,230,190,0.45)");
-    g.addColorStop(1, "rgba(255,230,190,0)");
-    x.fillStyle = g;
-    x.fillRect(0, 0, 64, 64);
-    return keep(new T.CanvasTexture(c));
-  })();
+  dustGeo.setAttribute("position", new T.BufferAttribute(home, 3));
+  dustGeo.setAttribute("aSeed", new T.BufferAttribute(seeds, 1));
+  dustGeo.boundingSphere = new T.Sphere(new T.Vector3(), 40);
   const dustMat = keep(
-    new T.PointsMaterial({ size: 0.06, map: dustTex, transparent: true, opacity: 0.55, depthWrite: false, blending: T.AdditiveBlending, color: 0xf3dfb5 }),
+    new T.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: T.AdditiveBlending,
+      uniforms: { uTime: { value: 0 }, uPull: { value: 0 }, uScatter: { value: 1 }, uScale: { value: 1 } },
+      vertexShader: /* glsl */ `
+        attribute float aSeed;
+        uniform float uTime, uPull, uScatter, uScale;
+        varying float vFade;
+        void main() {
+          float spin = uTime * 0.05 * (0.5 + aSeed);
+          float c = cos(spin), s = sin(spin);
+          float f = (1.0 - uPull * (0.6 + aSeed * 0.4)) * uScatter;
+          vec3 p = vec3(position.x * c - position.z * s, position.y, position.x * s + position.z * c) * f;
+          p.x += sin(uTime * 0.6 + aSeed * 12.0) * 0.15;
+          p.y += cos(uTime * 0.5 + aSeed * 9.0) * 0.12;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = (2.0 + aSeed * 3.0) * uScale * (8.0 / -mv.z);
+          vFade = (0.35 + 0.65 * fract(aSeed * 7.13)) * (0.75 + 0.25 * sin(uTime * 1.3 + aSeed * 40.0));
+        }`,
+      fragmentShader: /* glsl */ `
+        varying float vFade;
+        void main() {
+          float d = length(gl_PointCoord - 0.5);
+          float a = smoothstep(0.5, 0.0, d);
+          gl_FragColor = vec4(vec3(1.0, 0.9, 0.72) * a * a * vFade * 0.6, 1.0);
+        }`,
+    }),
   );
   const dust = new T.Points(dustGeo, dustMat);
+  dust.frustumCulled = false;
   scene.add(dust);
 
   // ---- Post: bloom ---------------------------------------------------------------
@@ -226,12 +265,19 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement):
   composer.addPass(bloom);
   composer.addPass(new A.OutputPass());
 
+  let vw = 1, vh = 1;
   const resize = () => {
     const w = Math.max(1, host.clientWidth);
     const h = Math.max(1, host.clientHeight);
+    renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
+    composer.setPixelRatio(dpr);
     composer.setSize(w, h);
-    bloom.resolution.set(w, h);
+    // Bloom is soft anyway: half resolution looks the same and costs a quarter.
+    bloom.resolution.set(w / 2, h / 2);
+    dustMat.uniforms.uScale.value = dpr * Math.min(1.4, h / 800);
+    vw = w;
+    vh = h;
     camera.aspect = w / h;
     // Keep the clock in frame on narrow (portrait) screens.
     camera.position.z = w / h < 0.8 ? 9 / Math.max(0.5, (w / h) / 0.8) : 9;
@@ -256,10 +302,15 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement):
   let lastTick = -1;
   const clock = new T.Clock();
   let raf = 0;
+  let sampled = 0;
+  let slowSum = 0;
+  const v3 = new T.Vector3();
+  const smooth = (x: number) => x * x * (3 - 2 * x);
 
   const frame = () => {
     raf = requestAnimationFrame(frame);
-    const dt = Math.min(0.05, clock.getDelta());
+    const rawDt = clock.getDelta();
+    const dt = Math.min(0.05, rawDt);
     const t = clock.elapsedTime;
     shown += (target - shown) * Math.min(1, dt * 9);
 
@@ -274,17 +325,38 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement):
       lastTick = minute;
     }
 
-    // Principles: each orbit ignites over its third of the count.
+    // Principles: each orbit ignites over its third of the count, then its
+    // satellite flies out of the orbit and docks beside the ball.
+    world.updateMatrixWorld();
     orbits.forEach((o, i) => {
-      const want = Math.min(1, Math.max(0, (shown - i / 3) * 3));
-      o.level += (want - o.level) * Math.min(1, dt * 6);
-      o.ringMat.opacity = 0.08 + o.level * 0.7;
-      o.ringMat.color.copy(o.base).multiplyScalar(1 + o.level * 0.6);
-      o.satMat.opacity = 0.15 + o.level * 0.85;
-      o.satMat.color.copy(o.base).multiplyScalar(1 + o.level * 1.8);
-      const a = t * o.speed * (0.4 + o.level) + o.phase;
+      // Docked by ~25, ~55 and ~85 on the count.
+      const want = Math.min(1, Math.max(0, (shown - i * 0.3) / 0.25));
+      o.level += (want - o.level) * Math.min(1, dt * 5);
+      const lv = o.level;
+      o.ringMat.opacity = 0.07 + lv * 0.45;
+      o.ringMat.color.copy(o.base).multiplyScalar(1 + lv * 0.5);
+      const a = t * o.speed * 0.6 + o.phase;
       o.sat.position.set(Math.cos(a) * o.radius, Math.sin(a) * o.radius, 0);
       o.g.rotation.z += dt * 0.08 * (i % 2 ? -1 : 1);
+      // Fly from the orbiting satellite to the dock.
+      const k = smooth(Math.min(1, lv * 1.08));
+      o.sat.getWorldPosition(o.from);
+      world.worldToLocal(o.from);
+      o.dock.position.lerpVectors(o.from, v3.set(...DOCKS[i]), k);
+      o.satMat.opacity = 0.2 * (1 - k);
+      o.dockMat.opacity = k;
+      o.dock.scale.setScalar(0.6 + 0.4 * k + Math.sin(t * 3 + i) * 0.04 * k);
+      (o.halo.material as THREENS.MeshBasicMaterial).opacity = k * (0.35 + 0.25 * Math.sin(t * 2.4 + i));
+      o.halo.lookAt(camera.position);
+      // Pin the label to the docked marker.
+      if (o.label) {
+        o.dock.getWorldPosition(v3).project(camera);
+        const x = (v3.x * 0.5 + 0.5) * vw;
+        const y = (-v3.y * 0.5 + 0.5) * vh;
+        o.label.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+        const on = k > 0.85;
+        if (on !== o.labelOn) { o.label.classList.toggle("is-on", on); o.labelOn = on; }
+      }
     });
 
     // Ball: rolls faster as kick-off nears.
@@ -296,20 +368,10 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement):
     glow.intensity = 1.2 * shown + (since >= 0 ? Math.exp(-since * 2.5) * 12 : 0);
     bloom.strength = 0.45 + shown * 0.25 + (since >= 0 ? Math.exp(-since * 2) * 0.9 : 0);
 
-    // Dust: drifts in as the count rises, scatters on the burst.
-    const pull = shown * 0.45;
-    const scatter = since >= 0 ? 1 + since * 2.2 : 1;
-    for (let i = 0; i < DUST; i++) {
-      const k = i * 3;
-      const sw = Math.sin(t * 0.6 + seeds[i] * 12) * 0.15;
-      const f = (1 - pull * (0.6 + seeds[i] * 0.4)) * scatter;
-      const spin = t * 0.05 * (0.5 + seeds[i]);
-      const hx = home[k], hz = home[k + 2];
-      dustPos[k] = (hx * Math.cos(spin) - hz * Math.sin(spin)) * f + sw;
-      dustPos[k + 1] = home[k + 1] * f + Math.cos(t * 0.5 + seeds[i] * 9) * 0.12;
-      dustPos[k + 2] = (hx * Math.sin(spin) + hz * Math.cos(spin)) * f;
-    }
-    dustGeo.attributes.position.needsUpdate = true;
+    // Dust: drifts in as the count rises, scatters on the burst (all on the GPU).
+    dustMat.uniforms.uTime.value = t;
+    dustMat.uniforms.uPull.value = shown * 0.45;
+    dustMat.uniforms.uScatter.value = since >= 0 ? 1 + since * 2.2 : 1;
 
     look.x += (look.tx - look.x) * dt * 3;
     look.y += (look.ty - look.y) * dt * 3;
@@ -317,13 +379,28 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement):
     world.rotation.x = look.y;
     camera.lookAt(0, 0.2, 0);
 
-    composer.render();
+    if (bloom.enabled) composer.render();
+    else renderer.render(scene, camera);
+
+    // Adaptive quality: if the first ~40 frames average slower than ~40 fps,
+    // drop to 1x pixels and render without bloom.
+    if (sampled < 40) {
+      sampled++;
+      if (sampled > 5) slowSum += rawDt;
+      if (sampled === 40 && slowSum / 35 > 0.025) {
+        dpr = 1;
+        bloom.enabled = false;
+        renderer.toneMappingExposure = 1.25;
+        resize();
+      }
+    }
   };
   frame();
 
   return {
     setProgress(p) { target = Math.min(1, Math.max(0, p)); },
     burst() { if (burstAt < 0) burstAt = clock.elapsedTime; },
+    pause() { cancelAnimationFrame(raf); },
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();

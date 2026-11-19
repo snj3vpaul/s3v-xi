@@ -6,15 +6,16 @@ import type { LoaderScene } from "./scene";
 /** Set once the loader has played, so it shows once per browser session. */
 export const LOADER_KEY = "rsfc-loader-seen";
 
+/** Each docks beside the ball: Respect on the left, No hard fouls on the right, the fun 60 below. */
 const PRINCIPLES = [
-  { no: "01", name: "Respect", line: "Teammates, opponents, the ref, the pitch." },
-  { no: "02", name: "No hard fouls", line: "Win the ball, not the shin. Everyone works tomorrow." },
-  { no: "03", name: "A fun 60 minutes", line: "One hour, two bibs, everyone smiling at the end." },
-];
+  { no: "01", name: "Respect", line: "Teammates, opponents, the ref.", side: "left", color: "#e2c27a" },
+  { no: "02", name: "No hard fouls", line: "Win the ball, not the shin.", side: "right", color: "#7fc49a" },
+  { no: "03", name: "A fun 60 minutes", line: "One hour. Everyone smiling.", side: "below", color: "#f5f0e6" },
+] as const;
 
-const DURATION = 3400; // ms from 1 to 100 when the page is already loaded
-const REDUCED = 900;
-const MAX_WAIT = 7000; // never hold the site back longer than this
+const DURATION = 2600; // ms from 1 to 100 when the page is already loaded
+const REDUCED = 700;
+const MAX_WAIT = 4500; // never hold the site back longer than this
 
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
@@ -32,6 +33,7 @@ export function ClubLoader() {
   const countEl = useRef<HTMLSpanElement>(null);
   const minuteEl = useRef<HTMLSpanElement>(null);
   const skip = useRef<() => void>(() => {});
+  const tags = useRef<(HTMLLIElement | null)[]>([]);
 
   useEffect(() => {
     const el = root.current;
@@ -48,6 +50,7 @@ export function ClubLoader() {
     let raf = 0;
     let leaving = false;
     let timers: number[] = [];
+    let lastCount = 0;
 
     // 3D, when WebGL is there and motion is welcome. The count runs regardless.
     let sceneSettled = reduce;
@@ -63,8 +66,10 @@ export function ClubLoader() {
             import("./scene"),
           ]);
           if (disposed || !stage.current) return;
-          scene = createLoaderScene(T, { EffectComposer, RenderPass, UnrealBloomPass, OutputPass }, stage.current);
+          scene = createLoaderScene(T, { EffectComposer, RenderPass, UnrealBloomPass, OutputPass }, stage.current, tags.current);
+          scene.setProgress(lastCount / 100);
           stage.current.classList.add("is-live");
+          el.classList.add("has-scene");
         } catch {
           /* 2D count only */
         } finally {
@@ -83,23 +88,24 @@ export function ClubLoader() {
       if (leaving) return;
       leaving = true;
       try { sessionStorage.setItem(LOADER_KEY, "1"); } catch {}
+      // Freeze the 3D on its last frame so the fade has the GPU to itself.
+      scene?.pause();
       el.classList.add("is-leaving");
       html.classList.remove("loader-on");
-      timers.push(window.setTimeout(() => setGone(true), reduce ? 250 : 900));
+      timers.push(window.setTimeout(() => setGone(true), reduce ? 250 : 650));
     };
     skip.current = () => {
       paint(100);
       finish();
     };
 
-    let lastCount = 0;
     const paint = (count: number) => {
       if (count === lastCount) return;
       lastCount = count;
       if (countEl.current) countEl.current.textContent = String(count);
       if (minuteEl.current) minuteEl.current.textContent = `${Math.round((count / 100) * 60)}'`;
       el.setAttribute("aria-valuenow", String(count));
-      el.dataset.stage = String(count >= 67 ? 3 : count >= 34 ? 2 : 1);
+      el.dataset.stage = String(count >= 85 ? 3 : count >= 55 ? 2 : 1);
       scene?.setProgress(count / 100);
     };
 
@@ -114,7 +120,7 @@ export function ClubLoader() {
       paint(Math.max(1, Math.ceil(p * 100)));
       if (p >= 1) {
         scene?.burst();
-        timers.push(window.setTimeout(finish, reduce ? 150 : 650));
+        timers.push(window.setTimeout(finish, reduce ? 150 : 700));
         return;
       }
       raf = requestAnimationFrame(tick);
@@ -147,28 +153,37 @@ export function ClubLoader() {
       <div ref={stage} className="club-loader-stage" aria-hidden="true" />
       <div className="club-loader-vignette" aria-hidden="true" />
 
-      <div className="club-loader-ui">
-        <p className="club-loader-eyebrow">RSFC · Thursday, kick-off</p>
-
-        <div className="club-loader-meter" aria-hidden="true">
-        <div className="club-loader-count">
-          <span ref={countEl} className="num">1</span>
-          <span className="club-loader-of">/100</span>
-        </div>
-        <p className="club-loader-clock">
-          Match clock <span ref={minuteEl} className="num">1&apos;</span> <span className="club-loader-of">of 60&apos;</span>
-        </p>
-        </div>
-
-        <ol className="club-loader-principles" aria-label="How we play">
-          {PRINCIPLES.map((p, i) => (
-            <li key={p.no} data-at={i + 1} style={{ ["--c" as string]: ["#e2c27a", "#7fc49a", "#f5f0e6"][i] }}>
+      {/* The principles: pinned beside the ball by the 3D scene (CSS places them there until it loads). */}
+      <ol className="club-loader-tags" aria-label="How we play">
+        {PRINCIPLES.map((p, i) => (
+          <li
+            key={p.no}
+            ref={(n) => { tags.current[i] = n; }}
+            className="club-loader-tag"
+            data-at={i + 1}
+            data-side={p.side}
+            style={{ ["--c" as string]: p.color }}
+          >
+            <span className="club-loader-tag-in">
               <span className="club-loader-no">{p.no}</span>
               <span className="club-loader-name">{p.name}</span>
               <span className="club-loader-line">{p.line}</span>
-            </li>
-          ))}
-        </ol>
+            </span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="club-loader-ui">
+        <p className="club-loader-eyebrow">RSFC · Thursday, kick-off</p>
+        <div className="club-loader-meter" aria-hidden="true">
+          <div className="club-loader-count">
+            <span ref={countEl} className="num">1</span>
+            <span className="club-loader-of">/100</span>
+          </div>
+          <p className="club-loader-clock">
+            Match clock <span ref={minuteEl} className="num">1&apos;</span> <span className="club-loader-of">of 60&apos;</span>
+          </p>
+        </div>
       </div>
 
       <button type="button" className="club-loader-skip" onClick={() => skip.current()}>
