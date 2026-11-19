@@ -48,6 +48,8 @@ export default async function Home() {
 
   return (
     <main className="home">
+      {captain && <CaptainShowcase playerId={captain} />}
+
       <section className="orbit theme-night" data-orbit aria-label="How RSFC League works">
         <OrbitStage chapters={CHAPTERS} label={`The Thursday series · ${CLUB.name}`} />
 
@@ -147,8 +149,6 @@ export default async function Home() {
           </article>
         </div>
       </section>
-
-      {captain && <CaptainShowcase playerId={captain} />}
 
       <div className="wrap stack-lg home-tail">
         <section className="scoreline" aria-label="Season so far" data-reveal-group>
