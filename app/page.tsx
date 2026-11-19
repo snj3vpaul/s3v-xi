@@ -10,7 +10,8 @@ import { getState } from "@/lib/server/store";
 import { Name } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
 import { CaptainShowcase } from "@/components/home/captain/CaptainShowcase";
-import { mostCaptained } from "@/lib/league/captaincy";
+import { captaincyNews } from "@/lib/league/captaincy";
+import { CaptaincyNews } from "@/components/home/CaptaincyNews";
 import { OrbitStage, type OrbChapter } from "@/components/home/orbit/OrbitStage";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,8 @@ export default async function Home() {
   const goals = standings.reduce((s, r) => s + r.goals, 0);
   const top3 = standings.filter((r) => r.played > 0).slice(0, 3);
   const squad = PICKABLE.length;
-  const captain = mostCaptained(state);
+  const news = captaincyNews(state);
+  const captain = news?.playerId ?? null;
   const nextLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
   // Chapter 03's line-up: the season's top seven so far, or seven from the squad before a ball is kicked.
   const ranked = standings.filter((r) => r.played > 0).map((r) => r.playerId);
@@ -48,6 +50,7 @@ export default async function Home() {
 
   return (
     <main className="home">
+      {news && <CaptaincyNews news={news} />}
       {captain && <CaptainShowcase playerId={captain} />}
 
       <section className="orbit theme-night" data-orbit aria-label="How RSFC League works">

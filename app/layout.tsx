@@ -11,6 +11,7 @@ import { currentUser } from "@/lib/server/session";
 import { DeadlineBanner } from "@/components/DeadlineBanner";
 import { MotionRoot } from "@/components/motion/MotionRoot";
 import Link from "next/link";
+import { ClubLoader, LOADER_KEY } from "@/components/loader/ClubLoader";
 
 export const metadata: Metadata = {
   title: { default: `${CLUB.leagueName} | ${CLUB.tagline}`, template: `%s · ${CLUB.leagueName}` },
@@ -24,8 +25,18 @@ export const viewport: Viewport = { themeColor: "#F5F0E6", width: "device-width"
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Repeat visit this session: hide the loader before first paint. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(sessionStorage.getItem(${JSON.stringify(LOADER_KEY)})==="1")document.documentElement.classList.add("no-loader")}catch(e){}`,
+          }}
+        />
+        <noscript><style>{`.club-loader{display:none!important}`}</style></noscript>
+      </head>
       <body>
+        <ClubLoader />
         <a className="skip-link" href="#content">Skip to content</a>
         {storageMode === "memory" && (
           <div className="banner">

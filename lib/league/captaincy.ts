@@ -32,3 +32,41 @@ export function mostCaptained(state: LeagueState): string | null {
     ([a, x], [b, y]) => y - x || firstAt.get(a)!.localeCompare(firstAt.get(b)!) || playerName(a).localeCompare(playerName(b)),
   )[0][0];
 }
+
+export interface CaptaincyNews {
+  playerId: string;
+  /** Managers with a seven right now. */
+  teams: number;
+  /** How many of those sevens include the player. */
+  selectedBy: number;
+  /** How many of those sevens have them as captain. */
+  captainedBy: number;
+  /** Armbands they've worn across played match days this season. */
+  seasonArmbands: number;
+}
+
+/**
+ * The stat line behind the home page's breaking-news strip: how many of the
+ * current sevens have picked (and captained) the most-captained player.
+ * "Current" = each manager's latest saved seven; removed sevens don't count.
+ */
+export function captaincyNews(state: LeagueState): CaptaincyNews | null {
+  const playerId = mostCaptained(state);
+  if (!playerId) return null;
+  let teams = 0;
+  let selectedBy = 0;
+  let captainedBy = 0;
+  for (const u of state.users) {
+    const last = u.squadHistory.at(-1);
+    if (!last?.picks.length) continue;
+    teams++;
+    if (last.picks.includes(playerId)) selectedBy++;
+    if (last.captain === playerId) captainedBy++;
+  }
+  let seasonArmbands = 0;
+  for (const m of state.matchDays) {
+    if (m.status !== "played") continue;
+    for (const s of m.selections) if (s.captain === playerId) seasonArmbands++;
+  }
+  return { playerId, teams, selectedBy, captainedBy, seasonArmbands };
+}
