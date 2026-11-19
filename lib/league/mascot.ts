@@ -40,7 +40,7 @@ export function mascotLook(id: string): MascotLook {
   const generated: MascotLook = {
     skin: pick(r, SKIN_TONES),
     hair,
-    hairColor: hair === "bald" ? "transparent" : pick(r, HAIR_COLORS),
+    hairColor: pick(r, HAIR_COLORS),
     eyes: pick(r, EYE_STYLES),
     mouth: pick(r, MOUTHS),
     beard: r() < 0.35,

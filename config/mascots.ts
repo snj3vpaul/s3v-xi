@@ -1,13 +1,13 @@
 /**
  * Squad mascots: one original cartoon footballer per player.
  *
- * Every look is generated from the player's id, so each of the 21 is different
+ * Every look is generated from the player's id, so each player is different
  * and stays the same everywhere. To make a mascot look more like the real
  * person, add an override below; anything you leave out stays generated.
  *
  *   sanjeev: { hair: "quiff", hairColor: "#1b1410", beard: true },
  */
-export const HAIR_STYLES = ["buzz", "curly", "quiff", "spiky", "bald", "sidepart", "topknot", "mop"] as const;
+export const HAIR_STYLES = ["buzz", "curly", "quiff", "spiky", "waves", "sidepart", "topknot", "mop"] as const;
 export const EYE_STYLES = ["round", "dot", "happy"] as const;
 export const MOUTHS = ["grin", "smile", "o", "smirk"] as const;
 

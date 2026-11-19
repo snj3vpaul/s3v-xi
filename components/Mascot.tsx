@@ -41,9 +41,15 @@ function Hair({ look }: { look: MascotLook }) {
       );
     case "mop":
       return <path d="M27 38 q-3 -26 23 -26 q26 0 23 26 q-3 -6 -6 -9 q-2 5 -6 4 q-2 -6 -5 -6 q-3 6 -6 5 q-3 -6 -6 -5 q-3 6 -6 4 q-3 -5 -5 -3 q-4 4 -6 10 z" fill={c} />;
-    case "bald":
+    case "waves":
+      return (
+        <g fill={c}>
+          <path d="M29 31 q1 -18 21 -18 q20 0 21 18 q-3 -3 -6 -1 q-3 -4 -7 -2 q-4 -4 -8 -1 q-4 -3 -8 1 q-4 -2 -7 2 q-3 -2 -6 1 z" />
+          <path d="M37 19 q4 -2 8 0 M49 17 q4 -2 8 0" stroke="#000" strokeOpacity="0.18" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+        </g>
+      );
     default:
-      return <ellipse cx="42" cy="20" rx="5.5" ry="2.4" fill="#fff" opacity="0.32" transform="rotate(-20 42 20)" />;
+      return <path d="M29 30 q2 -17 21 -17 q19 0 21 17 q-6 -6 -21 -7 q-15 1 -21 7 z" fill={c} />;
   }
 }
 
@@ -115,7 +121,7 @@ export function Mascot({
 }) {
   const look = mascotLook(id);
   const initial = (getPlayer(id)?.name ?? id).charAt(0).toUpperCase();
-  const browInk = look.hair === "bald" ? "#2b1d15" : look.hairColor;
+  const browInk = look.hairColor;
   const full = variant === "full";
   const style = { ["--phase" as string]: mascotPhase(id), height: size, width: full ? size * (100 / 124) : size } as CSSProperties;
 

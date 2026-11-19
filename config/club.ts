@@ -78,12 +78,14 @@ const PICK7_META: Record<string, { position: Position; stars?: Stars }> = {
   gurnaam: { position: "DEF" },
   archit: { position: "DEF" },
   danial: { position: "DEF" },
+  harry: { position: "DEF" },
   tadas: { position: "CM" },
   jedi: { position: "CM" },
   raunak: { position: "CM" },
   sanjeev: { position: "CM" },
   navneet: { position: "CM" },
   savi: { position: "CM" },
+  ganga: { position: "CM" },
   robin: { position: "CAM" },
   danish: { position: "CAM" },
   ghous: { position: "CAM" },
@@ -116,7 +118,7 @@ const MEMBER_NAMES = [
   "Nakul",
 ] as const;
 
-const DROPIN_NAMES = ["Savi", "Abrar"] as const;
+const DROPIN_NAMES = ["Savi", "Abrar", "Harry", "Ganga"] as const;
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 

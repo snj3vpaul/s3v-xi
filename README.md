@@ -46,7 +46,7 @@ Without Redis, the app still runs on Vercel, but it keeps data in memory and sho
 ## Accounts, Pick 7 and reminders
 
 - **Join** (`/join`): name, email and password, with an optional link to your roster player (one account per player). Passwords are hashed with scrypt, and sessions are signed cookies that last 90 days.
-- **My Team** (`/team`): pick 7 of the 21 players. The seven carries over to every following week until you change it, with unlimited free changes.
+- **My Team** (`/team`): pick 7 from the squad. The seven carries over to every following week until you change it, with unlimited free changes.
 - **Deadline:** kick-off at 10 pm Thursday (posting the team sheet earlier doesn't close picks). Each match day uses your seven, and your captain, as they stood at kick-off, so a change made after that counts from next week.
 - **Captain:** one of your seven; their points for the night count double, bonuses and penalties alike.
 - **Reminders:**
