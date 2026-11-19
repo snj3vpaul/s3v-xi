@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { OrbKind, OrbitScene } from "./scene";
+import { afterLoader, hasWebGL2 } from "@/lib/client/loaderGate";
 
 export interface OrbChapter {
   no: string;
@@ -52,9 +53,11 @@ export function OrbitStage({ chapters, label }: { chapters: OrbChapter[]; label:
     window.addEventListener("resize", onScroll);
     onScroll();
 
-    const probe = document.createElement("canvas");
-    if (probe.getContext("webgl2")) {
+    if (hasWebGL2()) {
       const start = async () => {
+        // Don't compete with the opening loader for the GPU.
+        await afterLoader();
+        if (disposed) return;
         const [T, { RoomEnvironment }, { createOrbitScene }] = await Promise.all([
           import("three"),
           import("three/examples/jsm/environments/RoomEnvironment.js"),

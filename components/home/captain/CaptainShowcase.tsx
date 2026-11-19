@@ -5,6 +5,7 @@ import { getPlayer, playerName } from "@/config/club";
 import { mascotLook } from "@/lib/league/mascot";
 import { Mascot } from "@/components/Mascot";
 import type { CaptainScene } from "./scene";
+import { afterLoader, hasWebGL2 } from "@/lib/client/loaderGate";
 
 /**
  * Home-page stage for the most-captained player: their squad mascot in 3D on a
@@ -17,13 +18,15 @@ export function CaptainShowcase({ playerId }: { playerId: string }) {
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    const probe = document.createElement("canvas");
-    if (!probe.getContext("webgl2")) return;
+    if (!hasWebGL2()) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let scene: CaptainScene | null = null;
     let disposed = false;
 
     const start = async () => {
+      // Don't compete with the opening loader for the GPU.
+      await afterLoader();
+      if (disposed) return;
       const [T, { createCaptainScene }] = await Promise.all([import("three"), import("./scene")]);
       if (disposed) return;
       const initial = (getPlayer(playerId)?.name ?? playerId).charAt(0).toUpperCase();

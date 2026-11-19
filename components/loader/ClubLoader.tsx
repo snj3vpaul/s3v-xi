@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { LoaderScene } from "./scene";
+import { LOADER_KEY, hasWebGL2, markLoaderDone } from "@/lib/client/loaderGate";
 
-/** Set once the loader has played, so it shows once per browser session. */
-export const LOADER_KEY = "rsfc-loader-seen";
 
 /** Each docks beside the ball: Respect on the left, No hard fouls on the right, the fun 60 below. */
 const PRINCIPLES = [
@@ -13,9 +12,27 @@ const PRINCIPLES = [
   { no: "03", name: "A fun 60 minutes", line: "One hour. Everyone smiling.", side: "below", color: "#f5f0e6" },
 ] as const;
 
-const DURATION = 2600; // ms from 1 to 100 when the page is already loaded
+const DURATION = 3000; // ms of rendered frames from 1 to 100
+const HOLD = 1500; // at 100, all three principles stay up together before the site opens
 const REDUCED = 700;
-const MAX_WAIT = 4500; // never hold the site back longer than this
+const BOOT_MAX = 1800; // start counting without 3D if it isn't on screen by then
+const MAX_STEP = 34; // a stalled frame advances the count by at most ~2 frames' worth
+
+// Start fetching the 3D as soon as this script runs, not after hydration.
+type Mods = [typeof import("three"), typeof import("three/examples/jsm/postprocessing/EffectComposer.js"), typeof import("three/examples/jsm/postprocessing/RenderPass.js"), typeof import("three/examples/jsm/postprocessing/UnrealBloomPass.js"), typeof import("three/examples/jsm/postprocessing/OutputPass.js"), typeof import("./scene")];
+let mods: Promise<Mods> | null = null;
+function loadMods(): Promise<Mods> {
+  mods ??= Promise.all([
+    import("three"),
+    import("three/examples/jsm/postprocessing/EffectComposer.js"),
+    import("three/examples/jsm/postprocessing/RenderPass.js"),
+    import("three/examples/jsm/postprocessing/UnrealBloomPass.js"),
+    import("three/examples/jsm/postprocessing/OutputPass.js"),
+    import("./scene"),
+  ]);
+  return mods;
+}
+if (typeof window !== "undefined" && !document.documentElement.classList.contains("no-loader")) void loadMods().catch(() => {});
 
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
@@ -40,7 +57,7 @@ export function ClubLoader() {
     if (!el) return;
     let seen = false;
     try { seen = sessionStorage.getItem(LOADER_KEY) === "1"; } catch {}
-    if (seen) { setGone(true); return; }
+    if (seen) { markLoaderDone(); setGone(true); return; }
 
     const html = document.documentElement;
     html.classList.add("loader-on");
@@ -52,37 +69,28 @@ export function ClubLoader() {
     let timers: number[] = [];
     let lastCount = 0;
 
-    // 3D, when WebGL is there and motion is welcome. The count runs regardless.
-    let sceneSettled = reduce;
-    if (!reduce && stage.current && document.createElement("canvas").getContext("webgl2")) {
+    // Phase 1 (boot): hold at 1 until the 3D has compiled and drawn its first frame.
+    let booted = reduce;
+    if (!reduce && stage.current && hasWebGL2()) {
       void (async () => {
         try {
-          const [T, { EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }, { createLoaderScene }] = await Promise.all([
-            import("three"),
-            import("three/examples/jsm/postprocessing/EffectComposer.js"),
-            import("three/examples/jsm/postprocessing/RenderPass.js"),
-            import("three/examples/jsm/postprocessing/UnrealBloomPass.js"),
-            import("three/examples/jsm/postprocessing/OutputPass.js"),
-            import("./scene"),
-          ]);
+          const [T, { EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }, { createLoaderScene }] = await loadMods();
           if (disposed || !stage.current) return;
           scene = createLoaderScene(T, { EffectComposer, RenderPass, UnrealBloomPass, OutputPass }, stage.current, tags.current);
           scene.setProgress(lastCount / 100);
+          await scene.ready;
+          if (disposed) return;
           stage.current.classList.add("is-live");
           el.classList.add("has-scene");
         } catch {
           /* 2D count only */
         } finally {
-          sceneSettled = true;
+          booted = true;
         }
       })();
     } else {
-      sceneSettled = true;
+      booted = true;
     }
-
-    let loaded = document.readyState === "complete";
-    const onLoad = () => { loaded = true; };
-    window.addEventListener("load", onLoad);
 
     const finish = () => {
       if (leaving) return;
@@ -92,11 +100,11 @@ export function ClubLoader() {
       scene?.pause();
       el.classList.add("is-leaving");
       html.classList.remove("loader-on");
-      timers.push(window.setTimeout(() => setGone(true), reduce ? 250 : 650));
-    };
-    skip.current = () => {
-      paint(100);
-      finish();
+      timers.push(window.setTimeout(() => {
+        setGone(true);
+        // Only now may the home page start its own 3D.
+        markLoaderDone();
+      }, reduce ? 250 : 650));
     };
 
     const paint = (count: number) => {
@@ -105,25 +113,35 @@ export function ClubLoader() {
       if (countEl.current) countEl.current.textContent = String(count);
       if (minuteEl.current) minuteEl.current.textContent = `${Math.round((count / 100) * 60)}'`;
       el.setAttribute("aria-valuenow", String(count));
-      el.dataset.stage = String(count >= 85 ? 3 : count >= 55 ? 2 : 1);
+      // Same thresholds the scene docks at (fallback labels when there's no 3D).
+      el.dataset.stage = String(count >= 85 ? 3 : count >= 55 ? 2 : count >= 25 ? 1 : 0);
       scene?.setProgress(count / 100);
     };
+    skip.current = () => {
+      paint(100);
+      finish();
+    };
 
-    const t0 = performance.now();
+    // Phase 2 (count): advance by rendered frames, so a stall pauses the count
+    // instead of letting it jump ahead of what's on screen.
+    // Phase 3 (hold): at 100 the whistle goes and all three principles stay up for HOLD ms.
     const total = reduce ? REDUCED : DURATION;
+    const bootStart = performance.now();
+    let prev = 0;
+    let elapsed = 0;
     const tick = (now: number) => {
-      const el2 = now - t0;
-      let p = ease(Math.min(1, el2 / total));
-      // Hold just short of 100 until the page and the scene are ready (or we've waited long enough).
-      const ready = (loaded && sceneSettled) || el2 > MAX_WAIT;
-      if (!ready) p = Math.min(p, 0.96);
+      raf = requestAnimationFrame(tick);
+      if (!booted && now - bootStart < BOOT_MAX) { prev = now; return; }
+      const step = prev ? Math.min(MAX_STEP, now - prev) : 0;
+      prev = now;
+      elapsed += step;
+      const p = ease(Math.min(1, elapsed / total));
       paint(Math.max(1, Math.ceil(p * 100)));
       if (p >= 1) {
+        cancelAnimationFrame(raf);
         scene?.burst();
-        timers.push(window.setTimeout(finish, reduce ? 150 : 700));
-        return;
+        timers.push(window.setTimeout(finish, reduce ? 150 : HOLD));
       }
-      raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
 
@@ -132,7 +150,6 @@ export function ClubLoader() {
       cancelAnimationFrame(raf);
       timers.forEach(clearTimeout);
       timers = [];
-      window.removeEventListener("load", onLoad);
       html.classList.remove("loader-on");
       scene?.dispose();
     };
@@ -148,7 +165,7 @@ export function ClubLoader() {
       aria-valuemin={1}
       aria-valuemax={100}
       aria-valuenow={1}
-      data-stage="1"
+      data-stage="0"
     >
       <div ref={stage} className="club-loader-stage" aria-hidden="true" />
       <div className="club-loader-vignette" aria-hidden="true" />

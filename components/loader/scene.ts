@@ -35,6 +35,8 @@ export interface LoaderAddons {
 }
 
 export interface LoaderScene {
+  /** Resolves once shaders are compiled and the first frame is on screen. */
+  ready: Promise<void>;
   /** 0..1 — the count divided by 100. */
   setProgress(p: number): void;
   /** The final whistle: a pulse and a burst of dust. */
@@ -99,7 +101,7 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement, 
   for (const a of [-1, 1]) for (const b of [-1, 1]) {
     centres.push(new T.Vector3(0, a * ip, b * phi).normalize(), new T.Vector3(a * ip, b * phi, 0).normalize(), new T.Vector3(a * phi, 0, b * ip).normalize());
   }
-  const ballMat = keep(new T.MeshPhysicalMaterial({ color: "#ffffff", roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.16, sheen: 0.25 }));
+  const ballMat = keep(new T.MeshPhysicalMaterial({ color: "#ffffff", roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.16 }));
   ballMat.onBeforeCompile = (shader) => {
     shader.uniforms.uCentres = { value: centres };
     shader.vertexShader = shader.vertexShader
@@ -302,12 +304,13 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement, 
   let lastTick = -1;
   const clock = new T.Clock();
   let raf = 0;
-  let sampled = 0;
-  let slowSum = 0;
+  let quality = 0;
+  const frameTimes: number[] = [];
   const v3 = new T.Vector3();
   const smooth = (x: number) => x * x * (3 - 2 * x);
 
   const frame = () => {
+    if (raf === -1) return;
     raf = requestAnimationFrame(frame);
     const rawDt = clock.getDelta();
     const dt = Math.min(0.05, rawDt);
@@ -329,9 +332,10 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement, 
     // satellite flies out of the orbit and docks beside the ball.
     world.updateMatrixWorld();
     orbits.forEach((o, i) => {
-      // Docked by ~25, ~55 and ~85 on the count.
-      const want = Math.min(1, Math.max(0, (shown - i * 0.3) / 0.25));
-      o.level += (want - o.level) * Math.min(1, dt * 5);
+      // Driven by the count itself (not the smoothed value) so each principle
+      // is fully docked by 25, 55 and 85 on the count, never later.
+      const want = Math.min(1, Math.max(0, (target - (0.05 + i * 0.3)) / 0.2));
+      o.level += (want - o.level) * Math.min(1, dt * 12);
       const lv = o.level;
       o.ringMat.opacity = 0.07 + lv * 0.45;
       o.ringMat.color.copy(o.base).multiplyScalar(1 + lv * 0.5);
@@ -339,7 +343,7 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement, 
       o.sat.position.set(Math.cos(a) * o.radius, Math.sin(a) * o.radius, 0);
       o.g.rotation.z += dt * 0.08 * (i % 2 ? -1 : 1);
       // Fly from the orbiting satellite to the dock.
-      const k = smooth(Math.min(1, lv * 1.08));
+      const k = smooth(Math.min(1, lv));
       o.sat.getWorldPosition(o.from);
       world.worldToLocal(o.from);
       o.dock.position.lerpVectors(o.from, v3.set(...DOCKS[i]), k);
@@ -354,7 +358,7 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement, 
         const x = (v3.x * 0.5 + 0.5) * vw;
         const y = (-v3.y * 0.5 + 0.5) * vh;
         o.label.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
-        const on = k > 0.85;
+        const on = k > 0.6;
         if (on !== o.labelOn) { o.label.classList.toggle("is-on", on); o.labelOn = on; }
       }
     });
@@ -382,27 +386,47 @@ export function createLoaderScene(T: THREE, A: LoaderAddons, host: HTMLElement, 
     if (bloom.enabled) composer.render();
     else renderer.render(scene, camera);
 
-    // Adaptive quality: if the first ~40 frames average slower than ~40 fps,
-    // drop to 1x pixels and render without bloom.
-    if (sampled < 40) {
-      sampled++;
-      if (sampled > 5) slowSum += rawDt;
-      if (sampled === 40 && slowSum / 35 > 0.025) {
-        dpr = 1;
-        bloom.enabled = false;
-        renderer.toneMappingExposure = 1.25;
-        resize();
+    // Adaptive quality, decided within ~12 frames so a slow GPU is rescued fast:
+    // step 1 drops bloom and renders at 1x; step 2 renders at 0.75x.
+    if (quality < 2) {
+      frameTimes.push(rawDt);
+      if (frameTimes.length >= 12) {
+        const sorted = [...frameTimes].sort((x, y) => x - y);
+        const median = sorted[6];
+        frameTimes.length = 0;
+        if (median > 0.024) {
+          quality++;
+          if (quality === 1) { dpr = 1; bloom.enabled = false; renderer.toneMappingExposure = 1.25; }
+          else dpr = 0.75;
+          resize();
+        } else quality = 2; // fast enough: stop measuring
       }
     }
   };
-  frame();
+
+  // Compile every shader before the first frame (in parallel where the driver
+  // supports it) so the loop never stalls on a compile.
+  const ready = (async () => {
+    try {
+      await renderer.compileAsync(scene, camera);
+    } catch {
+      /* older drivers: compile on first render */
+    }
+    if (raf === -1) return; // paused or disposed while compiling
+    if (bloom.enabled) composer.render();
+    else renderer.render(scene, camera);
+    clock.getDelta();
+    raf = requestAnimationFrame(frame);
+  })();
 
   return {
+    ready,
     setProgress(p) { target = Math.min(1, Math.max(0, p)); },
     burst() { if (burstAt < 0) burstAt = clock.elapsedTime; },
-    pause() { cancelAnimationFrame(raf); },
+    pause() { cancelAnimationFrame(raf); raf = -1; },
     dispose() {
       cancelAnimationFrame(raf);
+      raf = -1;
       ro.disconnect();
       window.removeEventListener("pointermove", onMove);
       disposables.forEach((d) => d.dispose());

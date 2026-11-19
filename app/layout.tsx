@@ -11,7 +11,8 @@ import { currentUser } from "@/lib/server/session";
 import { DeadlineBanner } from "@/components/DeadlineBanner";
 import { MotionRoot } from "@/components/motion/MotionRoot";
 import Link from "next/link";
-import { ClubLoader, LOADER_KEY } from "@/components/loader/ClubLoader";
+import { ClubLoader } from "@/components/loader/ClubLoader";
+import { LOADER_KEY } from "@/lib/client/loaderGate";
 
 export const metadata: Metadata = {
   title: { default: `${CLUB.leagueName} | ${CLUB.tagline}`, template: `%s · ${CLUB.leagueName}` },
