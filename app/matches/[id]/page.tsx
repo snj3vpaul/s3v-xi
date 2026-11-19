@@ -9,6 +9,7 @@ import { isAdmin } from "@/lib/server/auth";
 import { getState } from "@/lib/server/store";
 import { EventLine } from "@/components/EventLine";
 import { TeamsView } from "@/components/TeamsView";
+import { TeamShape } from "@/components/TeamShape";
 import { Kicker, Name, Points } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         </div>
       </header>
 
-      {m.draw ? <TeamsView draw={m.draw} score={m.status === "played" ? score : undefined} /> : <p className="muted">Teams not posted yet. The captains pick sides on WhatsApp.</p>}
+      {m.draw ? (
+        <>
+          <TeamsView draw={m.draw} score={m.status === "played" ? score : undefined} />
+          <TeamShape matchId={m.id} teams={{ A: m.draw.teamA, B: m.draw.teamB }} />
+        </>
+      ) : (
+        <p className="muted">Teams not posted yet. The captains pick sides on WhatsApp.</p>
+      )}
 
       {m.status === "played" && (
         <div className="grid grid-2" style={{ alignItems: "start" }}>
