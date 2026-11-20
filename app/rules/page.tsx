@@ -29,6 +29,7 @@ import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
 import { Kicker } from "@/components/ui";
+import { RulesDeck, type RuleCard } from "@/components/RulesDeck";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Rules" };
@@ -54,6 +55,91 @@ export default async function RulesPage() {
     ["Defensive bonus: defenders", `up to +${DEFENCE_BONUS.DEF![0][1]}`, `By the goals your side concedes: ${bandText(DEFENCE_BONUS.DEF!)}. Never a minus.`],
     ["Defensive bonus: CMs", `up to +${DEFENCE_BONUS.CM![0][1]}`, `By the goals your side concedes: ${bandText(DEFENCE_BONUS.CM!)}. Never a minus. CAMs and attackers don't get it.`],
   ];
+  const d = DEFENCE_BONUS.DEF!;
+  const cm = DEFENCE_BONUS.CM!;
+  const cards: RuleCard[] = [
+    {
+      id: "goal",
+      title: "Goal",
+      value: `+${GOAL_BY_POSITION.ATT}–${GOAL_BY_POSITION.DEF}`,
+      body: `Worth more the further back the scorer plays: defender +${GOAL_BY_POSITION.DEF}, midfielder +${GOAL_BY_POSITION.CM}, attacker +${GOAL_BY_POSITION.ATT}. Penalties and free kicks count the same.`,
+      example: `Archit (defender) bundles one in from a corner: +${GOAL_BY_POSITION.DEF}. Inder (attacker) scores a tap-in: +${GOAL_BY_POSITION.ATT}.`,
+      tag: "Defender's goal",
+      tagAt: [56, 70],
+    },
+    {
+      id: "assist",
+      title: "Assist",
+      value: `+${POINTS.assist}`,
+      body: "The last pass before a goal, one per goal at most. Penalties and direct free kicks have no assist.",
+      example: `Tadas squares it for Inder: Tadas +${POINTS.assist}, Inder gets the goal points.`,
+      tag: "Last pass",
+      tagAt: [46, 50],
+    },
+    {
+      id: "motm",
+      title: "Man of the Match",
+      value: `+${POINTS.motm}`,
+      body: `Exactly one per team, picked by the scorekeeper: one for ${TEAM_NAMES.A}, one for ${TEAM_NAMES.B}.`,
+      example: `Ghous sets up two and runs the game for ${TEAM_NAMES.B}: +${POINTS.motm} on top of his assists.`,
+      tag: "One per team",
+      tagAt: [60, 26],
+    },
+    {
+      id: "win",
+      title: "Winning side",
+      value: `+${POINTS.win}`,
+      body: "Everyone on the team that wins, subs included. A draw or an abandoned match gives nobody the bonus.",
+      example: `${TEAM_NAMES.A} win 4–3: all eight ${TEAM_NAMES.A} players get +${POINTS.win}.`,
+      tag: "Full-time score",
+      tagAt: [30, 18],
+    },
+    {
+      id: "defence",
+      title: "Defensive bonus",
+      value: `up to +${d[0][1]}`,
+      body: `By the goals your side lets in. Defenders: none conceded +${d[0][1]}, up to ${d[1][0]} +${d[1][1]}, up to ${d[2][0]} +${d[2][1]}. CMs: none conceded +${cm[0][1]}, up to ${cm[1][0]} +${cm[1][1]}. It never goes below zero.`,
+      example: `${TEAM_NAMES.B} win 3–1: their defenders get +${d[1][1]} and their CMs +${cm[1][1]}. ${TEAM_NAMES.A}'s defenders, who let in 3, still get +${d[2][1]}.`,
+      tag: "Clean sheet",
+      tagAt: [60, 78],
+    },
+    {
+      id: "conduct",
+      title: "Fair play and rotation",
+      value: `+${POINTS.fairPlay} / ${POINTS.rotationMiss}`,
+      body: `Everyone who plays starts with +${POINTS.fairPlay} for fair play and keeps it unless they foul, get a card, argue or make a dangerous challenge. Skip your turn in goal or on the bench and it's ${POINTS.rotationMiss}.`,
+      example: `Vikram takes his turn in goal and plays clean: +${POINTS.fairPlay}. Someone who dodges the gloves: ${POINTS.rotationMiss}.`,
+      tag: "Took his turn",
+      tagAt: [64, 20],
+    },
+    {
+      id: "captain",
+      title: "Captain and vice",
+      value: `×${CAPTAIN_MULTIPLIER}`,
+      body: "In Pick 7 your captain's points count double. If the captain doesn't play, your vice-captain wears the armband instead.",
+      example: `Captain Inder scores twice: ${2 * GOAL_BY_POSITION.ATT} becomes ${2 * GOAL_BY_POSITION.ATT * CAPTAIN_MULTIPLIER}. If Inder's away, your vice-captain's points double instead.`,
+      tag: "Armband",
+      tagAt: [50, 46],
+    },
+    {
+      id: "bench",
+      title: "Bench sub",
+      value: "1 sub",
+      body: "One extra player outside your seven, any position, not counted in your star budget. If one of your seven doesn't play, the sub's points count.",
+      example: "Danish can't make it, so your bench pick Harry's goal and win bonus count instead.",
+      tag: "Comes on",
+      tagAt: [60, 24],
+    },
+    {
+      id: "chips",
+      title: "Chips",
+      value: `${CHIPS.triple_captain.perSeason} + ${CHIPS.bench_boost.perSeason}`,
+      body: `${CHIPS.triple_captain.label}: your captain counts ×${TRIPLE_CAPTAIN_MULTIPLIER}. ${CHIPS.bench_boost.label}: your sub's points count even if all seven play. ${CHIPS.triple_captain.perSeason} of each a season, one chip a week.`,
+      example: "Play Triple Captain the week your striker's on form; save Bench Boost for a week you've got a strong sub.",
+      tag: "One a week",
+      tagAt: [42, 80],
+    },
+  ];
   return (
     <main className="wrap stack-lg">
       <header className="stack">
@@ -68,6 +154,8 @@ export default async function RulesPage() {
           <Link className="btn" href="/stats?example=demo">See an example season</Link>
         </div>
       </header>
+
+      <RulesDeck cards={cards} />
 
       <section className="panel">
         <h2>Points</h2>

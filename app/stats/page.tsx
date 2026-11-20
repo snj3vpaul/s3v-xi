@@ -11,6 +11,8 @@ import { SeasonRace } from "@/components/charts/SeasonRace";
 import { SelectorGauge } from "@/components/charts/SelectorGauge";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Empty, Kicker, Name } from "@/components/ui";
+import { SeasonLine } from "@/components/SeasonLine";
+import { seasonMoments } from "@/lib/league/moments";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Season charts" };
@@ -22,7 +24,7 @@ export default async function StatsPage({ searchParams }: { searchParams: Promis
   const { example } = await searchParams;
   const exampleSeed = example?.replace(/[^a-z0-9]/gi, "").slice(0, 12) || null;
   const state = exampleSeed ? simulateSeason(exampleSeed, EXAMPLE_WEEKS).state : await getState();
-  const { played, standings, selectors } = deriveSeason(state);
+  const { played, standings, selectors, rules } = deriveSeason(state);
 
   if (played.length === 0)
     return (
@@ -85,6 +87,8 @@ export default async function StatsPage({ searchParams }: { searchParams: Promis
           </span>
         </div>
       )}
+
+      <SeasonLine moments={seasonMoments(state.matchDays, rules)} fixtures={exampleSeed ? 31 : Math.max(state.matchDays.length, played.length)} example={!!exampleSeed} />
 
       <ChartFrame
         title="The season race"
