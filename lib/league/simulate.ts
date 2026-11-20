@@ -10,7 +10,8 @@ import { createHash } from "node:crypto";
 import { FORMATION, PICKABLE, POSITIONS, ROSTER } from "@/config/club";
 import { SERIES } from "@/config/schedule";
 import { SeededRandom } from "@/lib/draw/draw";
-import { createMatchDay, initialState, saveScorecard, setSquad, setTeamSheet, signUp, type Ctx } from "./ledger";
+import { RULES_V3_FROM } from "@/lib/scoring/rules";
+import { createMatchDay, initialState, playChip, saveScorecard, setSquad, setTeamSheet, signUp, type Ctx } from "./ledger";
 import { zonedToUtc } from "./schedule";
 import type { FairPlayBreach, FairPlayLoss, GoalEvent, GoalKind, LeagueState, RotationLapse, RotationMiss, Side } from "./types";
 
@@ -65,27 +66,40 @@ export function simulateSeason(seedText: string, weeks = 1, opts: { showcase?: b
   const weighted = (ids: string[], w: Record<string, number>) => pick(ids.flatMap((id) => Array(w[id] ?? 1).fill(id) as string[]));
   const randomSeven = () => POSITIONS.flatMap((pos) => rng.shuffle(PICKABLE.filter((p) => p.position === pos).map((p) => p.id)).slice(0, FORMATION[pos]));
 
+  // Examples always run under the current rules (v3: defensive bonus), whatever the season start.
+  const start = RULES_V3_FROM > SERIES.start ? RULES_V3_FROM : SERIES.start;
   for (let w = 0; w < weeks; w++) {
-    const date = addDays(SERIES.start, 7 * w);
+    const date = addDays(start, 7 * w);
     const kickoff = zonedToUtc(date, SERIES.time, SERIES.timeZone);
     const before = new Date(kickoff.getTime() - 3 * 3_600_000).toISOString();
+    const c = createMatchDay(state, { date }, ctxAt(before));
+    state = c.state;
 
-    // Pick 7: everyone picks in week 1; afterwards a few tweak their seven.
+    // Pick 7: everyone picks in week 1 (seven, captain, vice-captain, bench); afterwards a few tweak theirs.
     for (const id of selectors) {
       if (w === 0 || rng.int(3) === 0) {
         try {
           const seven = randomSeven();
-          state = setSquad(state, id, seven, ctxAt(before), pick(seven));
+          const [cap, vice] = rng.shuffle([...seven]);
+          const bench = pick(PICKABLE.map((p) => p.id).filter((x) => !seven.includes(x)));
+          state = setSquad(state, id, seven, ctxAt(before), cap, { viceCaptain: vice, bench });
         } catch {
           /* over budget after a re-rating: they keep last week's seven */
+        }
+      }
+      // Now and then someone plays a chip (if they have one left).
+      if (rng.int(5) === 0) {
+        try {
+          state = playChip(state, id, rng.int(2) ? "triple_captain" : "bench_boost", ctxAt(before));
+        } catch {
+          /* none left */
         }
       }
     }
 
     const attendees = rng.shuffle(ROSTER.map((p) => p.id)).slice(0, 14 + rng.int(4));
     const half = Math.ceil(attendees.length / 2);
-    const c = createMatchDay(state, { date }, ctxAt(before));
-    state = setTeamSheet(c.state, c.match.id, { teamA: attendees.slice(0, half), teamB: attendees.slice(half) }, ctxAt(before));
+    state = setTeamSheet(state, c.match.id, { teamA: attendees.slice(0, half), teamB: attendees.slice(half) }, ctxAt(before));
     const d = state.matchDays.find((m) => m.id === c.match.id)!.draw!;
     const team = (s: Side) => (s === "A" ? d.teamA : d.teamB);
 

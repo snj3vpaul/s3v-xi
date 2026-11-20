@@ -32,6 +32,10 @@ export function handle<P>(fn: (req: NextRequest, params: P) => Promise<unknown>)
       const out = await fn(req, await context.params);
       return out instanceof NextResponse ? out : NextResponse.json(out ?? { ok: true });
     } catch (e) {
+      // Rejected writes are logged (no personal data: path, status and the message the user saw),
+      // so "my change didn't go through" can be traced in the runtime logs.
+      if (req.method !== "GET" && (e instanceof HttpError || e instanceof LedgerError))
+        console.warn(`[rejected] ${req.method} ${req.nextUrl.pathname} ${e instanceof HttpError ? e.status : 400}: ${e.message}`);
       if (e instanceof HttpError) return NextResponse.json({ error: e.message }, { status: e.status });
       if (e instanceof LedgerError) return NextResponse.json({ error: e.message, details: e.details }, { status: 400 });
       if (e instanceof ConflictError) return NextResponse.json({ error: e.message }, { status: 409 });

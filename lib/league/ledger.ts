@@ -7,7 +7,7 @@
  * `before`, so a correction never silently overwrites anything.
  */
 
-import { CLUB, ROSTER, isDropIn, playerName } from "@/config/club";
+import { CHIPS, CLUB, ROSTER, getPlayer, isDropIn, playerName } from "@/config/club";
 import { SERIES } from "@/config/schedule";
 import { weeklyDates, zonedToUtc } from "./schedule";
 import { drawTeams, generateSeed } from "@/lib/draw/draw";
@@ -15,6 +15,9 @@ import { DEFAULT_RULES, playedMatches, rulesVersionOf, validateAwards, validateS
 import { checkTeam, currentStars, isFormationValid } from "./pick7";
 import type {
   AuditEntry,
+  Chip,
+  ChipPlay,
+  SquadEntry,
   DrawConstraints,
   DrawResult,
   FairPlayLoss,
@@ -221,7 +224,7 @@ export function recordDraw(
   const deadline = new Date(Math.min(new Date(m.kickoffAt).getTime(), ctx.now.getTime())).toISOString();
   return replaceMatch(
     state,
-    { ...m, status: "drawn", draw, selections: snapshotSelections(state.users, deadline) },
+    { ...m, status: "drawn", draw, selections: snapshotSelections(state.users, deadline, m.id) },
     audit(ctx, { actor: "admin", action: "draw.create", matchId, after: draw }),
   );
 }
@@ -287,7 +290,7 @@ export function setTeamSheet(
 export function lockedSelections(state: LeagueState, m: MatchDay, now: Date): Selection[] {
   if (m.scorecardAt || m.selections.length) return m.selections;
   if (now.getTime() < new Date(m.kickoffAt).getTime()) return [];
-  return snapshotSelections(state.users, m.kickoffAt);
+  return snapshotSelections(state.users, m.kickoffAt, m.id);
 }
 
 /** @deprecated Legacy random draw; match days now use setTeamSheet. Kept for old data and tests. */
@@ -326,17 +329,52 @@ export function currentSquad(user: Pick<User, "squadHistory">): string[] | null 
  * (the user is reminded and keeps it to fix). Stars aren't re-checked here: a
  * team saved within budget stays legal when ratings move.
  */
-export function snapshotSelections(users: User[], deadlineIso: string): Selection[] {
+export function snapshotSelections(users: User[], deadlineIso: string, matchId?: string): Selection[] {
   const out: Selection[] = [];
   for (const u of users) {
     const picks = squadAt(u, deadlineIso);
     if (picks && isFormationValid(picks)) {
       const entry = [...u.squadHistory].reverse().find((h) => h.at <= deadlineIso)!;
       const captain = entry.captain && picks.includes(entry.captain) ? entry.captain : null;
-      out.push({ selectorId: u.id, picks: [...picks], captain, submittedAt: entry.at });
+      const viceCaptain = entry.viceCaptain && picks.includes(entry.viceCaptain) && entry.viceCaptain !== captain ? entry.viceCaptain : null;
+      const bench = entry.bench && validBench(entry.bench, picks) ? entry.bench : null;
+      // Only chips played before the deadline count (a chip can't be played after it anyway).
+      const chip = matchId ? (u.chips ?? []).find((c) => c.matchId === matchId && c.at <= deadlineIso)?.chip ?? null : null;
+      out.push({
+        selectorId: u.id,
+        picks: [...picks],
+        captain,
+        ...(viceCaptain ? { viceCaptain } : {}),
+        ...(bench ? { bench } : {}),
+        ...(chip ? { chip } : {}),
+        submittedAt: entry.at,
+      });
     }
   }
   return out;
+}
+
+/** A bench player must be a pickable player who isn't already in the seven. */
+function validBench(id: string, picks: readonly string[]): boolean {
+  return !!getPlayer(id)?.position && !picks.includes(id);
+}
+
+/** The user's latest saved squad entry, if they have a seven (null if none or removed). */
+export function currentEntry(user: Pick<User, "squadHistory">): SquadEntry | null {
+  const last = user.squadHistory.at(-1);
+  return last?.picks.length ? last : null;
+}
+
+/** The user's current vice-captain (null if none). */
+export function currentViceCaptain(user: Pick<User, "squadHistory">): string | null {
+  const e = currentEntry(user);
+  return e?.viceCaptain && e.picks.includes(e.viceCaptain) && e.viceCaptain !== e.captain ? e.viceCaptain : null;
+}
+
+/** The user's current bench player (null if none). */
+export function currentBench(user: Pick<User, "squadHistory">): string | null {
+  const e = currentEntry(user);
+  return e?.bench && validBench(e.bench, e.picks) ? e.bench : null;
 }
 
 /** The user's current captain (null if none, or the seven was removed). */
@@ -350,7 +388,14 @@ export function currentCaptain(user: Pick<User, "squadHistory">): string | null 
  * still ahead. `captain` (one of the seven) scores double; the API requires it.
  * Left undefined, the previous captain is kept if they're still in the seven.
  */
-export function setSquad(state: LeagueState, userId: string, picks: string[], ctx: Ctx, captain?: string | null): LeagueState {
+export function setSquad(
+  state: LeagueState,
+  userId: string,
+  picks: string[],
+  ctx: Ctx,
+  captain?: string | null,
+  extra: { viceCaptain?: string | null; bench?: string | null } = {},
+): LeagueState {
   const u = state.users.find((x) => x.id === userId);
   if (!u) throw new LedgerError("Account not found.");
   const unique = [...new Set(picks)];
@@ -363,14 +408,33 @@ export function setSquad(state: LeagueState, userId: string, picks: string[], ct
   const prevCaptain = currentCaptain(u);
   const cap = captain === undefined ? (prevCaptain && unique.includes(prevCaptain) ? prevCaptain : null) : captain;
   if (cap !== null && !unique.includes(cap)) throw new LedgerError("Your captain has to be one of your seven.");
-  if (prev && prev.length === unique.length && prev.every((x) => unique.includes(x)) && cap === prevCaptain) return state; // no change
-  const entry = { picks: unique, at: ctx.now.toISOString(), captain: cap };
+  // Vice-captain and bench: left undefined, the previous ones are kept if they still fit.
+  const prevVice = currentViceCaptain(u);
+  const prevBench = currentBench(u);
+  const vice =
+    extra.viceCaptain === undefined ? (prevVice && unique.includes(prevVice) && prevVice !== cap ? prevVice : null) : extra.viceCaptain || null;
+  if (vice !== null) {
+    if (!unique.includes(vice)) throw new LedgerError("Your vice-captain has to be one of your seven.");
+    if (vice === cap) throw new LedgerError("Your vice-captain can't also be your captain.");
+  }
+  const bench = extra.bench === undefined ? (prevBench && validBench(prevBench, unique) ? prevBench : null) : extra.bench || null;
+  if (bench !== null) {
+    checkRoster([bench], "Bench");
+    if (!getPlayer(bench)?.position) throw new LedgerError(`${playerName(bench)} isn't available in Pick 7.`);
+    if (unique.includes(bench)) throw new LedgerError("Your bench player can't also be in your seven.");
+  }
+  if (prev && prev.length === unique.length && prev.every((x) => unique.includes(x)) && cap === prevCaptain && vice === prevVice && bench === prevBench)
+    return state; // no change
+  const entry: SquadEntry = { picks: unique, at: ctx.now.toISOString(), captain: cap, viceCaptain: vice, bench };
   return {
     ...state,
     users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, entry] } : x)),
     audit: [
       ...state.audit,
-      audit(ctx, { actor: `user:${userId}`, action: "squad.update", before: prev ? { picks: prev, captain: prevCaptain } : null, after: { picks: unique, captain: cap } }),
+      audit(ctx, { actor: `user:${userId}`, action: "squad.update",
+        before: prev ? { picks: prev, captain: prevCaptain, viceCaptain: prevVice, bench: prevBench } : null,
+        after: { picks: unique, captain: cap, viceCaptain: vice, bench },
+      }),
     ],
   };
 }
@@ -390,6 +454,115 @@ export function clearSquad(state: LeagueState, userId: string, ctx: Ctx): League
     users: state.users.map((x) => (x.id === userId ? { ...x, squadHistory: [...x.squadHistory, { picks: [], at: ctx.now.toISOString() }] } : x)),
     audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "squad.clear", before: prev })],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Pick 7 chips — Triple Captain and Bench Boost
+// ---------------------------------------------------------------------------
+
+export const CHIP_LIST: readonly Chip[] = ["triple_captain", "bench_boost"];
+
+/** Chips a user has used: plays for match days that still exist (a deleted week gives the chip back). */
+export function chipsUsed(state: LeagueState, user: Pick<User, "chips">): Record<Chip, number> {
+  const live = new Set(state.matchDays.map((m) => m.id));
+  const out: Record<Chip, number> = { triple_captain: 0, bench_boost: 0 };
+  for (const c of user.chips ?? []) if (live.has(c.matchId)) out[c.chip] += 1;
+  return out;
+}
+
+/** The chip a user has played for a match day, if any. */
+export function chipFor(user: Pick<User, "chips">, matchId: string): ChipPlay | null {
+  return (user.chips ?? []).find((c) => c.matchId === matchId) ?? null;
+}
+
+/**
+ * Play a chip for the next match day (before its deadline). One chip per match
+ * day; each chip has a season allowance (CHIPS[chip].perSeason).
+ */
+export function playChip(state: LeagueState, userId: string, chip: Chip, ctx: Ctx): LeagueState {
+  const u = state.users.find((x) => x.id === userId);
+  if (!u) throw new LedgerError("Account not found.");
+  if (!CHIP_LIST.includes(chip)) throw new LedgerError("Unknown chip.");
+  const m = nextDeadlineMatch(state, ctx.now);
+  if (!m) throw new LedgerError("There's no upcoming match day to play a chip on.");
+  const squad = currentSquad(u);
+  if (!squad || !isFormationValid(squad)) throw new LedgerError("Save a seven before playing a chip.");
+  if (chip === "triple_captain" && !currentCaptain(u)) throw new LedgerError("Choose a captain before playing Triple Captain.");
+  if (chip === "bench_boost" && !currentBench(u)) throw new LedgerError("Pick a bench player before playing Bench Boost.");
+  const existing = chipFor(u, m.id);
+  if (existing?.chip === chip) return state;
+  if (existing) throw new LedgerError(`You've already played ${CHIPS[existing.chip].label} this week. Cancel it first.`);
+  if (chipsUsed(state, u)[chip] >= CHIPS[chip].perSeason)
+    throw new LedgerError(`You've used all ${CHIPS[chip].perSeason} of your ${CHIPS[chip].label} chips this season.`);
+  const play: ChipPlay = { chip, matchId: m.id, at: ctx.now.toISOString() };
+  return {
+    ...state,
+    users: state.users.map((x) => (x.id === userId ? { ...x, chips: [...(x.chips ?? []), play] } : x)),
+    audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "chip.play", matchId: m.id, after: play })],
+  };
+}
+
+/** Cancel the chip played for the next match day (before its deadline). */
+export function cancelChip(state: LeagueState, userId: string, ctx: Ctx): LeagueState {
+  const u = state.users.find((x) => x.id === userId);
+  if (!u) throw new LedgerError("Account not found.");
+  const m = nextDeadlineMatch(state, ctx.now);
+  const existing = m ? chipFor(u, m.id) : null;
+  if (!m || !existing) return state;
+  return {
+    ...state,
+    users: state.users.map((x) => (x.id === userId ? { ...x, chips: (x.chips ?? []).filter((c) => c !== existing && c.matchId !== m.id) } : x)),
+    audit: [...state.audit, audit(ctx, { actor: `user:${userId}`, action: "chip.cancel", matchId: m.id, before: existing })],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Availability — "I can't make it this week"
+// ---------------------------------------------------------------------------
+
+/**
+ * Flag a player as out (or back in) for one match day. A player's own linked
+ * account can do it until kick-off; an admin can do it until the scorecard is
+ * in. Informational only: it shows on the picker, it doesn't change scoring.
+ */
+export function setAvailability(
+  state: LeagueState,
+  input: { matchId: string; playerId: string; out: boolean; note?: string; by: "self" | "admin"; userId?: string },
+  ctx: Ctx,
+): LeagueState {
+  const m = findMatch(state, input.matchId);
+  checkRoster([input.playerId], "Availability");
+  if (input.by === "self") {
+    const u = state.users.find((x) => x.id === input.userId);
+    if (!u || u.playerId !== input.playerId) throw new LedgerError("You can only change your own availability.");
+    if (ctx.now.getTime() >= new Date(m.kickoffAt).getTime()) throw new LedgerError("This match day has kicked off. Ask an admin.");
+  }
+  if (m.scorecardAt) throw new LedgerError("This match already has a scorecard.");
+  const list = m.unavailable ?? [];
+  const was = list.find((x) => x.playerId === input.playerId) ?? null;
+  if (!input.out && !was) return state;
+  const note = input.note?.trim().slice(0, 80) || undefined;
+  const next = input.out
+    ? [...list.filter((x) => x.playerId !== input.playerId), { playerId: input.playerId, by: input.by, at: ctx.now.toISOString(), ...(note ? { note } : {}) }]
+    : list.filter((x) => x.playerId !== input.playerId);
+  return replaceMatch(
+    state,
+    { ...m, unavailable: next },
+    audit(ctx, {
+      actor: input.by === "admin" ? "admin" : `user:${input.userId}`,
+      action: "availability.set",
+      matchId: m.id,
+      before: was,
+      after: input.out ? { playerId: input.playerId, out: true, note } : { playerId: input.playerId, out: false },
+    }),
+  );
+}
+
+/** Players flagged out for a match day, by id (with the optional note). */
+export function unavailableFor(m: Pick<MatchDay, "unavailable"> | null | undefined): Record<string, { by: "self" | "admin"; note?: string }> {
+  const out: Record<string, { by: "self" | "admin"; note?: string }> = {};
+  for (const x of m?.unavailable ?? []) out[x.playerId] = { by: x.by, ...(x.note ? { note: x.note } : {}) };
+  return out;
 }
 
 /**
@@ -590,7 +763,7 @@ export function saveScorecard(
     floater: m.draw.floater,
   };
   const issues = validateScorecard(events, matchCtx, rulesFrom(state.settings), version);
-  if (version === 2) issues.push(...validateAwards(input, matchCtx));
+  if (version >= 2) issues.push(...validateAwards(input, matchCtx));
   const errors = issues.filter((i) => i.level === "error");
   if (errors.length) throw new LedgerError("The scorecard has errors.", errors);
 
@@ -608,11 +781,11 @@ export function saveScorecard(
     events: events.map((e) => ({ ...e })),
     // Pick 7 locks at kick-off: store the sevens as they stood then (or now, if
     // the scorecard somehow comes in before kick-off). Corrections keep them.
-    selections: m.scorecardAt || m.selections.length ? m.selections : snapshotSelections(state.users, new Date(Math.min(new Date(m.kickoffAt).getTime(), ctx.now.getTime())).toISOString()),
+    selections: m.scorecardAt || m.selections.length ? m.selections : snapshotSelections(state.users, new Date(Math.min(new Date(m.kickoffAt).getTime(), ctx.now.getTime())).toISOString(), m.id),
     scorecardAt: m.scorecardAt ?? ctx.now.toISOString(),
     scorecardVersion: m.scorecardVersion + 1,
     rulesVersion: version,
-    ...(version === 2
+    ...(version >= 2
       ? {
           motm: { A: input.motm?.A ?? null, B: input.motm?.B ?? null },
           fairPlayLost: (input.fairPlayLost ?? []).map((f) => ({ playerId: f.playerId, reason: f.reason })),
@@ -625,7 +798,7 @@ export function saveScorecard(
   const snap = (x: MatchDay) => ({
     version: x.scorecardVersion,
     events: x.events,
-    ...(version === 2
+    ...(version >= 2
       ? { motm: x.motm ?? null, fairPlayLost: x.fairPlayLost ?? [], rotationMissed: x.rotationMissed ?? [], noResult: !!x.noResult }
       : {}),
   });

@@ -1,9 +1,10 @@
 "use client";
 import Link from "next/link";
 import type { SelectorBreakdown } from "@/lib/league/pick7Table";
+import { CHIPS } from "@/config/club";
 import { POINT_KIND_LABEL, type ContributionKind } from "@/lib/scoring/rules";
 
-const ORDER: ContributionKind[] = ["goal", "assist", "second_assist", "win", "motm", "fair_play", "captain", "own_goal", "rotation"];
+const ORDER: ContributionKind[] = ["goal", "assist", "second_assist", "win", "motm", "defence", "fair_play", "captain", "own_goal", "rotation"];
 const fmtDate = (iso: string) =>
   new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
@@ -43,7 +44,10 @@ export function PointsBreakdown({ data, openFirst = true, example = false }: { d
       {data.rounds.map((r, i) => (
         <details key={r.matchId} className="round" open={openFirst && i === 0}>
           <summary>
-            <span>{fmtDate(r.date)} · <span className="muted">{r.result}</span></span>
+            <span>
+              {fmtDate(r.date)} · <span className="muted">{r.result}</span>
+              {r.chip && <span className="chip-badge">{CHIPS[r.chip].short}</span>}
+            </span>
             <b className="num">{r.total} pts</b>
           </summary>
           <ul className="breakdown-list">
@@ -51,11 +55,15 @@ export function PointsBreakdown({ data, openFirst = true, example = false }: { d
               <li key={p.playerId}>
                 <span className="bd-name">
                   {p.name}
-                  {p.captain && <span className="cap-badge" title="Captain: points count double">C</span>}
+                  {p.captain && <span className="cap-badge" title="Wore the armband: points multiplied">C</span>}
+                  {p.vice && !p.captain && <span className="cap-badge cap-badge-v" title="Vice-captain">V</span>}
+                  {p.role === "bench" && <span className="bd-bench">SUB</span>}
                 </span>
                 <span className="bd-items">
                   {!p.played ? (
                     <span className="bd-dnp">Didn&apos;t play</span>
+                  ) : p.role === "bench" && !p.counted ? (
+                    <span className="bd-dnp">Stayed on the bench (all seven played)</span>
                   ) : p.items.length ? (
                     p.items.map((it, k) => (
                       <span key={k} className={`bd-chip${it.points < 0 ? " neg" : ""}`} title={it.detail}>
@@ -71,6 +79,13 @@ export function PointsBreakdown({ data, openFirst = true, example = false }: { d
               </li>
             ))}
           </ul>
+          {r.notes.length > 0 && (
+            <ul className="round-notes">
+              {r.notes.map((n) => (
+                <li key={n}>{n}.</li>
+              ))}
+            </ul>
+          )}
           <p className="small muted" style={{ margin: "0.4rem 0 0" }}>
             {!example && <><Link href={`/matches/${r.matchId}`}>Match report</Link> · </>}
             <Link href="/rules">How is this scored?</Link>

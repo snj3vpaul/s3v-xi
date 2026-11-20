@@ -29,6 +29,14 @@ interface PickerProps {
   saved: string[];
   /** The saved captain (one of `saved`), if any. */
   savedCaptain: string | null;
+  /** The saved vice-captain (one of `saved`), if any. */
+  savedVice?: string | null;
+  /** The saved bench player (outside `saved`), if any. */
+  savedBench?: string | null;
+  /** Players flagged out for the next match day. */
+  unavailable?: Record<string, { by: "self" | "admin"; note?: string }>;
+  /** e.g. "Thu 26 Nov", for the "out" flag. */
+  nextLabel?: string | null;
   /** Current star rating per player. */
   stars: StarMap;
   /** Last locked round's ownership share per player (0..1). */
@@ -38,11 +46,32 @@ interface PickerProps {
 
 const starStr = (n: number) => "★".repeat(n);
 
-export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, deadlineLabel }: PickerProps) {
+export function TeamPicker({
+  initial,
+  saved,
+  savedCaptain,
+  savedVice = null,
+  savedBench = null,
+  unavailable = {},
+  nextLabel = null,
+  stars,
+  ownership,
+  deadlineLabel,
+}: PickerProps) {
   const router = useRouter();
   const [picks, setPicks] = useState<string[]>(initial);
   /** Exactly one of the seven: their points count double. */
   const [captain, setCaptain] = useState<string | null>(savedCaptain && initial.includes(savedCaptain) ? savedCaptain : null);
+  /** Optional: takes the armband if the captain doesn't play. */
+  const [vice, setVice] = useState<string | null>(savedVice && initial.includes(savedVice) && savedVice !== savedCaptain ? savedVice : null);
+  /** Optional: one player outside the seven who comes on for a starter who doesn't play. */
+  const [bench, setBench] = useState<string | null>(savedBench && !initial.includes(savedBench) ? savedBench : null);
+  /** The next tap on a squad player puts them on the bench. */
+  const [benchMode, setBenchMode] = useState(false);
+  const outNote = (id: string) => {
+    const u = unavailable[id];
+    return u ? `Flagged out${nextLabel ? ` for ${nextLabel}` : " this week"}${u.note ? `: ${u.note}` : ""}` : null;
+  };
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [said, setSaid] = useState("");
@@ -51,11 +80,29 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
   /** Two-step removal: first tap arms it, second tap removes. */
   const [confirmRemove, setConfirmRemove] = useState(false);
   const need = CLUB.picksPerSelector;
-  const dirty = picks.length !== saved.length || picks.some((p) => !saved.includes(p)) || captain !== savedCaptain;
+  const dirty =
+    picks.length !== saved.length || picks.some((p) => !saved.includes(p)) || captain !== savedCaptain || vice !== savedVice || bench !== savedBench;
   const toggleCaptain = (id: string) => {
     const next = captain === id ? null : id;
     setCaptain(next);
+    if (next && vice === next) setVice(null);
     setSaid(next ? `${playerName(id)} is your captain: their points count double.` : "Captain removed. Choose one before saving.");
+  };
+  const toggleVice = (id: string) => {
+    const next = vice === id ? null : id;
+    setVice(next);
+    if (next && captain === next) setCaptain(null);
+    setSaid(next ? `${playerName(id)} is your vice-captain: they take the armband if your captain doesn't play.` : "Vice-captain removed.");
+  };
+  const putOnBench = (id: string) => {
+    setBench(id);
+    setBenchMode(false);
+    setSwapIn(null);
+    setSaid(`${playerName(id)} is on your bench: they come on if one of your seven doesn't play.`);
+  };
+  const clearBench = () => {
+    setBench(null);
+    setSaid("Bench cleared.");
   };
 
   const check = checkTeam(picks, stars, saved);
@@ -109,6 +156,7 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
     snapshot();
     const next = [...picks, id];
     setPicks(next);
+    if (bench === id) setBench(null);
     setSwapIn(null);
     setSaid(`Added ${playerName(id)}. ${next.length} of ${need} picked.`);
   };
@@ -119,6 +167,7 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
     const next = picks.filter((x) => x !== id);
     setPicks(next);
     if (captain === id) setCaptain(null);
+    if (vice === id) setVice(null);
     setSaid(`Removed ${playerName(id)}. ${next.length} of ${need} picked.${captain === id ? " Choose a new captain." : ""}`);
   };
 
@@ -129,6 +178,8 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
     snapshot();
     setPicks(picks.map((x) => (x === outId ? inId : x)));
     if (captain === outId) setCaptain(null);
+    if (vice === outId) setVice(null);
+    if (bench === inId) setBench(null);
     setSwapIn(null);
     setSaid(`Swapped ${playerName(outId)} for ${playerName(inId)}.`);
   };
@@ -144,6 +195,8 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
   };
 
   const toggle = (id: string) => {
+    if (benchMode && !picks.includes(id)) return putOnBench(id);
+    if (bench === id) return clearBench();
     if (picks.includes(id)) return remove(id);
     const pos = posOf(id);
     if (!pos) return;
@@ -266,6 +319,14 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
           <span className={complete ? "neg" : "muted"}>Tap <b>C</b> on one of your seven to make them captain. Their points count double.</span>
         )}
       </p>
+      <p className="small cap-hint" style={{ margin: 0 }}>
+        <span className="cap-badge cap-badge-v" aria-hidden="true">V</span>
+        {vice ? (
+          <span><b>{playerName(vice)}</b> is vice-captain: they take the armband if {captain ? playerName(captain) : "your captain"} doesn&apos;t play.</span>
+        ) : (
+          <span className="muted">Optional: tap <b>V</b> to pick a vice-captain, who takes the armband if your captain doesn&apos;t play.</span>
+        )}
+      </p>
 
       <div className="bench" ref={slotsRef}>
         {seats.map(({ pos, id, n }) =>
@@ -281,9 +342,21 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
               >
                 C
               </button>
+              <button
+                type="button"
+                className="bench-cap bench-vice"
+                aria-pressed={vice === id}
+                disabled={captain === id}
+                aria-label={vice === id ? `${playerName(id)} is vice-captain` : `Make ${playerName(id)} vice-captain (takes the armband if your captain doesn't play)`}
+                title={captain === id ? "Already captain" : vice === id ? "Vice-captain" : "Make vice-captain (takes the armband if your captain doesn't play)"}
+                onClick={() => toggleVice(id)}
+              >
+                V
+              </button>
               <Mascot id={id} size={92} />
               <span className="bench-name">{playerName(id)}</span>
               <span className="bench-pos">{pos} · {starStr(stars[id] ?? 0)}</span>
+              {outNote(id) && <span className="out-flag" title={outNote(id)!}>⚑ Out</span>}
               <button type="button" className="bench-remove" aria-label={`Remove ${playerName(id)}`} onClick={() => remove(id)}>
                 <span aria-hidden="true">✕</span>
               </button>
@@ -301,6 +374,46 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
           ),
         )}
       </div>
+
+      <div className="subs" aria-label="Bench">
+        <div className="subs-label">
+          <b>Bench</b>
+          <span className="small muted">
+            Any position, not in your seven, and not counted in the star budget. Comes on for one of your seven who doesn&apos;t play.
+          </span>
+        </div>
+        {bench ? (
+          <div className="bench-slot is-sub" data-slot={bench}>
+            <Mascot id={bench} size={72} />
+            <span className="bench-name">{playerName(bench)}</span>
+            <span className="bench-pos">SUB · {posOf(bench)}</span>
+            {outNote(bench) && <span className="out-flag" title={outNote(bench)!}>⚑ Out</span>}
+            <button type="button" className="bench-remove" aria-label={`Take ${playerName(bench)} off the bench`} onClick={clearBench}>
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={`bench-slot empty sub-empty${benchMode ? " is-armed" : ""}`}
+            aria-pressed={benchMode}
+            onClick={() => {
+              setBenchMode(!benchMode);
+              setSwapIn(null);
+              setSaid(benchMode ? "" : "Tap any player in the squad below to put them on the bench.");
+            }}
+          >
+            <svg className="bench-ghost" viewBox="0 0 100 124" aria-hidden="true" style={{ height: 72 }}>
+              <circle cx="50" cy="34" r="21" />
+              <path d="M31 63 q0 -9 9 -10 h20 q9 1 9 10 v30 h-38 z" />
+              <rect x="38" y="92" width="9" height="20" rx="3" />
+              <rect x="53" y="92" width="9" height="20" rx="3" />
+            </svg>
+            <span className="bench-name">{benchMode ? "Now tap a player" : "+ Add a sub"}</span>
+          </button>
+        )}
+      </div>
+      {benchMode && <p className="small cap-hint" style={{ margin: 0 }}>Tap any player below who isn&apos;t in your seven to put them on the bench.</p>}
 
       <div className="stack">
         <h3>Choose from the squad</h3>
@@ -323,23 +436,37 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
               <div className="chips">
                 {list.map((p) => {
                   const on = picks.includes(p.id);
-                  const block = on || full ? null : blockReason(p.id);
+                  const onBench = bench === p.id;
+                  const block = on || onBench || benchMode || full ? null : blockReason(p.id);
                   const own = ownership[p.id];
+                  const out = outNote(p.id);
                   return (
                     <button
                       type="button"
                       key={p.id}
-                      className={`chip chip-face${full && !on ? " chip-swap" : ""}${pendingSwap === p.id ? " is-swapping" : ""}`}
+                      className={`chip chip-face${full && !on && !benchMode ? " chip-swap" : ""}${pendingSwap === p.id ? " is-swapping" : ""}${onBench ? " is-bench" : ""}${out ? " is-out" : ""}`}
                       data-chip={p.id}
-                      aria-pressed={on}
-                      disabled={!!block}
-                      title={block ?? (full && !on ? `${POSITION_LABEL[pos].many} full: tap to swap` : undefined)}
+                      aria-pressed={on || onBench}
+                      disabled={!!block || (benchMode && on)}
+                      title={[
+                        out,
+                        onBench ? "On your bench: tap to take them off" : null,
+                        block ?? (full && !on && !onBench && !benchMode ? `${POSITION_LABEL[pos].many} full: tap to swap or bench` : null),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || undefined}
                       onClick={() => toggle(p.id)}
                     >
                       <Mascot id={p.id} variant="head" size={26} />
                       {p.name}
                       <span className="chip-stars" aria-label={`${stars[p.id]} stars`}>{starStr(stars[p.id] ?? 0)}</span>
                       {own !== undefined && <span className="chip-own num">{Math.round(own * 100)}%</span>}
+                      {onBench && <span className="chip-sub">SUB</span>}
+                      {out && (
+                        <span className="chip-out" aria-label={out}>
+                          ⚑
+                        </span>
+                      )}
                       {p.kind === "dropin" && (
                         <span className="badge badge-dropin" style={{ color: on ? "inherit" : undefined }}>
                           <span aria-hidden="true">D</span>
@@ -363,6 +490,9 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
                       </button>
                     );
                   })}
+                  <button type="button" className="btn btn-sm" onClick={() => putOnBench(pendingSwap)}>
+                    Put on bench{bench && bench !== pendingSwap ? ` (instead of ${playerName(bench)})` : ""}
+                  </button>
                   <button type="button" className="btn btn-sm" onClick={() => setSwapIn(null)}>Cancel</button>
                 </div>
               )}
@@ -370,6 +500,11 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
           );
         })}
         {Object.keys(ownership).length > 0 && <p className="small muted" style={{ margin: 0 }}>% = share of teams that picked them last round.</p>}
+        {Object.keys(unavailable).length > 0 && (
+          <p className="small muted" style={{ margin: 0 }}>
+            <span className="chip-out" aria-hidden="true">⚑</span> = flagged out{nextLabel ? ` for ${nextLabel}` : " this week"}. Hover or long-press for the note.
+          </p>
+        )}
       </div>
 
       <div className="row">
@@ -381,7 +516,7 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
             setMsg(null);
             emitPick7({ kind: "optimistic", status: "picked" }); // the table shows you on 0 right away
             try {
-              await api("/api/me/squad", "PUT", { picks, captain });
+              await api("/api/me/squad", "PUT", { picks, captain, viceCaptain: vice, bench });
               emitPick7({ kind: "settled", ok: true });
               setMsg({ ok: true, text: deadlineLabel ? `Saved. Locked in for ${deadlineLabel} — and every week after until you change it.` : "Saved." });
               router.refresh();
@@ -396,7 +531,19 @@ export function TeamPicker({ initial, saved, savedCaptain, stars, ownership, dea
           {saveLabel}
         </button>
         {dirty && saved.length > 0 && (
-          <button className="btn btn-sm" onClick={() => { setPicks(initial); setCaptain(savedCaptain); setSwapIn(null); }}>Undo</button>
+          <button
+            className="btn btn-sm"
+            onClick={() => {
+              setPicks(initial);
+              setCaptain(savedCaptain);
+              setVice(savedVice);
+              setBench(savedBench);
+              setSwapIn(null);
+              setBenchMode(false);
+            }}
+          >
+            Undo
+          </button>
         )}
         {saved.length > 0 && !dirty && (
           <button

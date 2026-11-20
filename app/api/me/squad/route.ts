@@ -7,10 +7,16 @@ import { ctx, mutate } from "@/lib/server/store";
 export const PUT = handle(async (req) => {
   const me = await currentUser();
   if (!me) throw new HttpError(401, "Log in to pick your seven.");
-  const { picks, captain } = await body<{ picks?: string[]; captain?: string | null }>(req);
+  const { picks, captain, viceCaptain, bench } = await body<{
+    picks?: string[];
+    captain?: string | null;
+    viceCaptain?: string | null;
+    bench?: string | null;
+  }>(req);
   const seven = Array.isArray(picks) ? picks : [];
   if (typeof captain !== "string" || !seven.includes(captain)) throw new HttpError(400, "Choose a captain from your seven.");
-  await mutate((s) => setSquad(s, me.id, seven, ctx(), captain));
+  const opt = (v: unknown) => (v === undefined ? undefined : typeof v === "string" && v ? v : null);
+  await mutate((s) => setSquad(s, me.id, seven, ctx(), captain, { viceCaptain: opt(viceCaptain), bench: opt(bench) }));
 });
 
 /** Remove the standing seven: back to "no pick" from the next unlocked match day. */

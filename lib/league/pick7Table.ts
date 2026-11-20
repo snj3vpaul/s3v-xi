@@ -11,19 +11,20 @@
  * so a fresh pick is 0 by definition, edits before the deadline can't change
  * points, and a removed seven keeps whatever it had already earned.
  */
-import { getPlayer } from "@/config/club";
+import { CHIPS, getPlayer } from "@/config/club";
 import {
-  CAPTAIN_MULTIPLIER,
   buildSelectorStandings,
   matchItems,
   playedMatches,
+  scoreMatch,
+  scoreSelection,
   scoreline,
   type ContributionKind,
   type PointItem,
   type ScoringRules,
 } from "@/lib/scoring/rules";
 import { isFormationValid } from "./pick7";
-import type { LeagueState } from "./types";
+import type { Chip, LeagueState } from "./types";
 
 export type Pick7Status = "no_pick" | "picked" | "needs_fix";
 
@@ -127,8 +128,13 @@ export interface PickBreakdown {
   playerId: string;
   name: string;
   played: boolean;
-  /** Captain: their points count double (shown as an extra "Captain ×2" item). */
+  /** Wore the armband that counted (shown as an extra "Captain" item). */
   captain: boolean;
+  /** Picked as vice-captain (they get the armband only if the captain didn't play). */
+  vice: boolean;
+  role: "starter" | "bench";
+  /** Bench only: did their points count (auto-sub or Bench Boost)? */
+  counted: boolean;
   items: PointItem[];
   total: number;
 }
@@ -140,6 +146,10 @@ export interface RoundBreakdown {
   result: string;
   total: number;
   picks: PickBreakdown[];
+  /** Chip played that week. */
+  chip: Chip | null;
+  /** One-line notes: "Vice-captain Tadas took the armband", "Bench: Harry came on". */
+  notes: string[];
   /** Times this round's scorecard was corrected (shown as a note). */
   corrections: number;
 }
@@ -154,8 +164,8 @@ export interface SelectorBreakdown {
 
 /**
  * Every played round a selector was entered in, newest first, with each pick's
- * points itemised. Built from the same matchItems() the scores come from, so
- * the breakdown always adds up to the table.
+ * points itemised. Totals come from scoreSelection() and items from the same
+ * matchItems() the scores come from, so the breakdown always adds up to the table.
  */
 export function selectorBreakdown(state: LeagueState, rules: ScoringRules, selectorId: string): SelectorBreakdown {
   const rounds: RoundBreakdown[] = [];
@@ -164,31 +174,47 @@ export function selectorBreakdown(state: LeagueState, rules: ScoringRules, selec
     const sel = m.selections.find((s) => s.selectorId === selectorId);
     if (!sel) continue;
     const items = matchItems(m, rules);
+    const result = scoreSelection(sel, m, rules, scoreMatch(m, rules));
     const score = scoreline(m.events);
-    const captain = sel.captain && sel.picks.includes(sel.captain) ? sel.captain : null;
-    const picks = [...new Set(sel.picks)].map((id) => {
-      const base = items.get(id) ?? [];
-      const own = base.reduce((t, it) => t + it.points, 0);
-      const isCaptain = id === captain;
-      // Captain: one extra line repeating their total, so the doubling is visible.
-      const list: PointItem[] =
-        isCaptain && own !== 0 ? [...base, { kind: "captain", points: own * (CAPTAIN_MULTIPLIER - 1), detail: "Captain: points doubled" }] : base;
+    const name = (id: string) => getPlayer(id)?.name ?? id;
+    const picks: PickBreakdown[] = result.perPick.map((p) => {
+      const base = p.counted ? (items.get(p.playerId) ?? []) : [];
+      // Armband: one extra line repeating their total ×(multiplier − 1), so the bonus is visible.
+      const armDetail =
+        p.multiplier === 3 ? "Triple Captain: points ×3" : p.playerId === result.captain ? "Captain: points doubled" : "Vice-captain took the armband: points doubled";
+      const list: PointItem[] = p.captain && p.base !== 0 ? [...base, { kind: "captain", points: p.base * (p.multiplier - 1), detail: armDetail }] : base;
       for (const it of list) byKind[it.kind] = (byKind[it.kind] ?? 0) + it.points;
       return {
-        playerId: id,
-        name: getPlayer(id)?.name ?? id,
-        played: m.attendees.includes(id),
-        captain: isCaptain,
+        playerId: p.playerId,
+        name: name(p.playerId),
+        played: p.played,
+        captain: p.captain,
+        vice: p.playerId === result.viceCaptain,
+        role: p.role,
+        counted: p.counted,
         items: list,
-        total: list.reduce((t, it) => t + it.points, 0),
+        total: p.points,
       };
     });
+    const notes: string[] = [];
+    if (result.chip) notes.push(`${CHIPS[result.chip].label} played`);
+    if (result.captain && result.armband && result.armband !== result.captain)
+      notes.push(`${name(result.captain)} didn't play, so vice-captain ${name(result.armband)} took the armband`);
+    if (result.bench) {
+      const missing = result.perPick.filter((p) => p.role === "starter" && !p.played).map((p) => name(p.playerId));
+      if (result.chip === "bench_boost") notes.push(`Bench Boost: ${name(result.bench)}'s points counted`);
+      else if (result.benchUsed) notes.push(`${name(result.bench)} came off the bench for ${missing.join(" / ")}`);
+      else if (missing.length) notes.push(`${name(result.bench)} was on the bench but didn't play either`);
+    }
+    const starters = picks.filter((p) => p.role === "starter").sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
     rounds.push({
       matchId: m.id,
       date: m.date,
       result: m.noResult ? `White ${score.A}–${score.B} Red (no result)` : `White ${score.A}–${score.B} Red`,
-      total: picks.reduce((t, p) => t + p.total, 0),
-      picks: picks.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
+      total: result.points,
+      picks: [...starters, ...picks.filter((p) => p.role === "bench")],
+      chip: result.chip,
+      notes,
       corrections: Math.max(0, m.scorecardVersion - 1),
     });
   }

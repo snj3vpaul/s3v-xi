@@ -111,7 +111,7 @@ export function ScorecardEditor({
   deadline: string | null;
 }) {
   const router = useRouter();
-  const v2 = version === 2;
+  const v2 = version >= 2;
   const [events, setEvents] = useState<GoalEvent[]>(initial);
   const [motm, setMotm] = useState<Record<Side, string | null>>(initialMotm ?? { A: null, B: null });
   const [fairPlayLost, setFairPlayLost] = useState<FairPlayLoss[]>(initialFairPlayLost);

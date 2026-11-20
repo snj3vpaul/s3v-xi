@@ -5,7 +5,13 @@
  * no clock, no randomness. Pages, charts, the API and the tests all call these
  * functions, so a rule changed here changes everywhere at once.
  *
- * There are two rule sets, chosen per match (see rulesVersionOf):
+ * There are three rule sets, chosen per match (see rulesVersionOf):
+ *
+ * v3 — v2 PLUS A DEFENSIVE BONUS, every match day on/after RULES_V3_FROM.
+ *   Positive only: conceding a lot never costs anything.
+ *   Defender (DEF), by goals their side conceded:  0 → +4 · 1–2 → +2 · 3–4 → +1 · 5+ → 0
+ *   CM, by goals their side conceded:              0 → +2 · 1–2 → +1 · 3+ → 0
+ *   Position is the player's Pick 7 position (config/club.ts). CAMs and attackers get none.
  *
  * v2 — SIMPLIFIED, every match day on/after RULES_V2_FROM:
  *
@@ -51,7 +57,9 @@
  *   5. anyone still level shares the rank (competition ranking: 1, 2, 2, 4).
  */
 
+import { getPlayer, type Position } from "@/config/club";
 import type {
+  Chip,
   DeflectionRuling,
   DrawResult,
   FairPlayBreach,
@@ -95,14 +103,37 @@ export const POINTS_V2 = {
 /** The current point values, for pages that show "the rules". */
 export const POINTS = POINTS_V2;
 
+/**
+ * v3 defensive bonus by position: [most goals conceded, points] bands, checked in
+ * order. Positive only — a side that concedes more than the last band gets 0, never less.
+ */
+export const DEFENCE_BONUS: Partial<Record<Position, readonly (readonly [number, number])[]>> = {
+  DEF: [[0, 4], [2, 2], [4, 1]],
+  CM: [[0, 2], [2, 1]],
+};
+
+/** Defensive bonus for a player of `position` whose side conceded `conceded`. Never negative. */
+export function defenceBonus(position: Position | null | undefined, conceded: number): number {
+  const bands = position ? DEFENCE_BONUS[position] : undefined;
+  if (!bands) return 0;
+  for (const [max, pts] of bands) if (conceded <= max) return pts;
+  return 0;
+}
+
 /** First match day (club-local date) scored under v2. Earlier match days keep v1. */
 export const RULES_V2_FROM = "2026-11-19";
+/** First match day scored under v3 (v2 + defensive bonus). */
+export const RULES_V3_FROM = "2026-11-26";
 
 /** Which rule set a match uses: pinned on the match, otherwise by date. Undated (tests) → v1. */
 export function rulesVersionOf(m: { date?: string; rulesVersion?: RulesVersion }): RulesVersion {
   if (m.rulesVersion) return m.rulesVersion;
-  return m.date && m.date >= RULES_V2_FROM ? 2 : 1;
+  if (!m.date) return 1;
+  return m.date >= RULES_V3_FROM ? 3 : m.date >= RULES_V2_FROM ? 2 : 1;
 }
+
+/** v2 and later share the simplified point values, MOTM, fair play, win and rotation. */
+export const isV2Plus = (v: RulesVersion) => v >= 2;
 
 export const FAIR_PLAY_BREACHES: readonly FairPlayBreach[] = ["foul", "card", "dissent", "dangerous"];
 
@@ -126,7 +157,8 @@ export const POINT_KIND_LABEL: Record<ContributionKind, { icon: string; label: s
   win: { icon: "🏆", label: "Wins" },
   fair_play: { icon: "🤝", label: "Fair play" },
   rotation: { icon: "🔄", label: "Missed rotation" },
-  captain: { icon: "©", label: "Captain ×2" },
+  defence: { icon: "🧱", label: "Defensive bonus" },
+  captain: { icon: "©", label: "Captain bonus" },
 };
 
 /** Goal types the v2 scorecard offers (v1 also had header and deflection). */
@@ -166,7 +198,17 @@ export const GOAL_KIND_LABEL: Record<GoalKind, string> = {
 // Single event → contributions
 // ---------------------------------------------------------------------------
 
-export type ContributionKind = "goal" | "assist" | "second_assist" | "own_goal" | "motm" | "fair_play" | "win" | "rotation" | "captain";
+export type ContributionKind =
+  | "goal"
+  | "assist"
+  | "second_assist"
+  | "own_goal"
+  | "motm"
+  | "fair_play"
+  | "win"
+  | "rotation"
+  | "defence"
+  | "captain";
 
 export interface Contribution {
   playerId: string;
@@ -188,7 +230,7 @@ export function deflectionRulingOf(e: GoalEvent, rules: ScoringRules): Deflectio
 
 /** Score one scorecard entry. Pure. */
 export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES, version: RulesVersion = 1): EventScore {
-  if (version === 2) return scoreEventV2(e, rules);
+  if (version >= 2) return scoreEventV2(e, rules);
   const POINTS = POINTS_V1;
   const out: Contribution[] = [];
   const ignored: string[] = [];
@@ -282,11 +324,13 @@ export interface PlayerMatchLine {
   wins: number;
   /** v2: rotation stints missed (0/1 per match). */
   rotationMissed: number;
+  /** v3: defensive bonus points (defenders and CMs; never negative). */
+  defence: number;
   points: number;
 }
 
 export function emptyLine(playerId: string): PlayerMatchLine {
-  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, points: 0 };
+  return { playerId, goals: 0, assists: 0, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, defence: 0, points: 0 };
 }
 
 /** One line of a player's points breakdown — every point a player earns comes from exactly one of these. */
@@ -334,7 +378,7 @@ export function matchItems(match: ScorableMatch, rules: ScoringRules = DEFAULT_R
       push(c.playerId, { kind: c.kind, points: c.points, detail, eventId: e.id });
     }
   });
-  if (version !== 2) return items;
+  if (!isV2Plus(version)) return items;
 
   for (const side of ["A", "B"] as Side[]) {
     const id = match.motm?.[side];
@@ -359,6 +403,24 @@ export function matchItems(match: ScorableMatch, rules: ScoringRules = DEFAULT_R
     const r = missed.get(id);
     if (r) push(id, { kind: "rotation", points: POINTS_V2.rotationMiss, detail: ROTATION_LABEL[r] });
   }
+
+  // v3: defensive bonus for defenders and CMs, by goals their side conceded. Positive only.
+  if (version >= 3 && match.draw) {
+    const s = scoreline(match.events);
+    for (const id of match.attendees) {
+      const pos = getPlayer(id)?.position;
+      // Floater (half a game each side): the worse of the two sides' records.
+      const conceded = match.draw.teamA.includes(id) ? s.B : match.draw.teamB.includes(id) ? s.A : match.draw.floater === id ? Math.max(s.A, s.B) : null;
+      if (conceded === null) continue;
+      const pts = defenceBonus(pos, conceded);
+      if (pts > 0)
+        push(id, {
+          kind: "defence",
+          points: pts,
+          detail: `${pos === "DEF" ? "Defender" : "CM"}: ${conceded === 0 ? "clean sheet" : `side conceded ${conceded}`}`,
+        });
+    }
+  }
   return items;
 }
 
@@ -381,6 +443,7 @@ export function scoreMatch(match: ScorableMatch, rules: ScoringRules = DEFAULT_R
       else if (it.kind === "fair_play") l.fairPlay += 1;
       else if (it.kind === "win") l.wins += 1;
       else if (it.kind === "rotation") l.rotationMissed += 1;
+      else if (it.kind === "defence") l.defence += it.points;
     }
     lines.set(id, l);
   }
@@ -458,6 +521,7 @@ export function buildStandings(
       r.fairPlay += l.fairPlay;
       r.wins += l.wins;
       r.rotationMissed += l.rotationMissed;
+      r.defence += l.defence;
       r.points += l.points;
       r.perMatch[m.id] = l.points;
       if (m.attendees.includes(l.playerId)) r.played += 1;
@@ -534,52 +598,121 @@ export function rankStandings<
 // ---------------------------------------------------------------------------
 
 /**
- * A selector picks 7 players before the draw. After the match, the selector
- * earns exactly the points those 7 players earned in that match — whichever
- * drawn team they landed on. A pick who didn't play earns 0. A "hit" is a pick
- * who recorded at least one goal or credited assist (own goals are not hits).
+ * A selector picks 7 players (plus one bench player) before kick-off. After
+ * the match, the selector earns exactly the points those players earned in
+ * that match — whichever team they landed on. A pick who didn't play earns 0.
+ * A "hit" is a counted pick who recorded at least one goal or credited assist
+ * (own goals are not hits).
+ *
+ *   Captain        their whole match line counts ×2 (×3 with Triple Captain).
+ *   Vice-captain   takes the armband (same multiplier) if the captain didn't play.
+ *   Bench          one player outside the seven. Their points count if any
+ *                  starter didn't play (auto-sub), or always with Bench Boost.
+ *                  The bench player never takes the armband.
  */
+export interface PickResult {
+  playerId: string;
+  /** What the selector banks from this pick (0 for an unused bench player). */
+  points: number;
+  /** The player's own match points before any armband multiplier. */
+  base: number;
+  hit: boolean;
+  played: boolean;
+  /** Wore the armband that counted (captain, or vice-captain standing in). */
+  captain: boolean;
+  /** 1, 2 (captain) or 3 (Triple Captain). */
+  multiplier: number;
+  role: "starter" | "bench";
+  /** Bench only: did their points count? */
+  counted: boolean;
+}
+
 export interface SelectionResult {
   selectorId: string;
   matchId: string;
+  /** The seven starters. */
   picks: string[];
   points: number;
   hits: number;
-  /** Picks who actually played. */
+  /** Starters who actually played. */
   picksPlayed: number;
-  /** The captain (points doubled), if one was set. */
+  /** The captain as picked (null if none). */
   captain: string | null;
-  /** `points` is what the selector banks: the player's points, doubled for the captain. */
-  perPick: { playerId: string; points: number; hit: boolean; played: boolean; captain: boolean }[];
+  viceCaptain: string | null;
+  /** Who actually wore the armband (captain, vice if the captain didn't play, or null). */
+  armband: string | null;
+  bench: string | null;
+  /** True when the bench player's points counted. */
+  benchUsed: boolean;
+  chip: Chip | null;
+  /** Starters first, then the bench player (if any). */
+  perPick: PickResult[];
 }
 
 /** Pick 7 captain: their match points count this many times. */
 export const CAPTAIN_MULTIPLIER = 2;
+/** Triple Captain chip: the armband's multiplier that week. */
+export const TRIPLE_CAPTAIN_MULTIPLIER = 3;
+
+export interface SelectionInput {
+  selectorId: string;
+  picks: string[];
+  captain?: string | null;
+  viceCaptain?: string | null;
+  bench?: string | null;
+  chip?: Chip | null;
+}
 
 export function scoreSelection(
-  selection: { selectorId: string; picks: string[]; captain?: string | null },
+  selection: SelectionInput,
   match: ScorableMatch & Pick<MatchDay, "id">,
   rules: ScoringRules = DEFAULT_RULES,
   lines: Map<string, PlayerMatchLine> = scoreMatch(match, rules),
 ): SelectionResult {
   const picks = [...new Set(selection.picks)];
+  const played = (id: string) => match.attendees.includes(id);
+  const chip = selection.chip ?? null;
   const captain = selection.captain && picks.includes(selection.captain) ? selection.captain : null;
-  const perPick = picks.map((id) => {
+  const vice = selection.viceCaptain && picks.includes(selection.viceCaptain) && selection.viceCaptain !== captain ? selection.viceCaptain : null;
+  const bench = selection.bench && !picks.includes(selection.bench) ? selection.bench : null;
+  // The armband: the captain if they played; otherwise the vice-captain if they played.
+  const armband = captain && played(captain) ? captain : vice && played(vice) ? vice : null;
+  const mult = chip === "triple_captain" ? TRIPLE_CAPTAIN_MULTIPLIER : CAPTAIN_MULTIPLIER;
+  const anyMissing = picks.some((id) => !played(id));
+  const benchUsed = !!bench && (chip === "bench_boost" || (anyMissing && played(bench)));
+
+  const line = (id: string, role: "starter" | "bench"): PickResult => {
     const l = lines.get(id);
-    const played = match.attendees.includes(id);
-    const hit = !!l && l.goals + l.assists + l.secondAssists > 0;
-    const isCaptain = id === captain;
-    // The captain's whole match line counts double — bonuses and penalties alike.
-    return { playerId: id, points: (l?.points ?? 0) * (isCaptain ? CAPTAIN_MULTIPLIER : 1), hit, played, captain: isCaptain };
-  });
+    const base = l?.points ?? 0;
+    const counted = role === "starter" || benchUsed;
+    const isArm = role === "starter" && id === armband;
+    const multiplier = isArm ? mult : 1;
+    return {
+      playerId: id,
+      base,
+      points: counted ? base * multiplier : 0,
+      hit: counted && !!l && l.goals + l.assists + l.secondAssists > 0,
+      played: played(id),
+      captain: isArm,
+      multiplier,
+      role,
+      counted,
+    };
+  };
+  const perPick = [...picks.map((id) => line(id, "starter")), ...(bench ? [line(bench, "bench")] : [])];
   return {
     selectorId: selection.selectorId,
     matchId: match.id,
     picks,
     captain,
+    viceCaptain: vice,
+    armband,
+    bench,
+    benchUsed,
+    chip,
     points: perPick.reduce((s, p) => s + p.points, 0),
     hits: perPick.filter((p) => p.hit).length,
-    picksPlayed: perPick.filter((p) => p.played).length,
+    picksPlayed: perPick.filter((p) => p.role === "starter" && p.played).length,
     perPick,
   };
 }
@@ -715,7 +848,7 @@ export function validateScorecard(
     seen.add(e.id);
     if (e.side !== "A" && e.side !== "B") err(e.id, `${n}: team must be A or B.`);
     if (!GOAL_KINDS.includes(e.kind)) err(e.id, `${n}: unknown goal type "${e.kind}".`);
-    if (version === 2) {
+    if (version >= 2) {
       if (e.kind === "deflection") err(e.id, `${n}: deflections aren't recorded any more. Pick goal or own goal.`);
       if (e.secondAssistId) warn(e.id, `${n}: second assists aren't scored any more; it will be ignored.`);
       if (e.kind === "penalty" && e.assistId) warn(e.id, `${n}: penalties have no assist; it will be ignored.`);

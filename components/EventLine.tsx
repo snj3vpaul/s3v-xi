@@ -13,7 +13,7 @@ export function describeEvent(e: GoalEvent, rules: ScoringRules, version: RulesV
       : `${s} — deflected off ${d}, ruled ${s}'s goal${e.assistId ? ` · assist ${playerName(e.assistId)}` : ""}`;
   }
   const parts = [`${s}${e.kind !== "open_play" ? ` (${GOAL_KIND_LABEL[e.kind].toLowerCase()})` : ""}`];
-  if (e.assistId && e.kind !== "free_kick" && !(version === 2 && e.kind === "penalty")) parts.push(`assist ${playerName(e.assistId)}`);
+  if (e.assistId && e.kind !== "free_kick" && !(version >= 2 && e.kind === "penalty")) parts.push(`assist ${playerName(e.assistId)}`);
   if (version === 1 && e.secondAssistId && rules.secondAssistEnabled) parts.push(`pre-assist ${playerName(e.secondAssistId)}`);
   return parts.join(" · ");
 }

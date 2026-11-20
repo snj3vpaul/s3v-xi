@@ -93,8 +93,42 @@ export interface DrawResult {
 /** "drawn" = teams are set (team sheet entered); the name is kept for stored data. */
 export type MatchStatus = "open" | "drawn" | "played";
 
-/** Scoring rule set. 1 = original (+5/+3, deflections, second assist). 2 = simplified (+3/+2, MOTM, fair play). */
-export type RulesVersion = 1 | 2;
+/**
+ * Scoring rule set. 1 = original (+5/+3, deflections, second assist). 2 = simplified (+3/+2, MOTM, fair play).
+ * 3 = v2 plus the defensive bonus for defenders and CMs (positive only).
+ */
+export type RulesVersion = 1 | 2 | 3;
+
+/** Pick 7 chips: one per match day, a limited number per season (see CHIPS in config/club.ts). */
+export type Chip = "triple_captain" | "bench_boost";
+
+/** A chip a user has played for one match day. Cancelling before the deadline removes it. */
+export interface ChipPlay {
+  chip: Chip;
+  matchId: string;
+  at: string;
+}
+
+/** A player flagged as not available for one match day (shown on the Pick 7 picker). */
+export interface Unavailability {
+  playerId: string;
+  /** "self" = the player's own linked account; "admin" = set by an admin. */
+  by: "self" | "admin";
+  at: string;
+  note?: string;
+}
+
+/** One saved version of a user's standing seven. */
+export interface SquadEntry {
+  picks: string[];
+  at: string;
+  /** One of `picks`: their points count double (triple with the Triple Captain chip). */
+  captain?: string | null;
+  /** One of `picks`, not the captain: takes the armband if the captain doesn't play. */
+  viceCaptain?: string | null;
+  /** One pickable player outside the seven: comes on for a starter who doesn't play. */
+  bench?: string | null;
+}
 
 /** Why a player lost their fair-play point. Each is a yes/no thing someone saw happen. */
 export type FairPlayBreach = "foul" | "card" | "dissent" | "dangerous";
@@ -122,6 +156,12 @@ export interface Selection {
   picks: string[];
   /** One of `picks`: their points count double. Missing on older sevens (no captain, no doubling). */
   captain?: string | null;
+  /** One of `picks`: gets the armband if the captain doesn't play. */
+  viceCaptain?: string | null;
+  /** Bench player: scores in place of a starter who didn't play (or always, with Bench Boost). */
+  bench?: string | null;
+  /** Chip played for this match day. */
+  chip?: Chip | null;
   submittedAt: string;
 }
 
@@ -145,7 +185,9 @@ export interface User {
    * count from the next week — exactly like FPL. An entry with no picks means
    * the user removed their seven ("no pick" from then on).
    */
-  squadHistory: { picks: string[]; at: string; captain?: string | null }[];
+  squadHistory: SquadEntry[];
+  /** Chips played, one per match day. Cancelled chips are removed (the audit log keeps them). */
+  chips?: ChipPlay[];
 }
 
 export interface ReminderLog {
@@ -189,6 +231,8 @@ export interface MatchDay {
   rotationChecked?: boolean;
   /** v2: abandoned / no result — no win bonus, everything else counts. */
   noResult?: boolean;
+  /** Players flagged as not available this week (shown on the picker; doesn't change scoring). */
+  unavailable?: Unavailability[];
 }
 
 export interface LeagueSettings {
@@ -212,6 +256,9 @@ export type AuditAction =
   | "selection.submit"
   | "squad.update"
   | "squad.clear"
+  | "chip.play"
+  | "chip.cancel"
+  | "availability.set"
   | "fixtures.create"
   | "user.signup"
   | "user.update"

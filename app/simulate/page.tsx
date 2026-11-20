@@ -83,7 +83,7 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
           <h2>2 · The scoresheet</h2>
           {m.events.length ? (
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {m.events.map((e) => <EventLine key={e.id} e={e} rules={rules} version={2} />)}
+              {m.events.map((e) => <EventLine key={e.id} e={e} rules={rules} version={3} />)}
             </ul>
           ) : (
             <p className="muted">0–0.</p>
@@ -139,6 +139,13 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
                 ? `🔄 ${POINTS.rotationMiss} to ${m.rotationMissed!.map((r) => playerName(r.playerId)).join(" and ")}, and to everyone who picked them.`
                 : "everyone did their goalkeeper and sub turns, so no penalties."}
             </li>
+            <li>
+              <b>Defensive bonus:</b> defenders and CMs earn 🧱 points by how few goals their side let in (White conceded {score.B}, Red {score.A}):{" "}
+              {(() => {
+                const got = [...items].flatMap(([id, list]) => list.filter((it) => it.kind === "defence").map((it) => `${playerName(id)} +${it.points}`));
+                return got.length ? `${got.join(", ")}.` : "both sides conceded too many tonight, so nobody got it (it never goes below 0).";
+              })()}
+            </li>
           </ul>
         </section>
       </div>
@@ -167,7 +174,8 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
       <section className="stack">
         <h2>5 · What it means for Pick 7</h2>
         <p className="muted" style={{ margin: 0 }}>
-          Each Pick 7 player banks exactly what their seven scored, with their captain (C) counting double. Here are tonight&apos;s best and
+          Each Pick 7 player banks exactly what their seven scored, with their captain (C) counting double, their vice-captain (V) stepping in if the
+          captain doesn&apos;t play, and their bench player (SUB) coming on for anyone who&apos;s missing. Here are tonight&apos;s best and
           worst of {entries.length} example teams.
           (Alex, Sam and the rest are made-up names.)
         </p>

@@ -12,6 +12,7 @@ Test files:
 - `lib/league/pick7.test.ts`: Pick 7 formation, star budget, ownership re-rating, and v2 scoring
 - `lib/league/pick7Table.test.ts`: the live Pick 7 table (no pick vs picked on 0, edits, removal)
 - `lib/league/winRotation.test.ts`: win bonus, rotation penalty, and the breakdown adding up
+- `lib/league/benchChips.test.ts`: v3 defensive bonus, bench auto-sub, vice-captain, Triple Captain, Bench Boost, availability flags
 
 ## Two rule sets
 
@@ -35,6 +36,26 @@ Every v2 point is itemised by `matchItems()`; `scoreMatch()` totals those items,
 always adds up to the table (test B01).
 
 The edge-case table below documents v1; the v2 cases are tests S01–S06, W01–W05, R01–R02 and B01, and Pick 7 cases P01–P08 and T01–T08.
+
+## v3 (from 26 Nov 2026): v2 plus a defensive bonus
+
+`RULES_V3_FROM` = 2026-11-26. Everything in v2, plus `DEFENCE_BONUS` by the goals the player's own side conceded.
+Positive only: a side that concedes a lot gets 0, never a minus. Position = the player's Pick 7 position in `config/club.ts`.
+
+| Conceded | 0 | 1–2 | 3–4 | 5+ |
+|---|---|---|---|---|
+| DEF | +4 | +2 | +1 | 0 |
+| CM | +2 | +1 | 0 | 0 |
+
+CAMs and attackers get none. The floater is judged on the worse of the two sides. Tests D01–D05.
+
+## Pick 7 bench, vice-captain and chips (`scoreSelection`)
+
+- **Vice-captain** (optional, one of the seven, not the captain): takes the armband if the captain didn't play. Neither plays → no multiplier. Tests V01–V03.
+- **Bench** (optional, one pickable player outside the seven, not counted in the star budget): their points count if any starter didn't play. One sub per week; the bench player never takes the armband. Tests S01–S03.
+- **Triple Captain**: the armband counts ×3 (passes to the vice at ×3). **Bench Boost**: the bench player's points count even when all seven played. `CHIPS` in `config/club.ts` sets 2 of each per season, one chip per match day, cancellable before the deadline; a deleted match day gives the chip back. Tests C01–C03, K01–K03.
+- The locked snapshot (`snapshotSelections`) stores `viceCaptain`, `bench` and `chip` on each `Selection`. Older sevens without them score exactly as before (C03).
+- **Availability**: `MatchDay.unavailable` flags players out for a week (self, via a linked account, until kick-off; admin until the scorecard). Informational only; no scoring effect. Test A01.
 
 ## Pick 7 balance (`lib/league/pick7.ts`)
 

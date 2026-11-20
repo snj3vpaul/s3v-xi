@@ -9,6 +9,7 @@ import { getState } from "@/lib/server/store";
 import { AdminLogin } from "@/components/AdminLogin";
 import { ScorecardEditor } from "@/components/ScorecardEditor";
 import { TeamSheetEditor } from "@/components/TeamSheetEditor";
+import { AvailabilityAdmin } from "@/components/AvailabilityAdmin";
 import { Kicker } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
         <p className="muted">
           {!m.draw
             ? "Once the captains have picked sides on WhatsApp, enter the teams here. You can change them any time until the scorecard is in."
-            : version === 2
+            : version >= 2
               ? "Log each goal, pick a Man of the Match for each team, then check conduct: fair play and who did their goalkeeper and sub stints."
               : "One entry per goal, in order. Pick the type first — it decides who can get an assist."}{" "}
           <Link href={`/matches/${m.id}`}>Match report →</Link>
@@ -54,6 +55,17 @@ export default async function ScorecardPage({ params }: { params: Promise<{ id: 
           <TeamSheetEditor matchId={m.id} initialA={m.draw?.teamA ?? []} initialB={m.draw?.teamB ?? []} locked={!!m.scorecardAt} />
         </div>
       </details>
+
+      {!m.scorecardAt && (
+        <details className="panel" open={(m.unavailable?.length ?? 0) > 0}>
+          <summary className="display" style={{ cursor: "pointer", fontSize: "1.2rem" }}>
+            Availability{m.unavailable?.length ? ` (${m.unavailable.length} out)` : ""}
+          </summary>
+          <div style={{ marginTop: "0.75rem" }}>
+            <AvailabilityAdmin matchId={m.id} flagged={m.unavailable ?? []} />
+          </div>
+        </details>
+      )}
 
       {!m.draw ? (
         <div className="panel muted">2 · Scorecard: save the team sheet first.</div>

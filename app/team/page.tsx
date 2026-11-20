@@ -1,9 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
+import { CHIPS, CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtDate, selectorName, upcoming } from "@/lib/league/derive";
-import { currentCaptain, currentSquad, lockedSelections, nextDeadlineMatch, rulesFrom } from "@/lib/league/ledger";
+import {
+  chipFor,
+  chipsUsed,
+  currentBench,
+  currentCaptain,
+  currentSquad,
+  currentViceCaptain,
+  lockedSelections,
+  nextDeadlineMatch,
+  rulesFrom,
+  unavailableFor,
+} from "@/lib/league/ledger";
+import type { Selection } from "@/lib/league/types";
 import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
 import { buildPick7Table, selectorBreakdown } from "@/lib/league/pick7Table";
 import { PointsBreakdown } from "@/components/PointsBreakdown";
@@ -14,6 +26,14 @@ import { currentUser } from "@/lib/server/session";
 import { getState } from "@/lib/server/store";
 import { CalendarLinks } from "@/components/CalendarLinks";
 import { Countdown, TeamPicker } from "@/components/TeamPicker";
+import { ChipsPanel } from "@/components/ChipsPanel";
+import { AvailabilityToggle } from "@/components/AvailabilityToggle";
+
+/** "Vikram (C), Archit (VC), … · bench Harry · Triple Captain" */
+function sevenLine(s: Pick<Selection, "picks" | "captain" | "viceCaptain" | "bench" | "chip">): string {
+  const names = s.picks.map((id) => (id === s.captain ? `${playerName(id)} (C)` : id === s.viceCaptain ? `${playerName(id)} (VC)` : playerName(id))).join(", ");
+  return [names, s.bench ? `bench ${playerName(s.bench)}` : null, s.chip ? CHIPS[s.chip].label : null].filter(Boolean).join(" · ");
+}
 import { Kicker, Points } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +62,11 @@ export default async function TeamPage() {
   const myRow = me ? pick7.find((r) => r.id === me.id && r.rank !== null) : undefined;
   const myBreakdown = me ? selectorBreakdown(state, rules, me.id) : null;
   const deadlineLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
+  const nextLabel = next ? fmtDate(next.date) : null;
+  const unavailable = unavailableFor(next);
+  const myCaptain = me ? currentCaptain(me) : null;
+  const myBench = me ? currentBench(me) : null;
+  const myChip = me && next ? (chipFor(me, next.id)?.chip ?? null) : null;
   const myLocked = me && lockedNow ? lockedSels.find((s) => s.selectorId === me.id) : undefined;
 
   return (
@@ -76,7 +101,7 @@ export default async function TeamPage() {
                 <h3>Locked for {fmtDate(lockedNow.date)}</h3>
                 <span className="badge badge-kit">Locked at kick-off</span>
               </div>
-              <p style={{ margin: 0 }}>{myLocked.picks.map((id) => (id === myLocked.captain ? `${playerName(id)} (C)` : playerName(id))).join(", ")}</p>
+              <p style={{ margin: 0 }}>{sevenLine(myLocked)}</p>
             </section>
           )}
 
@@ -107,9 +132,60 @@ export default async function TeamPage() {
                 deadline, or your team won&apos;t be entered this week.
               </div>
             )}
-            <TeamPicker initial={legacy ? fitToFormation(squad) : squad} saved={squad} savedCaptain={me ? currentCaptain(me) : null} stars={stars} ownership={ownership} deadlineLabel={deadlineLabel} />
+            <TeamPicker
+              initial={legacy ? fitToFormation(squad) : squad}
+              saved={squad}
+              savedCaptain={myCaptain}
+              savedVice={currentViceCaptain(me)}
+              savedBench={myBench}
+              unavailable={unavailable}
+              nextLabel={nextLabel}
+              stars={stars}
+              ownership={ownership}
+              deadlineLabel={deadlineLabel}
+            />
             {lockedNow && !next && <p className="small muted">This week is locked. Changes you make now count from next week.</p>}
           </section>
+
+          <div className="grid grid-2" style={{ alignItems: "start" }}>
+            <section className="panel stack">
+              <div className="panel-head">
+                <h3>Chips</h3>
+                {myChip && <span className="badge badge-kit">{CHIPS[myChip].label} on</span>}
+              </div>
+              <p className="small muted" style={{ margin: 0 }}>
+                One chip per match day. Play it before kick-off; you can cancel any time until then and get it back.
+              </p>
+              <ChipsPanel
+                used={chipsUsed(state, me)}
+                active={myChip}
+                nextLabel={nextLabel}
+                hasSeven={squad.length > 0 && !legacy}
+                hasCaptain={!!myCaptain}
+                hasBench={!!myBench}
+              />
+            </section>
+            <section className="panel stack">
+              <h3>Can&apos;t make it?</h3>
+              {me.playerId && next ? (
+                <AvailabilityToggle
+                  playerName={playerName(me.playerId)}
+                  out={!!unavailable[me.playerId]}
+                  note={unavailable[me.playerId]?.note}
+                  nextLabel={nextLabel!}
+                />
+              ) : (
+                <p className="small muted" style={{ margin: 0 }}>
+                  {me.playerId ? "There's no upcoming match day." : <>Link your account to your player on the <Link href="/account">Account page</Link> to flag yourself out for a week.</>}
+                </p>
+              )}
+              {Object.keys(unavailable).length > 0 && (
+                <p className="small" style={{ margin: 0 }}>
+                  <b>Out for {nextLabel}:</b> {Object.keys(unavailable).map(playerName).join(", ")}
+                </p>
+              )}
+            </section>
+          </div>
 
           <div className="grid grid-2" style={{ alignItems: "start" }}>
             <section className="panel stack">
@@ -158,7 +234,7 @@ export default async function TeamPage() {
                 {lockedSels.map((s) => (
                   <tr key={s.selectorId}>
                     <td>{selectorName(state, s.selectorId)}</td>
-                    <td className="small">{s.picks.map((id) => (id === s.captain ? `${playerName(id)} (C)` : playerName(id))).join(", ")}</td>
+                    <td className="small">{sevenLine(s)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -184,11 +260,15 @@ export default async function TeamPage() {
                       <td className="r">{r.hits}/{r.picks.length}</td>
                       <td className="small hide-sm">
                         {r.perPick.map((p, i) => (
-                          <span key={p.playerId} className={p.played ? "" : "muted"}>
+                          <span key={p.playerId} className={p.played && p.counted ? "" : "muted"}>
                             {i > 0 && ", "}
-                            {playerName(p.playerId)} {p.played ? <Points v={p.points} /> : "(DNP)"}
+                            {p.role === "bench" ? "bench " : ""}
+                            {playerName(p.playerId)}
+                            {p.captain ? (p.multiplier === 3 ? " (TC)" : " (C)") : ""}{" "}
+                            {!p.played ? "(DNP)" : p.counted ? <Points v={p.points} /> : "(unused)"}
                           </span>
                         ))}
+                        {r.chip ? ` · ${CHIPS[r.chip].label}` : ""}
                       </td>
                       <td className="r pts">{r.points}</td>
                     </tr>

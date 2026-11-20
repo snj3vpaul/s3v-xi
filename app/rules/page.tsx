@@ -1,7 +1,28 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FORMATION, PICK7, POSITIONS, POSITION_LABEL, PICKABLE } from "@/config/club";
-import { CAPTAIN_MULTIPLIER, FAIR_PLAY_BREACHES, FAIR_PLAY_LABEL, POINTS, POINTS_V1, RULES_V2_FROM } from "@/lib/scoring/rules";
+import { CHIPS, FORMATION, PICK7, POSITIONS, POSITION_LABEL, PICKABLE } from "@/config/club";
+import {
+  CAPTAIN_MULTIPLIER,
+  DEFENCE_BONUS,
+  FAIR_PLAY_BREACHES,
+  FAIR_PLAY_LABEL,
+  POINTS,
+  POINTS_V1,
+  RULES_V2_FROM,
+  RULES_V3_FROM,
+  TRIPLE_CAPTAIN_MULTIPLIER,
+} from "@/lib/scoring/rules";
+
+/** "0 → +4 · 1–2 → +2 · 3–4 → +1 · 5+ → 0" */
+function bandText(bands: readonly (readonly [number, number])[]): string {
+  let from = 0;
+  const parts = bands.map(([max, pts]) => {
+    const t = `${from === max ? max : `${from}–${max}`} conceded +${pts}`;
+    from = max + 1;
+    return t;
+  });
+  return `${parts.join(" · ")} · ${from}+ conceded 0`;
+}
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtDate } from "@/lib/league/derive";
 import { getState } from "@/lib/server/store";
@@ -24,14 +45,16 @@ export default async function RulesPage() {
     ],
     ["Fair play", `+${POINTS.fairPlay}`, "Everyone who plays starts with it, and keeps it unless the scorekeeper records one of the breaches below."],
     ["Missed rotation", `${POINTS.rotationMiss}`, "Everyone takes a turn in goal and on the bench. Skip your goalkeeper or sub stint and you lose 2, and so does everyone who picked you."],
+    ["Defensive bonus: defenders", `up to +${DEFENCE_BONUS.DEF![0][1]}`, `By the goals your side concedes: ${bandText(DEFENCE_BONUS.DEF!)}. Never a minus.`],
+    ["Defensive bonus: CMs", `up to +${DEFENCE_BONUS.CM![0][1]}`, `By the goals your side concedes: ${bandText(DEFENCE_BONUS.CM!)}. Never a minus. CAMs and attackers don't get it.`],
   ];
   return (
     <main className="wrap stack-lg">
       <header className="stack">
         <Kicker label="The rulebook" no="Rules" />
-        <h1>Seven numbers. <em>No black boxes.</em></h1>
+        <h1>Simple numbers. <em>No black boxes.</em></h1>
         <p className="lede">
-          Goals, assists, own goals, one Man of the Match per team, the winning side, fair play and rotation. Tap any score on the Pick 7 table to
+          Goals, assists, own goals, one Man of the Match per team, the winning side, fair play, rotation and a defensive bonus. Tap any score on the Pick 7 table to
           see exactly where it came from.
         </p>
         <div className="row">
@@ -63,7 +86,8 @@ export default async function RulesPage() {
         <p className="small muted" style={{ marginBottom: 0 }}>
           Drop-ins score the same.{settings.excludeDropInsFromAwards ? " They're excluded from season awards this season." : ""} Totals can go negative.
           Match days before {fmtDate(RULES_V2_FROM)} keep the original rules (goal +{POINTS_V1.goal}, assist +{POINTS_V1.assist}, own goal {POINTS_V1.ownGoal}),
-          so old results don&apos;t change.
+          so old results don&apos;t change. The defensive bonus starts on {fmtDate(RULES_V3_FROM)}. Positions are the Pick 7 positions, whoever
+          ends up in goal.
         </p>
       </section>
 
@@ -111,7 +135,24 @@ export default async function RulesPage() {
               <b>Captain:</b> choose one of your seven as captain. Their points for the night count double, bonuses and penalties alike (a
               captain&apos;s goal is +{POINTS.goal * CAPTAIN_MULTIPLIER}; a captain who skips their goalkeeper turn costs you {POINTS.rotationMiss * CAPTAIN_MULTIPLIER}).
             </li>
-            <li><b>Carry-over:</b> your seven rolls into every following week until you change it. Unlimited free changes before each deadline.</li>
+            <li>
+              <b>Vice-captain (optional):</b> if your captain doesn&apos;t play, your vice-captain gets the armband and their points count double
+              instead. If neither plays, nobody&apos;s points are doubled.
+            </li>
+            <li>
+              <b>Bench (optional):</b> one extra player, any position, who isn&apos;t in your seven. They don&apos;t count toward the star budget. If any of
+              your seven doesn&apos;t play, your bench player&apos;s points count instead (one sub per week, and they never take the armband).
+            </li>
+            <li>
+              <b>Chips:</b> {CHIPS.triple_captain.label} (your captain&apos;s points count ×{TRIPLE_CAPTAIN_MULTIPLIER} instead of ×{CAPTAIN_MULTIPLIER}) and{" "}
+              {CHIPS.bench_boost.label} (your bench player&apos;s points count even if all seven play). {CHIPS.triple_captain.perSeason} of each per
+              season, one chip per week. Play it on My Team before kick-off; cancel any time before kick-off to get it back.
+            </li>
+            <li>
+              <b>Out this week:</b> players can flag themselves out on My Team (an admin can flag anyone). The flag shows on the picker. It doesn&apos;t
+              change points, but it&apos;s a good reason to pick someone else or rely on your bench.
+            </li>
+            <li><b>Carry-over:</b> your seven, captain, vice-captain and bench roll into every following week until you change them. Unlimited free changes before each deadline. Chips don&apos;t carry over.</li>
             <li>You score exactly the points your seven earn that night, whichever team they&apos;re on. A pick who doesn&apos;t play scores 0.</li>
             <li>A “hit” is a pick who scores or assists — that&apos;s your accuracy.</li>
           </ul>

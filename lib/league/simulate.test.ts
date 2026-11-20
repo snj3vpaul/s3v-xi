@@ -11,7 +11,7 @@ describe("simulation", () => {
       expect(state.matchDays).toHaveLength(4);
       for (const m of state.matchDays) {
         expect(m.status).toBe("played");
-        expect(m.rulesVersion).toBe(2);
+        expect(m.rulesVersion).toBe(3);
         expect(m.motm?.A && m.motm?.B).toBeTruthy();
         expect(m.rotationChecked).toBe(true);
       }

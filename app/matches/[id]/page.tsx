@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { playerName } from "@/config/club";
+import { CHIPS, playerName } from "@/config/club";
 import { fmtDate, matchSummary, selectorName } from "@/lib/league/derive";
 import { correctionDeadline, rulesFrom } from "@/lib/league/ledger";
 import { FAIR_PLAY_LABEL, ROTATION_LABEL, rulesVersionOf, scoreSelection, winnerOf } from "@/lib/scoring/rules";
@@ -26,7 +26,8 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const sels = m.status === "played" ? m.selections.map((s) => scoreSelection(s, m, rules, lines)).sort((a, b) => b.points - a.points) : [];
   const history = state.audit.filter((a) => a.matchId === m.id && a.action.startsWith("scorecard"));
   const deadline = correctionDeadline(m, state.settings);
-  const v2 = rulesVersionOf(m) === 2;
+  const v2 = rulesVersionOf(m) >= 2;
+  const v3 = rulesVersionOf(m) >= 3;
 
   return (
     <main className="wrap stack-lg">
@@ -97,6 +98,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                         <th className="r" title="Man of the Match (+4)">MOTM</th>
                         <th className="r" title="Fair play (+1)">FP</th>
                         <th className="r" title="Missed rotation (−2)">Rot</th>
+                        {v3 && <th className="r" title="Defensive bonus: defenders and CMs, by goals their side conceded">Def</th>}
                       </>
                     )}
                     <th className="r">Pts</th>
@@ -115,6 +117,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                           <td className="r">{l.motm ? "★" : ""}</td>
                           <td className="r">{l.fairPlay ? "✓" : "–"}</td>
                           <td className="r">{l.rotationMissed ? <span className="neg">−2</span> : "✓"}</td>
+                          {v3 && <td className="r">{l.defence ? `+${l.defence}` : ""}</td>}
                         </>
                       )}
                       <td className="r pts"><Points v={l.points} /></td>
@@ -138,7 +141,17 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                   <tr key={r.selectorId}>
                     <td>{selectorName(state, r.selectorId)}</td>
                     <td className="r">{r.hits}/{r.picks.length}</td>
-                    <td className="small hide-sm">{r.perPick.map((p) => `${playerName(p.playerId)}${p.played ? "" : " (DNP)"}`).join(", ")}</td>
+                    <td className="small hide-sm">
+                      {r.perPick
+                        .map(
+                          (p) =>
+                            `${p.role === "bench" ? "bench " : ""}${playerName(p.playerId)}${p.captain ? (p.multiplier === 3 ? " (TC)" : " (C)") : p.playerId === r.viceCaptain ? " (VC)" : ""}${
+                              !p.played ? " (DNP)" : p.role === "bench" && !p.counted ? " (unused)" : ""
+                            }`,
+                        )
+                        .join(", ")}
+                      {r.chip ? ` · ${CHIPS[r.chip].label}` : ""}
+                    </td>
                     <td className="r pts">{r.points}</td>
                   </tr>
                 ))}

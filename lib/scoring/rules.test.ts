@@ -188,7 +188,7 @@ describe("match & season aggregation", () => {
 
 describe("tie-breaks", () => {
   const row = (playerId: string, points: number, goals: number, assists: number, perMatch: Record<string, number> = {}): StandingRow => ({
-    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, played: 0, form: [], rank: 0, sharedRank: false,
+    playerId, points, goals, assists, perMatch, secondAssists: 0, ownGoals: 0, motm: 0, fairPlay: 0, wins: 0, rotationMissed: 0, defence: 0, played: 0, form: [], rank: 0, sharedRank: false,
   });
 
   it("R17 level on points → more goals ranks higher", () => {
@@ -250,7 +250,7 @@ describe("selections (pick 7)", () => {
     expect(r.points).toBe(5 + 3 + 5 + 3 - 2 + 0 + 0);
     expect(r.hits).toBe(4);
     expect(r.picksPlayed).toBe(6);
-    expect(r.perPick.find((p) => p.playerId === "zz")).toEqual({ playerId: "zz", points: 0, hit: false, played: false, captain: false });
+    expect(r.perPick.find((p) => p.playerId === "zz")).toMatchObject({ playerId: "zz", points: 0, hit: false, played: false, captain: false });
   });
 
   it("R22 selector season table: points, hits, hit rate; ties on points+hits share a rank", () => {

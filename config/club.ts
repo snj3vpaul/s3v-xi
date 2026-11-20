@@ -64,6 +64,15 @@ export const PICK7 = {
 } as const;
 
 /**
+ * Pick 7 chips. Each can be played this many times a season, one chip per match day,
+ * and cancelled any time before that match day's deadline.
+ */
+export const CHIPS = {
+  triple_captain: { label: "Triple Captain", short: "TC", perSeason: 2, blurb: "Your captain's points count three times instead of twice." },
+  bench_boost: { label: "Bench Boost", short: "BB", perSeason: 2, blurb: "Your bench player's points count too, whether or not anyone misses out." },
+} as const;
+
+/**
  * Position and base stars for every player.
  *
  * STARS: everyone starts at 2★. Set real ratings here when the club agrees them
