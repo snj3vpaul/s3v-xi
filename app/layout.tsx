@@ -13,7 +13,11 @@ import { Announcement } from "@/components/Announcement";
 import { ANNOUNCEMENT } from "@/config/announcement";
 import { SERIES } from "@/config/schedule";
 import { DEFENCE_BONUS, GOAL_LABEL } from "@/lib/scoring/rules";
-import { zonedToUtc } from "@/lib/league/schedule";
+import { fmtKickoff, zonedToUtc } from "@/lib/league/schedule";
+import { currentCaptain, currentSquad, nextDeadlineMatch } from "@/lib/league/ledger";
+import { isFormationValid } from "@/lib/league/pick7";
+import { getState } from "@/lib/server/store";
+import type { TeamStatus } from "@/components/Nav";
 import { MotionRoot } from "@/components/motion/MotionRoot";
 import Link from "next/link";
 import { ClubLoader } from "@/components/loader/ClubLoader";
@@ -29,7 +33,12 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#F5F0E6", width: "device-width", initialScale: 1 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const user = await currentUser();
+  const [user, state] = await Promise.all([currentUser(), getState()]);
+  // The nav's deadline clock: next Pick 7 deadline and where the user stands.
+  const next = nextDeadlineMatch(state, new Date());
+  const deadline = next ? { at: next.kickoffAt, label: fmtKickoff(next.kickoffAt, SERIES.timeZone) } : null;
+  const squad = user ? currentSquad(user) : null;
+  const status: TeamStatus = !user ? "guest" : !squad ? "none" : !isFormationValid(squad) ? "fix" : !currentCaptain(user) ? "no_captain" : "set";
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -51,7 +60,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </div>
         )}
-        <Nav userName={user?.name ?? null} />
+        <Nav userName={user?.name ?? null} deadline={deadline} status={status} />
         {Date.now() < zonedToUtc(ANNOUNCEMENT.until, "23:59", SERIES.timeZone).getTime() && (
           <Announcement
             id={ANNOUNCEMENT.id}
