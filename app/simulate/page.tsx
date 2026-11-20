@@ -8,6 +8,7 @@ import {
   FAIR_PLAY_LABEL,
   POINTS,
   POINT_KIND_LABEL,
+  GOAL_LABEL,
   ROTATION_LABEL,
   matchItems,
   scoreMatch,
@@ -113,7 +114,7 @@ export default async function SimulatePage({ searchParams }: { searchParams: Pro
                 : "A draw, so nobody gets the win bonus."}
             </li>
             <li>
-              <b>Goals and assists:</b> every goal is ⚽ +{POINTS.goal} for the scorer and 🅰️ +{POINTS.assist} for the assister, if there was one.
+              <b>Goals and assists:</b> every goal is ⚽ {GOAL_LABEL} for the scorer (by their Pick 7 position) and 🅰️ +{POINTS.assist} for the assister, if there was one.
             </li>
             {pens.length > 0 && (
               <li>

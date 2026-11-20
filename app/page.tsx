@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { CLUB, PICKABLE, ROSTER } from "@/config/club";
-import { POINTS } from "@/lib/scoring/rules";
+import { POINTS, GOAL_BY_POSITION } from "@/lib/scoring/rules";
 import { deriveSeason, upcoming } from "@/lib/league/derive";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
 import { fmtKickoff } from "@/lib/league/schedule";
@@ -97,7 +97,7 @@ export default async function Home() {
                 </h2>
                 <p className="chapter-tag">Where every point comes from</p>
                 <dl className="chapter-points">
-                  <div><dt>Goal</dt><dd className="num">+{POINTS.goal}</dd></div>
+                  <div><dt>Goal</dt><dd className="num">+{GOAL_BY_POSITION.ATT}–{GOAL_BY_POSITION.DEF}</dd></div>
                   <div><dt>Assist</dt><dd className="num">+{POINTS.assist}</dd></div>
                   <div><dt>Own goal</dt><dd className="num neg">{POINTS.ownGoal}</dd></div>
                   <div><dt>MOTM</dt><dd className="num">+{POINTS.motm}</dd></div>

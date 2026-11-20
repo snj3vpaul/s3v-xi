@@ -1,4 +1,4 @@
-import { POINTS } from "@/lib/scoring/rules";
+import { POINTS, GOAL_LABEL } from "@/lib/scoring/rules";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { isDropIn, playerName } from "@/config/club";
@@ -26,7 +26,7 @@ export default async function TablePage() {
         <Kicker label="Season standings" no={`${played.length} match day${played.length === 1 ? "" : "s"}`} />
         <h1>The <em>table.</em></h1>
         <p className="lede">
-          Goal +{POINTS.goal} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Win +{POINTS.win} · Fair play +{POINTS.fairPlay} · Missed rotation {POINTS.rotationMiss}.
+          Goal {GOAL_LABEL} · Assist +{POINTS.assist} · Own goal {POINTS.ownGoal} · Man of the Match +{POINTS.motm} · Win +{POINTS.win} · Fair play +{POINTS.fairPlay} · Missed rotation {POINTS.rotationMiss}.
           Ties split by goals, then assists, then head-to-head, then shared.
         </p>
       </header>

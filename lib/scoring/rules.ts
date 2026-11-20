@@ -7,8 +7,10 @@
  *
  * There are three rule sets, chosen per match (see rulesVersionOf):
  *
- * v3 — v2 PLUS A DEFENSIVE BONUS, every match day on/after RULES_V3_FROM.
- *   Positive only: conceding a lot never costs anything.
+ * v3 — v2 WITH FPL-STYLE GOALS AND A DEFENSIVE BONUS, every match day on/after RULES_V3_FROM.
+ *   Goal by the scorer's Pick 7 position:  DEF +6 · CM +5 · CAM +5 · ATT +4
+ *   (a player with no Pick 7 position scores as an attacker). Everything else as v2.
+ *   Defensive bonus — positive only: conceding a lot never costs anything.
  *   Defender (DEF), by goals their side conceded:  0 → +4 · 1–2 → +2 · 3–4 → +1 · 5+ → 0
  *   CM, by goals their side conceded:              0 → +2 · 1–2 → +1 · 3+ → 0
  *   Position is the player's Pick 7 position (config/club.ts). CAMs and attackers get none.
@@ -111,6 +113,18 @@ export const DEFENCE_BONUS: Partial<Record<Position, readonly (readonly [number,
   DEF: [[0, 4], [2, 2], [4, 1]],
   CM: [[0, 2], [2, 1]],
 };
+
+/** v3 goal points by the scorer's Pick 7 position (FPL-style: DEF 6 · MID 5 · FWD 4). */
+export const GOAL_BY_POSITION: Record<Position, number> = { DEF: 6, CM: 5, CAM: 5, ATT: 4 };
+
+/** "DEF +6 · CM/CAM +5 · ATT +4", for pages that show the rules. */
+export const GOAL_LABEL = `DEF +${GOAL_BY_POSITION.DEF} · CM/CAM +${GOAL_BY_POSITION.CM} · ATT +${GOAL_BY_POSITION.ATT}`;
+
+/** Points for one goal by `playerId` under rule set `version`. */
+export function goalPoints(playerId: string, version: RulesVersion): number {
+  if (version >= 3) return GOAL_BY_POSITION[getPlayer(playerId)?.position ?? "ATT"];
+  return version === 2 ? POINTS_V2.goal : POINTS_V1.goal;
+}
 
 /** Defensive bonus for a player of `position` whose side conceded `conceded`. Never negative. */
 export function defenceBonus(position: Position | null | undefined, conceded: number): number {
@@ -230,7 +244,7 @@ export function deflectionRulingOf(e: GoalEvent, rules: ScoringRules): Deflectio
 
 /** Score one scorecard entry. Pure. */
 export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES, version: RulesVersion = 1): EventScore {
-  if (version >= 2) return scoreEventV2(e, rules);
+  if (version >= 2) return scoreEventV2(e, rules, version);
   const POINTS = POINTS_V1;
   const out: Contribution[] = [];
   const ignored: string[] = [];
@@ -276,8 +290,8 @@ export function scoreEvent(e: GoalEvent, rules: ScoringRules = DEFAULT_RULES, ve
   return { contributions: out, ignored };
 }
 
-/** v2: goal +3, assist +2 (not on penalties / free kicks), own goal −2. Nothing else. */
-function scoreEventV2(e: GoalEvent, rules: ScoringRules): EventScore {
+/** v2: goal +3, assist +2 (not on penalties / free kicks), own goal −2. v3: goal by position. */
+function scoreEventV2(e: GoalEvent, rules: ScoringRules, version: RulesVersion): EventScore {
   const out: Contribution[] = [];
   const ignored: string[] = [];
   const add = (playerId: string, kind: ContributionKind, points: number) => out.push({ playerId, kind, points, eventId: e.id });
@@ -291,7 +305,7 @@ function scoreEventV2(e: GoalEvent, rules: ScoringRules): EventScore {
     if (e.assistId) ignored.push("Assists on an own goal earn nothing.");
     return { contributions: out, ignored };
   }
-  add(e.scorerId, "goal", POINTS_V2.goal);
+  add(e.scorerId, "goal", goalPoints(e.scorerId, version));
   if (!e.assistId) return { contributions: out, ignored };
   if (e.kind === "penalty" || e.kind === "free_kick") ignored.push("Penalties and direct free kicks have no assist.");
   else if (e.assistId === e.scorerId) ignored.push("A player cannot assist their own goal.");

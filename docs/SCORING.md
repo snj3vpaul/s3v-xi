@@ -37,9 +37,13 @@ always adds up to the table (test B01).
 
 The edge-case table below documents v1; the v2 cases are tests S01–S06, W01–W05, R01–R02 and B01, and Pick 7 cases P01–P08 and T01–T08.
 
-## v3 (from 26 Nov 2026): v2 plus a defensive bonus
+## v3 (from 26 Nov 2026): FPL-style goals plus a defensive bonus
 
-`RULES_V3_FROM` = 2026-11-26. Everything in v2, plus `DEFENCE_BONUS` by the goals the player's own side conceded.
+`RULES_V3_FROM` = 2026-11-26. Everything in v2, except goals score by the scorer's Pick 7 position
+(`GOAL_BY_POSITION`, FPL-style DEF 6 · MID 5 · FWD 4): **DEF +6 · CM +5 · CAM +5 · ATT +4**. A player with no
+Pick 7 position scores as an attacker. Assists stay +2 for everyone. Tests G01–G03.
+
+Plus `DEFENCE_BONUS` by the goals the player's own side conceded.
 Positive only: a side that concedes a lot gets 0, never a minus. Position = the player's Pick 7 position in `config/club.ts`.
 
 | Conceded | 0 | 1–2 | 3–4 | 5+ |

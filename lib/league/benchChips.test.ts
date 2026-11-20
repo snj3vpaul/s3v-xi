@@ -87,6 +87,32 @@ describe("defensive bonus (v3, defenders and CMs, never negative)", () => {
   });
 });
 
+describe("v3 goals by position (FPL-style)", () => {
+  it("G01 from 26 Nov a goal is DEF +6, CM +5, CAM +5, ATT +4; assists stay +2 for everyone", () => {
+    const m = match(["archit", "navneet", "ghous", "vikram"], ["danial"], [goal("A", "archit", "vikram"), goal("A", "navneet", "archit"), goal("A", "ghous"), goal("A", "vikram", "ghous")]);
+    const g = (id: string) => matchItems(m).get(id)!.filter((i) => i.kind === "goal").map((i) => i.points);
+    expect(g("archit")).toEqual([6]);
+    expect(g("navneet")).toEqual([5]);
+    expect(g("ghous")).toEqual([5]);
+    expect(g("vikram")).toEqual([4]);
+    for (const id of ["archit", "vikram", "ghous"]) expect(matchItems(m).get(id)!.filter((i) => i.kind === "assist").every((i) => i.points === 2)).toBe(true);
+  });
+
+  it("G02 19 Nov (v2) keeps +3 for every goal; v1 keeps +5; own goals stay −2", () => {
+    const v2 = match(["archit"], ["danial"], [goal("A", "archit")], { rulesVersion: 2 });
+    expect(matchItems(v2).get("archit")!.find((i) => i.kind === "goal")!.points).toBe(3);
+    const v1 = match(["archit"], ["danial"], [goal("A", "archit")], { rulesVersion: 1 });
+    expect(matchItems(v1).get("archit")!.find((i) => i.kind === "goal")!.points).toBe(5);
+    const og = match(["archit"], ["danial"], [{ id: "og1", side: "B", kind: "own_goal", scorerId: "archit" }]);
+    expect(matchItems(og).get("archit")!.find((i) => i.kind === "own_goal")!.points).toBe(-2);
+  });
+
+  it("G03 a player without a Pick 7 position scores as an attacker (+4)", () => {
+    const m = { ...match(["gurinder"], ["danial"], [goal("A", "gurinder")]) };
+    expect(matchItems(m).get("gurinder")!.find((i) => i.kind === "goal")!.points).toBe(4);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Bench, vice-captain, chips — scoring
 // ---------------------------------------------------------------------------
@@ -268,9 +294,9 @@ describe("ledger: bench, vice-captain, chips, availability", () => {
     expect(bd.rounds[0].notes.join(" ")).toMatch(/vice-captain Archit took the armband/);
     expect(bd.rounds[0].notes.join(" ")).toMatch(/Harry came off the bench/);
     const archit = bd.rounds[0].picks.find((p) => p.playerId === "archit")!;
-    // goal 3 + assist 2 + MOTM 4 + win 3 + fair play 1 + clean sheet 4 = 17, ×3 = 51
-    expect(archit.total).toBe(51);
-    expect(archit.items.find((i) => i.kind === "captain")).toMatchObject({ points: 34, detail: "Triple Captain: points ×3" });
+    // goal 6 (DEF) + assist 2 + MOTM 4 + win 3 + fair play 1 + clean sheet 4 = 20, ×3 = 60
+    expect(archit.total).toBe(60);
+    expect(archit.items.find((i) => i.kind === "captain")).toMatchObject({ points: 40, detail: "Triple Captain: points ×3" });
   });
 
   it("A01 a player can flag themselves out (own player, before kick-off); admins can flag anyone", () => {

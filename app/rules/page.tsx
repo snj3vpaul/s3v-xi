@@ -4,6 +4,8 @@ import { CHIPS, FORMATION, PICK7, POSITIONS, POSITION_LABEL, PICKABLE } from "@/
 import {
   CAPTAIN_MULTIPLIER,
   DEFENCE_BONUS,
+  GOAL_BY_POSITION,
+  GOAL_LABEL,
   FAIR_PLAY_BREACHES,
   FAIR_PLAY_LABEL,
   POINTS,
@@ -34,7 +36,11 @@ export const metadata: Metadata = { title: "Rules" };
 export default async function RulesPage() {
   const { settings } = await getState();
   const rows: [string, string, string][] = [
-    ["Goal", `+${POINTS.goal}`, "Primary scorer only. Penalties and free kicks count the same."],
+    [
+      "Goal",
+      `+${GOAL_BY_POSITION.ATT} to +${GOAL_BY_POSITION.DEF}`,
+      `By the scorer's Pick 7 position, like FPL: ${GOAL_LABEL}. Primary scorer only. Penalties and free kicks count the same.`,
+    ],
     ["Assist", `+${POINTS.assist}`, "The last pass before the goal. One per goal at most, and none on penalties or direct free kicks."],
     ["Own goal", `${POINTS.ownGoal}`, "To the player who put it in. If in doubt, it's the attacker's goal. There are no deflection rulings."],
     ["Man of the Match", `+${POINTS.motm}`, `Exactly one per team: one for ${TEAM_NAMES.A}, one for ${TEAM_NAMES.B}.`],
@@ -86,7 +92,7 @@ export default async function RulesPage() {
         <p className="small muted" style={{ marginBottom: 0 }}>
           Drop-ins score the same.{settings.excludeDropInsFromAwards ? " They're excluded from season awards this season." : ""} Totals can go negative.
           Match days before {fmtDate(RULES_V2_FROM)} keep the original rules (goal +{POINTS_V1.goal}, assist +{POINTS_V1.assist}, own goal {POINTS_V1.ownGoal}),
-          so old results don&apos;t change. The defensive bonus starts on {fmtDate(RULES_V3_FROM)}. Positions are the Pick 7 positions, whoever
+          so old results don&apos;t change. Goals by position and the defensive bonus start on {fmtDate(RULES_V3_FROM)} ({fmtDate(RULES_V2_FROM)} kept +{POINTS.goal} for every goal). Positions are the Pick 7 positions, whoever
           ends up in goal.
         </p>
       </section>
@@ -133,7 +139,7 @@ export default async function RulesPage() {
             </li>
             <li>
               <b>Captain:</b> choose one of your seven as captain. Their points for the night count double, bonuses and penalties alike (a
-              captain&apos;s goal is +{POINTS.goal * CAPTAIN_MULTIPLIER}; a captain who skips their goalkeeper turn costs you {POINTS.rotationMiss * CAPTAIN_MULTIPLIER}).
+              captain&apos;s goal is +{GOAL_BY_POSITION.ATT * CAPTAIN_MULTIPLIER} for an attacker or +{GOAL_BY_POSITION.DEF * CAPTAIN_MULTIPLIER} for a defender; a captain who skips their goalkeeper turn costs you {POINTS.rotationMiss * CAPTAIN_MULTIPLIER}).
             </li>
             <li>
               <b>Vice-captain (optional):</b> if your captain doesn&apos;t play, your vice-captain gets the armband and their points count double

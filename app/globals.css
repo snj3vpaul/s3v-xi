@@ -978,3 +978,13 @@ html.loader-on, html.loader-on body { overflow: hidden; }
 .bd-bench { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em; color: var(--bronze-deep); margin-left: 0.35rem; }
 .round-notes { margin: 0.35rem 0 0; padding: 0; list-style: none; font-size: 0.8rem; color: var(--text-2); }
 .src-defence { background: var(--forest-ui, #2F5A44); }
+
+/* Site-wide announcement strip */
+.announce-bar { background: var(--forest-ui, #2F5A44); color: #eef0e6; font-size: 0.88rem; }
+.announce-bar .wrap { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 0.55rem 0; }
+.announce-bar a { color: var(--champagne); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.announce-pill { display: inline-block; font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--champagne); color: var(--espresso, #2B2118); vertical-align: middle; }
+.announce-actions { display: inline-flex; align-items: center; gap: 0.75rem; }
+.announce-close { border: 1px solid rgba(238, 240, 230, 0.4); background: transparent; color: inherit; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 0.75rem; }
+.announce-close:hover { background: rgba(238, 240, 230, 0.15); }
+.announce-close:focus-visible { outline: 2px solid var(--champagne); outline-offset: 2px; }

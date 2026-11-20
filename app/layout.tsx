@@ -5,10 +5,15 @@ import "@fontsource-variable/manrope/index.css";
 import "@fontsource-variable/jetbrains-mono/index.css";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
-import { CLUB } from "@/config/club";
+import { CHIPS, CLUB } from "@/config/club";
 import { storageMode } from "@/lib/server/store";
 import { currentUser } from "@/lib/server/session";
 import { DeadlineBanner } from "@/components/DeadlineBanner";
+import { Announcement } from "@/components/Announcement";
+import { ANNOUNCEMENT } from "@/config/announcement";
+import { SERIES } from "@/config/schedule";
+import { DEFENCE_BONUS, GOAL_LABEL } from "@/lib/scoring/rules";
+import { zonedToUtc } from "@/lib/league/schedule";
 import { MotionRoot } from "@/components/motion/MotionRoot";
 import Link from "next/link";
 import { ClubLoader } from "@/components/loader/ClubLoader";
@@ -47,6 +52,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
         )}
         <Nav userName={user?.name ?? null} />
+        {Date.now() < zonedToUtc(ANNOUNCEMENT.until, "23:59", SERIES.timeZone).getTime() && (
+          <Announcement
+            id={ANNOUNCEMENT.id}
+            title={ANNOUNCEMENT.title}
+            body={`goals now score by position (${GOAL_LABEL}), defenders and CMs get a defensive bonus (up to +${DEFENCE_BONUS.DEF![0][1]}, never a minus), and Pick 7 adds a vice-captain, a bench sub, ${CHIPS.triple_captain.label} and ${CHIPS.bench_boost.label}.`}
+            href={ANNOUNCEMENT.href}
+            linkText={ANNOUNCEMENT.linkText}
+          />
+        )}
         <DeadlineBanner user={user} />
         <div id="content" tabIndex={-1}>{children}</div>
         <MotionRoot />
