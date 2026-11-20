@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { getPlayer, playerName, type Position } from "@/config/club";
 import type { Side } from "@/lib/league/types";
 import { Mascot } from "@/components/Mascot";
+import { reducedMotion } from "@/lib/client/motion";
 
 /**
  * A team from the team sheet laid out on a pitch in a tactical shape.
@@ -123,7 +124,7 @@ function drawLineup(ids: string[], key: string): Lineup {
       if (p) { start[i] = p; used.add(p); }
     });
   }
-  slots.forEach((s, i) => {
+  slots.forEach((_, i) => {
     if (start[i]) return;
     const p = starters.find((id) => !used.has(id))!;
     start[i] = p;
@@ -153,7 +154,7 @@ export function PitchFormation({ ids, side, matchId, label }: { ids: string[]; s
     // Drawn on the client so every refresh is different (and server HTML never mismatches).
     setSwapped(false);
     setLineup(drawLineup(roster ? roster.split(",") : [], `rsfc:rotation:${matchId}:${side}`));
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduce = reducedMotion();
     if (reduce) { setSwapped(true); return; }
     const t = window.setTimeout(() => setSwapped(true), SWAP_AFTER_MS);
     return () => window.clearTimeout(t);

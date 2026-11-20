@@ -11,6 +11,7 @@
  *    the next waits low on the horizon. Drag spins, click opens.
  */
 import type * as THREENS from "three";
+import { mulberry32 } from "@/lib/random";
 
 type THREE = typeof THREENS;
 export type OrbKind = "draw" | "scoresheet" | "seven" | "thursday";
@@ -78,16 +79,6 @@ function footballPanels(T: THREE): Panel[] {
   return panels;
 }
 
-function seeded(seed: number) {
-  let a = seed;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let r = Math.imul(a ^ (a >>> 15), 1 | a);
-    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 interface Kit {
   color(p: Panel, i: number): string;
   glow: Set<number>;
@@ -96,7 +87,7 @@ interface Kit {
 }
 
 function kitFor(kind: OrbKind, panels: Panel[]): Kit {
-  const r = seeded(kind.length * 977 + kind.charCodeAt(0));
+  const r = mulberry32(kind.length * 977 + kind.charCodeAt(0));
   const pickIdx = (n: number, filter: (p: Panel) => boolean) => {
     const pool = panels.map((p, i) => [p, i] as const).filter(([p]) => filter(p)).map(([, i]) => i);
     const out = new Set<number>();
@@ -128,7 +119,7 @@ function kitFor(kind: OrbKind, panels: Panel[]): Kit {
 
 function buildBall(T: THREE, kind: OrbKind, panels: Panel[]): THREENS.Group {
   const kit = kitFor(kind, panels);
-  const jitter = seeded(kind.charCodeAt(1) * 131 + 7);
+  const jitter = mulberry32(kind.charCodeAt(1) * 131 + 7);
   const pos: number[] = [];
   const col: number[] = [];
   const glowPos: number[] = [];
@@ -303,7 +294,7 @@ export function createOrbitScene(T: THREE, RoomEnvironment: new () => THREENS.Sc
 
   // Stars
   const starGeo = new T.BufferGeometry();
-  const sr = seeded(42);
+  const sr = mulberry32(42);
   const star: number[] = [];
   for (let i = 0; i < 1800; i++) {
     const th = sr() * Math.PI * 2;

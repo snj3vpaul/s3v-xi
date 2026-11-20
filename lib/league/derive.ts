@@ -49,7 +49,3 @@ export function selectorName(state: LeagueState, id: string): string {
   return state.users.find((u) => u.id === id)?.name ?? getPlayer(id)?.name ?? "Former member";
 }
 
-export const fmtDate = (iso: string) =>
-  new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-export const shortDate = (iso: string) =>
-  new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { month: "short", day: "numeric", timeZone: "UTC" });

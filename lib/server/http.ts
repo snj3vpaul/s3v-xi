@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { LedgerError } from "@/lib/league/ledger";
 import { ConflictError } from "./store";
 import { isAdmin } from "./auth";
+import { currentUser } from "./session";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -23,6 +24,12 @@ function sameOrigin(req: NextRequest) {
 
 export async function requireAdmin() {
   if (!(await isAdmin())) throw new HttpError(401, "Admin passcode required.");
+}
+
+export async function requireUser() {
+  const me = await currentUser();
+  if (!me) throw new HttpError(401, "Log in first.");
+  return me;
 }
 
 export function handle<P>(fn: (req: NextRequest, params: P) => Promise<unknown>) {

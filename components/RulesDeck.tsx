@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { reducedMotion } from "@/lib/client/motion";
 
 /**
  * A swipeable deck of rules. The card in the middle is in focus; its
@@ -62,7 +63,7 @@ export function RulesDeck({ cards }: { cards: RuleCard[] }) {
     const t = track.current;
     const el = t?.querySelectorAll<HTMLElement>("[data-card]")[Math.max(0, Math.min(cards.length - 1, i))];
     if (!t || !el) return;
-    t.scrollTo({ left: el.offsetLeft + el.offsetWidth / 2 - t.clientWidth / 2, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    t.scrollTo({ left: el.offsetLeft + el.offsetWidth / 2 - t.clientWidth / 2, behavior: reducedMotion() ? "auto" : "smooth" });
   };
 
   return (

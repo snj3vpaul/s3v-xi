@@ -5,6 +5,8 @@ import type { BoardRow } from "@/lib/league/tableView";
 import { POINT_KIND_LABEL, type ContributionKind } from "@/lib/scoring/rules";
 import { GrainOrb } from "./GrainOrb";
 import { Mascot } from "./Mascot";
+import { fmtDate } from "@/lib/format";
+import { reducedMotion } from "@/lib/client/motion";
 
 type SortKey = "points" | "goals" | "assists" | "motm" | "form";
 const SORTS: { key: SortKey; label: string }[] = [
@@ -17,7 +19,6 @@ const SORTS: { key: SortKey; label: string }[] = [
 const KIND_ORDER: ContributionKind[] = ["goal", "assist", "second_assist", "motm", "win", "defence", "fair_play", "own_goal", "rotation"];
 const formSum = (r: BoardRow) => r.form.reduce((t, v) => t + v, 0);
 const valueOf = (r: BoardRow, k: SortKey) => (k === "form" ? formSum(r) : r[k]);
-const shortDate = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 function Move({ r }: { r: BoardRow }) {
@@ -72,7 +73,7 @@ export function StandingsBoard({ rows, played, through }: { rows: BoardRow[]; pl
     setSort(k);
   };
   useLayoutEffect(() => {
-    if (!before.current.size || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!before.current.size || reducedMotion()) return;
     body.current?.querySelectorAll<HTMLElement>("tr[data-id]").forEach((tr) => {
       const was = before.current.get(tr.dataset.id!);
       if (was === undefined) return;
@@ -217,7 +218,7 @@ export function StandingsBoard({ rows, played, through }: { rows: BoardRow[]; pl
                               <ul className="night-list">
                                 {r.nights.map((n) => (
                                   <li key={n.matchId}>
-                                    <Link href={`/matches/${n.matchId}`}>{shortDate(n.date)}</Link>
+                                    <Link href={`/matches/${n.matchId}`}>{fmtDate(n.date)}</Link>
                                     <b className={`num${n.points < 0 ? " neg" : ""}`}>{signed(n.points)}</b>
                                   </li>
                                 ))}

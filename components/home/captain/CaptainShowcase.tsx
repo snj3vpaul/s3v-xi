@@ -6,6 +6,7 @@ import { mascotLook } from "@/lib/league/mascot";
 import { Mascot } from "@/components/Mascot";
 import type { CaptainScene } from "./scene";
 import { afterLoader, hasWebGL2 } from "@/lib/client/loaderGate";
+import { reducedMotion } from "@/lib/client/motion";
 
 /**
  * Home-page stage for the most-captained player: their squad mascot in 3D on a
@@ -19,7 +20,7 @@ export function CaptainShowcase({ playerId }: { playerId: string }) {
     const el = host.current;
     if (!el) return;
     if (!hasWebGL2()) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduce = reducedMotion();
     let scene: CaptainScene | null = null;
     let disposed = false;
 

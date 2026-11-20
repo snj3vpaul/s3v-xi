@@ -1,5 +1,5 @@
 import { clearSquad, setSquad } from "@/lib/league/ledger";
-import { HttpError, body, handle } from "@/lib/server/http";
+import { HttpError, body, handle, requireUser } from "@/lib/server/http";
 import { currentUser } from "@/lib/server/session";
 import { ctx, mutate } from "@/lib/server/store";
 
@@ -21,7 +21,6 @@ export const PUT = handle(async (req) => {
 
 /** Remove the standing seven: back to "no pick" from the next unlocked match day. */
 export const DELETE = handle(async () => {
-  const me = await currentUser();
-  if (!me) throw new HttpError(401, "Log in first.");
+  const me = await requireUser();
   await mutate((s) => clearSquad(s, me.id, ctx()));
 });

@@ -2,10 +2,10 @@ import { POINTS, GOAL_LABEL } from "@/lib/scoring/rules";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { playerName } from "@/config/club";
-import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
+import { deriveSeason, selectorName } from "@/lib/league/derive";
+import { shortDate } from "@/lib/format";
 import { getState } from "@/lib/server/store";
 import { currentUser } from "@/lib/server/session";
-import { rulesFrom } from "@/lib/league/ledger";
 import { buildPick7Table } from "@/lib/league/pick7Table";
 import { Pick7Table } from "@/components/Pick7Table";
 import { Empty, Kicker } from "@/components/ui";
@@ -17,10 +17,9 @@ export const metadata: Metadata = { title: "Table" };
 
 export default async function TablePage() {
   const [state, me] = await Promise.all([getState(), currentUser()]);
-  const pick7 = buildPick7Table(state, rulesFrom(state.settings));
-  const { played, awards } = deriveSeason(state);
-
-  const board = buildBoard(state.matchDays, rulesFrom(state.settings));
+  const { rules, played, standings, selectors, awards } = deriveSeason(state);
+  const pick7 = buildPick7Table(state, rules, selectors);
+  const board = buildBoard(state.matchDays, rules, standings);
   const through = played.length
     ? `Season standings after ${played.length} Thursday${played.length === 1 ? "" : "s"}, last played ${shortDate(played.at(-1)!.date)}`
     : "Season standings";

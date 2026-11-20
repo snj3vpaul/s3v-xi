@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ROSTER, isDropIn, playerName } from "@/config/club";
-import { deriveSeason, selectorName, shortDate } from "@/lib/league/derive";
+import { deriveSeason, selectorName } from "@/lib/league/derive";
+import { shortDate } from "@/lib/format";
 import { getState } from "@/lib/server/store";
 import Link from "next/link";
 import { randomSimSeed, simulateSeason } from "@/lib/league/simulate";

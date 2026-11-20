@@ -29,7 +29,6 @@
 
   /* --- Night counterweight --- */
   --graphite: #1c1a17;
-  --forest: #26302a;
   --forest-ui: #2f5a44; /* club green as text/UI on bone (6.9:1) */
   --brick: #9e3b2e;
 
@@ -44,7 +43,6 @@
   --line: var(--taupe);
   --line-soft: #e1d6c2;
   --accent: var(--forest-ui); /* links, positive, focus */
-  --accent-deep: var(--forest);
   --em: var(--bronze-deep); /* italic display accents */
   --cta: var(--espresso);
   --cta-text: var(--bone);
@@ -66,7 +64,6 @@
   --display-axes: "SOFT" 40, "WONK" 1;
 
   /* Fluid scale: 1.2 on phones → 1.25 on desktop */
-  --step--2: 0.72rem;
   --step--1: clamp(0.8rem, 0.78rem + 0.1vw, 0.84rem);
   --step-0: clamp(1rem, 0.97rem + 0.15vw, 1.0625rem);
   --step-1: clamp(1.2rem, 1.14rem + 0.3vw, 1.33rem);
@@ -488,8 +485,6 @@ footer.site .wrap { border-top: 1px solid rgba(201, 168, 92, 0.18); padding-top:
 /* ---------- Motion ---------- */
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .rise { animation: rise 0.5s var(--ease) both; }
-.rise-2 { animation-delay: 0.08s; }
-.rise-3 { animation-delay: 0.16s; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
@@ -744,10 +739,6 @@ html.lenis, html.lenis body { height: auto; }
 
 /* Scorecard v2: MOTM + fair play */
 .award-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.75rem; }
-.fair-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.35rem 0; border-bottom: 1px dashed var(--line-soft); }
-.fair-row label { margin: 0; display: inline-flex; align-items: center; gap: 0.45rem; text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 0.92rem; color: var(--text); min-width: 9rem; }
-.fair-row .chips { gap: 0.3rem; }
-.fair-row .chip { padding: 0.2rem 0.65rem; font-size: 0.78rem; }
 
 /* Live Pick 7 table */
 .p7-status {

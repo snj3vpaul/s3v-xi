@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { playerName } from "@/config/club";
-import { fmtDate } from "@/lib/league/derive";
+import { fmtDate } from "@/lib/format";
 import type { AuditEntry } from "@/lib/league/types";
 import { currentSquad } from "@/lib/league/ledger";
 import { isAdmin } from "@/lib/server/auth";

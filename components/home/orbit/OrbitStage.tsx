@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { OrbKind, OrbitScene } from "./scene";
 import { afterLoader, hasWebGL2 } from "@/lib/client/loaderGate";
+import { reducedMotion } from "@/lib/client/motion";
 
 export interface OrbChapter {
   no: string;
@@ -30,7 +31,7 @@ export function OrbitStage({ chapters, label }: { chapters: OrbChapter[]; label:
     const section = el?.closest<HTMLElement>("[data-orbit]");
     if (!el || !section) return;
     const states = chapters.length + 1; // hero + chapters
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduce = reducedMotion();
     let scene: OrbitScene | null = null;
     let disposed = false;
     let lastIdx = -1;

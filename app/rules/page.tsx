@@ -26,7 +26,7 @@ function bandText(bands: readonly (readonly [number, number])[]): string {
   return `${parts.join(" · ")} · ${from}+ conceded 0`;
 }
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
-import { fmtDate } from "@/lib/league/derive";
+import { fmtDate } from "@/lib/format";
 import { getState } from "@/lib/server/store";
 import { Kicker } from "@/components/ui";
 import { RulesDeck, type RuleCard } from "@/components/RulesDeck";

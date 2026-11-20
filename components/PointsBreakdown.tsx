@@ -3,10 +3,9 @@ import Link from "next/link";
 import type { SelectorBreakdown } from "@/lib/league/pick7Table";
 import { CHIPS } from "@/config/club";
 import { POINT_KIND_LABEL, type ContributionKind } from "@/lib/scoring/rules";
+import { fmtDate } from "@/lib/format";
 
 const ORDER: ContributionKind[] = ["goal", "assist", "second_assist", "win", "motm", "defence", "fair_play", "captain", "own_goal", "rotation"];
-const fmtDate = (iso: string) =>
-  new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 /**

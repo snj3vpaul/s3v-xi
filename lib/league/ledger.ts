@@ -11,7 +11,7 @@ import { CHIPS, CLUB, ROSTER, getPlayer, isDropIn, playerName } from "@/config/c
 import { SERIES } from "@/config/schedule";
 import { weeklyDates, zonedToUtc } from "./schedule";
 import { drawTeams, generateSeed } from "@/lib/draw/draw";
-import { DEFAULT_RULES, playedMatches, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
+import { DEFAULT_RULES, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
 import { checkTeam, currentStars, isFormationValid } from "./pick7";
 import type {
   AuditEntry,
@@ -837,6 +837,3 @@ export function updateSettings(state: LeagueState, patch: Partial<LeagueSettings
     audit: [...state.audit, audit(ctx, { actor: "admin", action: "settings.update", before: state.settings, after: next })],
   };
 }
-
-/** Convenience for pages: played matches in order. */
-export const seasonMatches = (state: LeagueState) => playedMatches(state.matchDays);

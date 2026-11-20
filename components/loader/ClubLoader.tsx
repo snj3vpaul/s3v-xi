@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LoaderScene } from "./scene";
 import { LOADER_KEY, hasWebGL2, markLoaderDone } from "@/lib/client/loaderGate";
+import { reducedMotion } from "@/lib/client/motion";
 
 
 /** Each docks beside the ball: Respect on the left, No hard fouls on the right, the fun 60 below. */
@@ -61,7 +62,7 @@ export function ClubLoader() {
 
     const html = document.documentElement;
     html.classList.add("loader-on");
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduce = reducedMotion();
     let scene: LoaderScene | null = null;
     let disposed = false;
     let raf = 0;

@@ -3,6 +3,7 @@
  * No session table — bumping a user's sessionVersion (password change/reset) signs them out everywhere.
  */
 import "server-only";
+import { cache } from "react";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import type { User } from "@/lib/league/types";
@@ -45,8 +46,8 @@ export const userCookieOptions = {
   maxAge: MAX_AGE_S,
 };
 
-/** The logged-in user, or null. */
-export async function currentUser(): Promise<User | null> {
+/** The logged-in user, or null. Shared across one server render. */
+export const currentUser = cache(async (): Promise<User | null> => {
   let token: string | undefined;
   try {
     token = (await cookies()).get(USER_COOKIE)?.value;
@@ -57,7 +58,7 @@ export async function currentUser(): Promise<User | null> {
   if (!t) return null;
   const u = (await getState()).users.find((x) => x.id === t.id);
   return u && u.sessionVersion === t.version ? u : null;
-}
+});
 
 /** Simple per-key throttle for login/sign-up (in-memory; fine for a club-sized app). */
 const hits = new Map<string, { n: number; until: number }>();

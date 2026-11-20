@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
+import { reducedMotion } from "@/lib/client/motion";
 
 type Libs = {
   gsap: typeof import("gsap").gsap;
@@ -26,7 +27,7 @@ export function MotionRoot() {
 
   // Lenis lives for the whole session.
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (reducedMotion()) {
       libs.current = Promise.resolve(null);
       return;
     }

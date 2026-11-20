@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { updateAccount } from "@/lib/league/ledger";
-import { HttpError, body, handle } from "@/lib/server/http";
+import { HttpError, body, handle, requireUser } from "@/lib/server/http";
 import { MIN_PASSWORD, hashPassword, verifyPassword } from "@/lib/server/password";
-import { USER_COOKIE, currentUser, userCookieOptions, userToken } from "@/lib/server/session";
+import { USER_COOKIE, userCookieOptions, userToken } from "@/lib/server/session";
 import { ctx, mutate } from "@/lib/server/store";
 
 export const PUT = handle(async (req) => {
-  const me = await currentUser();
-  if (!me) throw new HttpError(401, "Log in first.");
+  const me = await requireUser();
   const input = await body<{ name?: string; playerId?: string | null; emailReminders?: boolean; currentPassword?: string; newPassword?: string }>(req);
   let passwordHash: string | undefined;
   if (input.newPassword) {

@@ -6,8 +6,8 @@ import { checkTeam, isFormationValid, starsTotal, type StarMap } from "@/lib/lea
 import { api } from "./api";
 import { emitPick7 } from "./pick7Live";
 import { Mascot } from "./Mascot";
+import { reducedMotion } from "@/lib/client/motion";
 
-const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** Fixed-position copy of an element's mascot, used for flights between the squad and the slots. */
 function ghostOf(svg: Element, rect: DOMRect): HTMLDivElement {

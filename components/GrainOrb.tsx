@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { mulberry32 } from "@/lib/random";
+import { reducedMotion } from "@/lib/client/motion";
 
 /**
  * Every point of the season as one grain on a slowly turning globe.
@@ -17,16 +19,6 @@ const GOLD = [201, 168, 92];
 const MAX_GRAINS = 1600;
 const SPIN = 0.045; // radians per second: barely moving
 const TILT = 0.38;
-
-function mulberry(seed: number) {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 interface Grain {
   owner: number;
@@ -60,7 +52,7 @@ export function GrainOrb({ owners, hot, onHover }: { owners: OrbOwner[]; hot: st
     owners.forEach((o, i) => {
       for (let k = 0; k < Math.round(Math.max(0, o.points) / per); k++) ownerOf.push(i);
     });
-    const rnd = mulberry(total * 7919 + owners.length);
+    const rnd = mulberry32(total * 7919 + owners.length);
     for (let i = ownerOf.length - 1; i > 0; i--) {
       const j = Math.floor(rnd() * (i + 1));
       [ownerOf[i], ownerOf[j]] = [ownerOf[j], ownerOf[i]];
@@ -76,7 +68,7 @@ export function GrainOrb({ owners, hot, onHover }: { owners: OrbOwner[]; hot: st
       return { owner, x: Math.cos(th) * r * depth, y: y * depth, z: Math.sin(th) * r * depth, size: 1.3 + rnd() * 1.4, phase: rnd() * Math.PI * 2 };
     });
 
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduced = reducedMotion();
     let w = 0;
     let dpr = 1;
     let angle = 0.6;

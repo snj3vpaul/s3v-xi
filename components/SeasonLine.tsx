@@ -3,13 +3,13 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Moment } from "@/lib/league/moments";
 import { Mascot } from "./Mascot";
+import { shortDate } from "@/lib/format";
 
 const VW = 1000;
 const VH = 300;
 const PAD_T = 70;
 const PAD_B = 30;
 
-const shortDate = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-CA", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** Catmull-Rom through the points, as cubic Béziers. */
 function smooth(pts: [number, number][]): string {

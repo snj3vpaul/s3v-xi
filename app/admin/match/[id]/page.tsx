@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fmtDate } from "@/lib/league/derive";
+import { fmtDate } from "@/lib/format";
 import { canCorrect, correctionDeadline } from "@/lib/league/ledger";
 import { rulesVersionOf } from "@/lib/scoring/rules";
 import { isAdmin } from "@/lib/server/auth";

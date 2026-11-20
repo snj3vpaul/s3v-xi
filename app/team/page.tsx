@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CHIPS, CLUB, FORMATION, PICK7, PICKABLE, playerName } from "@/config/club";
 import { SERIES, TEAM_NAMES } from "@/config/schedule";
-import { fmtDate, selectorName, upcoming } from "@/lib/league/derive";
+import { selectorName, upcoming } from "@/lib/league/derive";
+import { fmtDate } from "@/lib/format";
 import {
   chipFor,
   chipsUsed,

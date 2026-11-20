@@ -30,5 +30,3 @@ export function TeamsView({ draw, score }: { draw: DrawResult; score?: Record<Si
     </div>
   );
 }
-
-export const TEAM_NAME: Record<Side, string> = { A: "White", B: "Red" };

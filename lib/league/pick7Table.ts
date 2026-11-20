@@ -22,6 +22,7 @@ import {
   type ContributionKind,
   type PointItem,
   type ScoringRules,
+  type SelectorRow,
 } from "@/lib/scoring/rules";
 import { isFormationValid } from "./pick7";
 import type { Chip, LeagueState } from "./types";
@@ -61,16 +62,22 @@ export function rankPick7(rows: Pick7Row[]): Pick7Row[] {
       (a.firstPickedAt ?? "￿").localeCompare(b.firstPickedAt ?? "￿") ||
       a.name.localeCompare(b.name),
   );
-  const out = ranked.map((r, i) => {
-    const first = ranked.findIndex((x) => x.points === r.points && x.hits === r.hits);
-    const shared = ranked.filter((x) => x.points === r.points && x.hits === r.hits).length > 1;
-    return { ...r, rank: (first === -1 ? i : first) + 1, sharedRank: shared };
-  });
+  // Rank = position of the first row level on points and hits; one pass, rows are sorted.
+  const out: typeof ranked = [];
+  for (let i = 0, start = 0; i < ranked.length; i++) {
+    const r = ranked[i];
+    const p = ranked[i - 1];
+    if (!p || p.points !== r.points || p.hits !== r.hits) start = i;
+    const n = ranked[i + 1];
+    const shared = i > start || (!!n && n.points === r.points && n.hits === r.hits);
+    out.push({ ...r, rank: start + 1, sharedRank: shared });
+  }
   return [...out, ...rest.map((r) => ({ ...r, rank: null, sharedRank: false }))];
 }
 
-export function buildPick7Table(state: LeagueState, rules: ScoringRules): Pick7Row[] {
-  const season = new Map(buildSelectorStandings(state.matchDays, rules).map((s) => [s.selectorId, s]));
+/** `selectors` may be passed in when the caller already has the selector standings. */
+export function buildPick7Table(state: LeagueState, rules: ScoringRules, selectors?: SelectorRow[]): Pick7Row[] {
+  const season = new Map((selectors ?? buildSelectorStandings(state.matchDays, rules)).map((s) => [s.selectorId, s]));
   const rows: Pick7Row[] = state.users.map((u) => {
     const current = u.squadHistory.at(-1)?.picks ?? [];
     const status: Pick7Status = current.length === 0 ? "no_pick" : isFormationValid(current) ? "picked" : "needs_fix";

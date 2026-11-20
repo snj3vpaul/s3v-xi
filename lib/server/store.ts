@@ -13,6 +13,7 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { cache } from "react";
 import { ensureSeries, migrate, type Ctx } from "@/lib/league/ledger";
 import { SERIES } from "@/config/schedule";
 import type { LeagueState } from "@/lib/league/types";
@@ -22,7 +23,7 @@ const REST_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_U
 const REST_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 const FILE = path.join(process.cwd(), ".data", "rsfc-league.json");
 
-export type StorageMode = "redis" | "file" | "memory";
+type StorageMode = "redis" | "file" | "memory";
 export const storageMode: StorageMode = REST_URL && REST_TOKEN ? "redis" : process.env.VERCEL ? "memory" : "file";
 
 export class ConflictError extends Error {}
@@ -83,12 +84,16 @@ async function readRaw(): Promise<LeagueState> {
 /**
  * Read the league. The first read after a new weekly series is configured
  * generates its fixtures (a one-off write).
+ *
+ * Deduplicated per server render with React cache(): the layout, the deadline
+ * banner, the session lookup and the page all share one read instead of a
+ * storage round trip each. Outside a render (route handlers) it reads fresh.
  */
-export async function getState(): Promise<LeagueState> {
+export const getState = cache(async (): Promise<LeagueState> => {
   const s = await readRaw();
   if (!s.seriesCreated.includes(SERIES.id)) return mutate((x) => ensureSeries(x, ctx()));
   return s;
-}
+});
 
 export function ctx(): Ctx {
   return { now: new Date(), newId: () => randomUUID() };

@@ -4,7 +4,7 @@
  * the board always agrees with the rest of the site.
  */
 import { ROSTER, isDropIn, playerName } from "@/config/club";
-import { buildStandings, matchItems, playedMatches, type ContributionKind, type ScoringRules } from "@/lib/scoring/rules";
+import { buildStandings, matchItems, playedMatches, type ContributionKind, type ScoringRules, type StandingRow } from "@/lib/scoring/rules";
 import type { MatchDay } from "./types";
 
 export interface BoardRow {
@@ -28,10 +28,11 @@ export interface BoardRow {
   nights: { matchId: string; date: string; points: number }[];
 }
 
-export function buildBoard(matchDays: MatchDay[], rules: ScoringRules): BoardRow[] {
+/** `now` may be passed in when the caller already has the roster standings. */
+export function buildBoard(matchDays: MatchDay[], rules: ScoringRules, now?: StandingRow[]): BoardRow[] {
   const ids = ROSTER.map((p) => p.id);
   const played = playedMatches(matchDays);
-  const now = buildStandings(matchDays, ids, rules);
+  now ??= buildStandings(matchDays, ids, rules);
   const latest = played.at(-1);
   const before = played.length > 1 && latest ? buildStandings(matchDays.filter((m) => m.id !== latest.id), ids, rules) : null;
   const prev = new Map(before?.filter((r) => r.played > 0).map((r) => [r.playerId, r.rank]));
@@ -58,9 +59,6 @@ export function buildBoard(matchDays: MatchDay[], rules: ScoringRules): BoardRow
     points: r.points,
     form: r.form,
     byKind: byKind.get(r.playerId) ?? {},
-    nights: played
-      .filter((m) => m.id in r.perMatch)
-      .map((m) => ({ matchId: m.id, date: m.date, points: r.perMatch[m.id] }))
-      .reverse(),
+    nights: played.flatMap((m) => (m.id in r.perMatch ? [{ matchId: m.id, date: m.date, points: r.perMatch[m.id] }] : [])).reverse(),
   }));
 }
