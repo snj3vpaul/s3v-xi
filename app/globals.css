@@ -1396,3 +1396,20 @@ a.chip { text-decoration: none; }
 .skill-matrix .sm-ovr { font-weight: 800; }
 .skill-matrix th { font-family: var(--body); text-transform: none; letter-spacing: 0; font-size: 0.76rem; }
 .skill-matrix .sm-name, .skill-matrix .sm-name a { color: var(--text); font-weight: 600; }
+.fut-tag { grid-column: 1; }
+.fut-form { display: inline-block; margin-top: 0.35rem; font-size: 0.72rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid currentColor; }
+.fut-form.is-up { color: #7fbf98; }
+.fut-form.is-down { color: #e59a8c; }
+.fut-form.is-flat { color: var(--fut-soft); }
+.fut-form.is-fixed { color: var(--champagne); }
+.fut-silver .fut-form.is-up, .fut-bronze .fut-form.is-up { color: var(--forest-ui); }
+.fut-silver .fut-form.is-down, .fut-bronze .fut-form.is-down { color: var(--brick); }
+.fut-silver .fut-form.is-fixed, .fut-bronze .fut-form.is-fixed { color: var(--bronze-deep); }
+.fut-formnote { font-size: 0.8rem; color: var(--fut-soft); margin: 0.2rem 0 0.6rem; display: grid; gap: 0.25rem; }
+.fut-formnote ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.1rem; }
+.fut-formnote li { display: grid; grid-template-columns: 3.6rem 1fr auto; gap: 0.4rem; }
+.fut-formnote li b { color: var(--fut-ink); }
+.fut-formnote li b.is-up { color: #7fbf98; }
+.fut-formnote li b.is-down { color: #e59a8c; }
+.fut-silver .fut-formnote li b.is-up, .fut-bronze .fut-formnote li b.is-up { color: var(--forest-ui); }
+.fut-silver .fut-formnote li b.is-down, .fut-bronze .fut-formnote li b.is-down { color: var(--brick); }

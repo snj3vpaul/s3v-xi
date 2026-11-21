@@ -107,6 +107,8 @@ const WORK = ["Low", "Med", "High"] as const;
 export interface Profile {
   /** Overall level the skills are drawn around (the random default is about 66 ± 5). */
   base?: number;
+  /** Exact OVR to land on: every skill shifts together until the card shows it. Set from SCOUTING. */
+  ovr?: number;
   /** Rate the card as this position instead of the Pick 7 one (the card shows it). */
   role?: Position;
   /** 0–1: how much the position's weaknesses apply. 0 = complete all-rounder. Default 1. */
@@ -158,6 +160,29 @@ const ALL_ROUNDER = (base: number, extra: Profile = {}): Profile => ({
   workRate: { att: "High", def: "High" },
   ...extra,
 });
+
+/**
+ * The club's scouting order, best first. Each group starts below the one above it with
+ * a two-point gap; within a group each place is one point lower. Players left out
+ * (no scouting report yet) are rated by their profile or at random.
+ */
+export const SCOUTING: readonly (readonly string[])[] = [
+  ["savi", "navneet", "tadas", "inder", "abrar", "jedi", "nakul", "raunak", "robin", "sanjeev", "ghous", "harpreet", "archit"],
+  ["vikram", "vineet", "harry", "karminder", "danial", "gurnaam", "awais", "jaskaran"],
+];
+export const SCOUTING_TOP = 88;
+const GROUP_GAP = 2;
+
+/** OVR each scouted player's card lands on. */
+export const SCOUTED_OVR: Readonly<Record<string, number>> = (() => {
+  const out: Record<string, number> = {};
+  let next = SCOUTING_TOP;
+  SCOUTING.forEach((group, gi) => {
+    if (gi > 0) next -= GROUP_GAP;
+    for (const id of group) out[id] = next--;
+  });
+  return out;
+})();
 
 /** What the club knows about players, by id. Anyone missing is rated entirely at random. */
 export const PROFILES: Record<string, Profile> = {
@@ -259,7 +284,8 @@ function weighted(skills: Record<Skill, number>, w: Weights): number {
   return Math.round(sum / total);
 }
 
-export function rate(player: Pick<Player, "id" | "name" | "position">, seed = RATINGS_SEED): PlayerRating {
+/** `targetOvr` overrides the scouted OVR (used by form, see ratingForm.ts). */
+export function rate(player: Pick<Player, "id" | "name" | "position">, seed = RATINGS_SEED, targetOvr?: number): PlayerRating {
   const rand = mulberry32(hash(`${seed}:${player.id}`));
   const gauss = (mean: number, sd: number) => {
     const u = 1 - rand();
@@ -268,7 +294,7 @@ export function rate(player: Pick<Player, "id" | "name" | "position">, seed = RA
   };
   const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
 
-  const prof = PROFILES[player.id] ?? {};
+  const prof: Profile = { ...PROFILES[player.id], ovr: targetOvr ?? SCOUTED_OVR[player.id] ?? PROFILES[player.id]?.ovr };
   const position: Position = prof.role ?? player.position ?? "CM";
   const rolledBase = gauss(66, 5); // local-league level, roughly 56–76
   const base = prof.base ?? rolledBase;
@@ -287,7 +313,6 @@ export function rate(player: Pick<Player, "id" | "name" | "position">, seed = RA
   }
   Object.assign(skills, prof.skills);
 
-  const face = Object.fromEntries(FACE_STATS.map((g) => [g, weighted(skills, FACE_WEIGHTS[g])])) as Record<FaceStat, number>;
 
   const wfRoll = rand();
   const traits: string[] = [...(prof.traits ?? [])];
@@ -295,13 +320,22 @@ export function rate(player: Pick<Player, "id" | "name" | "position">, seed = RA
   const traitPool = TRAITS.filter((t) => !traits.includes(t) && !SIGNATURE_TRAITS.includes(t));
   for (let n = Math.max(1, Math.floor(rand() * 3) + 1 - traits.length); n > 0 && traits.length < 3; n--)
     traits.push(traitPool.splice(Math.floor(rand() * traitPool.length), 1)[0]);
+
+  // Land on the scouted OVR: shift every skill together (a few passes, since skills clamp at 25 and 94).
+  let ovr = weighted(skills, OVR_WEIGHTS[position]);
+  for (let pass = 0; prof.ovr !== undefined && ovr !== prof.ovr && pass < 6; pass++) {
+    const delta = prof.ovr - ovr;
+    for (const k of ALL_SKILLS) skills[k] = clampSkill(skills[k] + delta);
+    ovr = weighted(skills, OVR_WEIGHTS[position]);
+  }
+  const face = Object.fromEntries(FACE_STATS.map((g) => [g, weighted(skills, FACE_WEIGHTS[g])])) as Record<FaceStat, number>;
   const rolledWork = { att: pick(WORK), def: pick(WORK) };
 
   return {
     id: player.id,
     name: player.name,
     position,
-    ovr: weighted(skills, OVR_WEIGHTS[position]),
+    ovr,
     face,
     skills,
     style,

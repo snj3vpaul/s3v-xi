@@ -3,17 +3,48 @@ import Link from "next/link";
 import { POSITIONS, POSITION_LABEL, isDropIn, type Position } from "@/config/club";
 import { Kicker } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
-import {
-  FACE_LABEL,
-  FACE_STATS,
-  SKILLS,
-  SQUAD_RATINGS,
-  tier,
-  type FaceStat,
-  type PlayerRating,
-} from "@/lib/league/ratings";
+import { FACE_LABEL, FACE_STATS, SKILLS, tier, type FaceStat } from "@/lib/league/ratings";
+import { FORM, formMoves, squadWithForm, type FormRating } from "@/lib/league/ratingForm";
+import { deriveSeason } from "@/lib/league/derive";
+import { getState } from "@/lib/server/store";
+import { simulateSeason } from "@/lib/league/simulate";
+import { shortDate } from "@/lib/format";
 
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Squad ratings" };
+
+type PlayerRating = FormRating;
+
+function FormTag({ r }: { r: PlayerRating }) {
+  if (r.form.fixed) return <span className="fut-form is-fixed" title="Top three: fixed">Fixed</span>;
+  const t = r.ovr - r.baseOvr;
+  if (r.form.rounds.length === 0) return null;
+  const cls = t > 0 ? "is-up" : t < 0 ? "is-down" : "is-flat";
+  return (
+    <span className={`fut-form ${cls}`} title={`Form: ${t > 0 ? "+" : ""}${t} from scouted ${r.baseOvr}`}>
+      {t > 0 ? `▲${t}` : t < 0 ? `▼${-t}` : "–"}
+    </span>
+  );
+}
+
+function FormRounds({ r }: { r: PlayerRating }) {
+  if (r.form.fixed) return <p className="fut-formnote">Top three: this card stays at {r.ovr} all season.</p>;
+  if (r.form.rounds.length === 0) return <p className="fut-formnote">No rounds played yet. Scouted at {r.baseOvr}.</p>;
+  return (
+    <div className="fut-formnote">
+      <span>Scouted {r.baseOvr} → now {r.ovr}</span>
+      <ul>
+        {r.form.rounds.map((x) => (
+          <li key={x.matchId}>
+            <span>{shortDate(x.date)}</span>
+            <span>{x.points} pts (avg {x.average})</span>
+            <b className={x.change > 0 ? "is-up" : x.change < 0 ? "is-down" : undefined}>{x.change > 0 ? `+${x.change}` : x.change || "0"}</b>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 type Sort = "OVR" | FaceStat;
 const SORTS: readonly Sort[] = ["OVR", ...FACE_STATS];
@@ -45,6 +76,7 @@ function Card({ r }: { r: PlayerRating }) {
       <header className="fut-top">
         <span className="fut-ovr">{r.ovr}</span>
         <span className="fut-pos">{r.position}</span>
+        <span className="fut-tag"><FormTag r={r} /></span>
         <Mascot id={r.id} size={88} className="fut-mascot" />
       </header>
       <h2 className="fut-name">
@@ -61,6 +93,7 @@ function Card({ r }: { r: PlayerRating }) {
       </dl>
       <details className="fut-more">
         <summary>{r.style} · all 29 skills</summary>
+        <FormRounds r={r} />
         <div className="fut-meta">
           <span>Skill moves <Pips n={r.skillMoves} label="Skill moves" /></span>
           <span>Weak foot <Pips n={r.weakFoot} label="Weak foot" /></span>
@@ -132,13 +165,17 @@ function Matrix({ rows }: { rows: PlayerRating[] }) {
   );
 }
 
-export default async function SquadPage({ searchParams }: { searchParams: Promise<{ pos?: string; sort?: string; view?: string }> }) {
+export default async function SquadPage({ searchParams }: { searchParams: Promise<{ pos?: string; sort?: string; view?: string; example?: string }> }) {
   const q = await searchParams;
+  const exampleSeed = q.example?.replace(/[^a-z0-9]/gi, "").slice(0, 12) || null;
+  const state = exampleSeed ? simulateSeason(exampleSeed, 6).state : await getState();
+  const { played, standings } = deriveSeason(state);
+  const squad = squadWithForm(formMoves(played, standings));
   const pos = POSITIONS.includes(q.pos as Position) ? (q.pos as Position) : null;
   const sort: Sort = SORTS.includes(q.sort as Sort) ? (q.sort as Sort) : "OVR";
   const view = q.view === "matrix" ? "matrix" : "cards";
 
-  const rows = SQUAD_RATINGS.filter((r) => !pos || r.position === pos).toSorted((a, b) => {
+  const rows = squad.filter((r) => !pos || r.position === pos).toSorted((a, b) => {
     const d = sort === "OVR" ? b.ovr - a.ovr : b.face[sort] - a.face[sort];
     return d || b.ovr - a.ovr || a.name.localeCompare(b.name);
   });
@@ -152,8 +189,9 @@ export default async function SquadPage({ searchParams }: { searchParams: Promis
           Every player, <em>rated.</em>
         </h1>
         <p className="lede">
-          FIFA-style cards for the whole roster: six headline stats built from 29 skills. They start from what the club knows about
-          each player, the dice fill in the detail, and they don&apos;t affect points or Pick 7 stars.
+          FIFA-style cards for the whole roster: six headline stats built from 29 skills. They start from the club&apos;s scouting order and
+          move after every round: up to +2 for a night well above the average, down to −2 for one well below, at most{" "}
+          {FORM.maxDrift} either way. The top three are fixed. Ratings don&apos;t affect points or Pick 7 stars.
         </p>
       </header>
 
