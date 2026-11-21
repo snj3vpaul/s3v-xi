@@ -37,7 +37,10 @@ function FormRounds({ r }: { r: PlayerRating }) {
         {r.form.rounds.map((x) => (
           <li key={x.matchId}>
             <span>{shortDate(x.date)}</span>
-            <span>{x.points} pts (avg {x.average})</span>
+            <span>
+              {x.points} pts · {x.basis === "all" ? "avg" : `${x.basis} avg`} {x.average}
+              {x.result ? ` · ${x.result}` : ""}
+            </span>
             <b className={x.change > 0 ? "is-up" : x.change < 0 ? "is-down" : undefined}>{x.change > 0 ? `+${x.change}` : x.change || "0"}</b>
           </li>
         ))}
@@ -190,7 +193,8 @@ export default async function SquadPage({ searchParams }: { searchParams: Promis
         </h1>
         <p className="lede">
           FIFA-style cards for the whole roster: six headline stats built from 29 skills. They start from the club&apos;s scouting order and
-          move after every round: up to +2 for a night well above the average, down to −2 for one well below, at most{" "}
+          move after every round, judged against players in the same position: up to +2 for a night well above
+          their average, and down only for a quiet night on a losing side (a win or a draw never costs a point), at most{" "}
           {FORM.maxDrift} either way. The top three are fixed. Ratings don&apos;t affect points or Pick 7 stars.
         </p>
       </header>

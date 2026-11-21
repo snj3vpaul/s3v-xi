@@ -6,7 +6,19 @@ import { ratingFor } from "./ratings";
 import { deriveSeason } from "./derive";
 import { simulateSeason } from "./simulate";
 
-const match = (id: string, day: number) => ({ id, kickoffAt: `2026-11-${String(day).padStart(2, "0")}T03:00:00.000Z` }) as MatchDay;
+const match = (id: string, day: number, teams?: { A: string[]; B: string[]; goalsA: number; goalsB: number }) =>
+  ({
+    id,
+    date: `2026-11-${String(day).padStart(2, "0")}`,
+    kickoffAt: `2026-11-${String(day).padStart(2, "0")}T03:00:00.000Z`,
+    events: teams
+      ? [
+          ...Array.from({ length: teams.goalsA }, (_, i) => ({ id: `a${i}`, side: "A" })),
+          ...Array.from({ length: teams.goalsB }, (_, i) => ({ id: `b${i}`, side: "B" })),
+        ]
+      : [],
+    draw: teams ? { teamA: teams.A, teamB: teams.B, floater: null } : null,
+  }) as unknown as MatchDay;
 const row = (playerId: string, perMatch: Record<string, number>) => ({ playerId, perMatch }) as StandingRow;
 
 describe("rating form", () => {
@@ -23,7 +35,8 @@ describe("rating form", () => {
     const up = formMoves(ms, [row("archit", per(20)), row("vikram", per(0))]);
     expect(up.get("archit")!.total).toBe(FORM.maxDrift);
     expect(up.get("archit")!.rounds.at(-1)!.change).toBe(0);
-    expect(moves.get("vikram")!.total).toBeLessThan(0);
+    // No team sheet = side unknown = never counts as a loss, so no drop.
+    expect(moves.get("vikram")!.total).toBe(0);
     expect(moves.get("harry")!.total).toBe(0);
     expect(moves.get("savi")!.total).toBe(0);
   });
@@ -45,5 +58,25 @@ describe("rating form", () => {
     const inder = squadWithForm(moves).find((r) => r.id === "inder")!;
     expect(inder.ovr).toBe(ratingFor("inder")!.ovr - 3);
     expect(inder.traits).toEqual(ratingFor("inder")!.traits);
+  });
+
+  it("F05 drops only on a losing side, and compares players with their own position", () => {
+    // CMs: jedi 1, raunak 1, sanjeev 9 → CM avg ~3.7. ATTs: vikram 12, karminder 10 → ATT avg 11.
+    const per = (m: string, pts: Record<string, number>) => Object.entries(pts).map(([id, v]) => row(id, { [m]: v }));
+    const won = match("w", 19, { A: ["jedi", "sanjeev", "vikram"], B: ["raunak", "karminder"], goalsA: 3, goalsB: 1 });
+    const a = formMoves([won], per("w", { jedi: 1, raunak: 1, sanjeev: 9, vikram: 12, karminder: 10 }));
+    expect(a.get("jedi")!.total).toBe(0); // well below the CM average, but his side won
+    expect(a.get("raunak")!.total).toBe(0); // below, lost, but only 2.7 under: not enough
+    expect(a.get("sanjeev")!.total).toBe(2); // 5.3 above the CM average
+    expect(a.get("sanjeev")!.rounds[0]).toMatchObject({ basis: "CM", result: "won" });
+    expect(a.get("karminder")!.rounds[0]).toMatchObject({ basis: "ATT", result: "lost", change: 0 }); // 10 vs ATT avg 11
+
+    const lost = match("l", 26, { A: ["jedi", "sanjeev"], B: ["raunak", "nakul"], goalsA: 0, goalsB: 2 });
+    const b = formMoves([lost], per("l", { jedi: 0, sanjeev: 8, raunak: 4, nakul: 6 }));
+    expect(b.get("jedi")!.total).toBe(-1); // 4 under the CM average (4) and his side lost
+    expect(b.get("nakul")!.rounds[0].basis).toBe("all"); // the only attacker that night
+
+    const drawn = match("d", 26, { A: ["jedi"], B: ["raunak", "sanjeev"], goalsA: 1, goalsB: 1 });
+    expect(formMoves([drawn], per("d", { jedi: 0, raunak: 8, sanjeev: 8 })).get("jedi")!.total).toBe(0);
   });
 });
