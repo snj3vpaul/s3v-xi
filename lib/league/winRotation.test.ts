@@ -2,23 +2,28 @@
 import { describe, expect, it } from "vitest";
 import { POINTS_V2, matchItems, scoreMatch, scoreSelection, winnerOf } from "@/lib/scoring/rules";
 import {
-  DEFAULT_CONSTRAINTS,
   LedgerError,
   createMatchDay,
   initialState,
-  recordDraw,
   rulesFrom,
   saveScorecard,
   setSquad,
   signUp,
   type Ctx,
+  setTeamSheet,
 } from "./ledger";
 import { buildPick7Table, selectorBreakdown } from "./pick7Table";
 import type { GoalEvent, LeagueState } from "./types";
 
 let n = 0;
 const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `wr-${++n}` });
-const SEED = "c".repeat(64);
+
+/** White and Red from the attendance list, in order (stands in for the old random draw). */
+const teams = (s: LeagueState, id: string, c: Ctx) => {
+  const m = s.matchDays.find((x) => x.id === id)!;
+  const h = Math.ceil(m.attendees.length / 2);
+  return setTeamSheet(s, id, { teamA: m.attendees.slice(0, h), teamB: m.attendees.slice(h) }, c);
+};
 const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
 const ALT = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
 
@@ -71,7 +76,7 @@ describe("rotation", () => {
   it("R02 a v2 scorecard can't be published until rotation is confirmed; misses are stored and audited", () => {
     let s: LeagueState = initialState();
     const c = createMatchDay(s, { date: "2026-11-19", attendees: [...SEVEN, ...ALT] }, at("2026-11-12T00:00:00Z"));
-    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(c.state, c.match.id, at("2026-11-19T20:00:00Z"));
     const d = s.matchDays[0].draw!;
     const motm = { A: d.teamA[0], B: d.teamB[0] };
     expect(() => saveScorecard(s, c.match.id, [], { motm }, at("2026-11-20T04:00:00Z"))).toThrow(LedgerError);
@@ -94,7 +99,7 @@ describe("points breakdown", () => {
       ids.push(r.user.id);
     }
     const c = createMatchDay(s, { date: "2026-11-19", attendees: [...SEVEN, ...ALT] }, at("2026-11-12T00:00:00Z"));
-    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(c.state, c.match.id, at("2026-11-19T20:00:00Z"));
     const d = s.matchDays[0].draw!;
     const events: GoalEvent[] = [goal("A", d.teamA[0], d.teamA[1]), goal("A", d.teamA[2]), goal("B", d.teamB[0])];
     s = saveScorecard(

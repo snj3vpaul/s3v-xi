@@ -25,7 +25,7 @@ import {
   type SelectorRow,
 } from "@/lib/scoring/rules";
 import { isFormationValid } from "./pick7";
-import { openGwStatus, type GwHistoryRow, type GwStatus } from "./gameweeks";
+import { openGwStatuses, type GwHistoryRow, type GwStatus } from "./gameweeks";
 import type { Chip, LeagueState } from "./types";
 
 export type Pick7Status = "no_pick" | "picked" | "needs_fix";
@@ -81,6 +81,7 @@ export function rankPick7(rows: Pick7Row[]): Pick7Row[] {
 /** `selectors` may be passed in when the caller already has the selector standings. */
 export function buildPick7Table(state: LeagueState, rules: ScoringRules, selectors?: SelectorRow[], now = new Date()): Pick7Row[] {
   const season = new Map((selectors ?? buildSelectorStandings(state.matchDays, rules)).map((s) => [s.selectorId, s]));
+  const gwStatus = openGwStatuses(state, now);
   const rows: Pick7Row[] = state.users.map((u) => {
     const current = u.squadHistory.at(-1)?.picks ?? [];
     const status: Pick7Status = current.length === 0 ? "no_pick" : isFormationValid(current) ? "picked" : "needs_fix";
@@ -97,7 +98,7 @@ export function buildPick7Table(state: LeagueState, rules: ScoringRules, selecto
       firstPickedAt: u.squadHistory.find((h) => h.picks.length > 0)?.at ?? null,
       rank: null,
       sharedRank: false,
-      gw: openGwStatus(state, rules, u.id, now),
+      gw: gwStatus.get(u.id) ?? null,
     };
   });
   // Selectors whose account is gone (or legacy v1 roster-id selectors) keep their season line.

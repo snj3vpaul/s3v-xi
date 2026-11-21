@@ -3,15 +3,15 @@ import { describe, expect, it } from "vitest";
 import { FORMATION, PICK7, PICKABLE, ROSTER } from "@/config/club";
 import { POINTS_V1, POINTS_V2, rulesVersionOf, scoreMatch, scoreSelection } from "@/lib/scoring/rules";
 import {
-  DEFAULT_CONSTRAINTS,
   LedgerError,
   createMatchDay,
   initialState,
-  recordDraw,
   saveScorecard,
   setSquad,
   signUp,
   type Ctx,
+  setTeamSheet,
+  snapshotSelections,
 } from "./ledger";
 import { baseStars, checkTeam, currentStars, fitToFormation, isFormationValid, ownership } from "./pick7";
 import { planReminders } from "./reminders";
@@ -19,7 +19,17 @@ import type { LeagueState, User } from "./types";
 
 let n = 0;
 const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `p7-${++n}` });
-const SEED = "a".repeat(64);
+
+/**
+ * White and Red from the attendance list, in order (stands in for the old random draw),
+ * with every seven locked as at kick-off, as saving the scorecard does.
+ */
+const teams = (s: LeagueState, id: string, c: Ctx): LeagueState => {
+  const m = s.matchDays.find((x) => x.id === id)!;
+  const h = Math.ceil(m.attendees.length / 2);
+  const t = setTeamSheet(s, id, { teamA: m.attendees.slice(0, h), teamB: m.attendees.slice(h) }, c);
+  return { ...t, matchDays: t.matchDays.map((x) => (x.id === id ? { ...x, selections: snapshotSelections(t.users, x.kickoffAt, id) } : x)) };
+};
 const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
 const ALT = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
 const ATTEND = [...SEVEN, ...ALT, "gurnaam", "tadas"];
@@ -76,7 +86,7 @@ describe("star budget and ownership re-rating", () => {
     s = c.state;
     for (const id of ids.slice(0, 3)) s = setSquad(s, id, SEVEN, at("2026-11-13T00:00:00Z"));
     s = setSquad(s, ids[3], ALT, at("2026-11-13T00:00:00Z"));
-    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(s, c.match.id, at("2026-11-19T20:00:00Z"));
     const own = ownership(s.matchDays[0]);
     expect(own.vikram).toBe(0.75);
     expect(own.vineet).toBe(0.25);
@@ -93,7 +103,7 @@ describe("star budget and ownership re-rating", () => {
     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
     s = c.state;
     for (const id of ids) s = setSquad(s, id, SEVEN, at("2026-11-13T00:00:00Z"));
-    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(s, c.match.id, at("2026-11-19T20:00:00Z"));
     expect(currentStars(s.matchDays)).toEqual(baseStars());
   });
 
@@ -102,7 +112,7 @@ describe("star budget and ownership re-rating", () => {
     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
     s = c.state;
     for (const id of ids) s = setSquad(s, id, SEVEN, at("2026-11-13T00:00:00Z"));
-    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(s, c.match.id, at("2026-11-19T20:00:00Z"));
     // Everyone owned SEVEN → all seven are now 3★ (21★, over the 14★ budget).
     const stars = currentStars(s.matchDays);
     expect(SEVEN.every((id) => stars[id] === 3)).toBe(true);
@@ -116,7 +126,7 @@ describe("star budget and ownership re-rating", () => {
     expect(() => setSquad(fresh.state, fresh.user.id, SEVEN, at("2026-11-21T00:00:00Z"))).toThrow(/Over budget/);
   });
 
-  it("P08 an old pre-formation seven isn't entered at the draw, and gets a fix-your-team reminder", () => {
+  it("P08 an old pre-formation seven isn't entered at kick-off, and gets a fix-your-team reminder", () => {
     let { s, ids } = withUsers(2);
     const legacy = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder"];
     // Saved before the formation rule existed: written straight into history.
@@ -130,7 +140,7 @@ describe("star budget and ownership re-rating", () => {
     const plan = planReminders(s, new Date("2026-11-19T12:00:00Z"), "thu");
     expect(plan.find((r) => r.userId === ids[0])?.kind).toBe("fix_team");
     expect(plan.find((r) => r.userId === ids[1])?.kind).toBe("carry_over");
-    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(s, c.match.id, at("2026-11-19T20:00:00Z"));
     expect(s.matchDays[0].selections.map((x) => x.selectorId)).toEqual([ids[1]]);
   });
 });
@@ -190,7 +200,7 @@ describe("v2 scoring", () => {
     s = setSquad(s, ids[0], SEVEN, at("2026-11-13T00:00:00Z"));
     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
     expect(c.match.rulesVersion).toBe(2);
-    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(c.state, c.match.id, at("2026-11-19T20:00:00Z"));
     const d = s.matchDays[0].draw!;
     const id = c.match.id;
     const save = (input: Parameters<typeof saveScorecard>[3]) => saveScorecard(s, id, [], input, at("2026-11-20T04:00:00Z"));
@@ -211,7 +221,7 @@ describe("v2 scoring", () => {
   it("S06 v1 match days still save without MOTM", () => {
     const c = createMatchDay(initialState(), { date: "2026-11-12", attendees: ATTEND }, at("2026-11-01T00:00:00Z"));
     expect(c.match.rulesVersion).toBe(1);
-    let s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-12T20:00:00Z"), SEED);
+    let s = teams(c.state, c.match.id, at("2026-11-12T20:00:00Z"));
     s = saveScorecard(s, c.match.id, [], {}, at("2026-11-13T04:00:00Z"));
     expect(s.matchDays[0].motm).toBeUndefined();
     expect(scoreMatch(s.matchDays[0]).get("vikram")!.points).toBe(0);

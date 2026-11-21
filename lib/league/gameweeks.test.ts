@@ -1,7 +1,7 @@
 /** Gameweek numbering and FPL-style team-selection history. */
 import { describe, expect, it } from "vitest";
 import { createMatchDay, initialState, rulesFrom, setSquad, signUp, type Ctx } from "./ledger";
-import { diffTeams, gameweeks, managerHistory, openGwStatus, publicHistory } from "./gameweeks";
+import { diffTeams, gameweeks, managerHistory, openGwStatuses, publicHistory } from "./gameweeks";
 import { buildPick7Table } from "./pick7Table";
 import type { LeagueState } from "./types";
 
@@ -53,11 +53,11 @@ describe("gameweeks", () => {
     const now = new Date("2026-11-29T12:00:00Z");
     const rules = rulesFrom(s.settings);
 
-    expect(openGwStatus(s, rules, ana, now)).toMatchObject({ n: 2, kind: "changes", transfers: 1, captainChanged: true });
-    expect(openGwStatus(s, rules, ben, now)).toMatchObject({ n: 2, kind: "no_changes", transfers: 0 });
+    expect(openGwStatuses(s, now).get(ana)).toMatchObject({ n: 2, kind: "changes", transfers: 1, captainChanged: true });
+    expect(openGwStatuses(s, now).get(ben)).toMatchObject({ n: 2, kind: "no_changes", transfers: 0 });
     // Changing only the vice-captain counts as a change, and says so.
     const s2 = setSquad(s, ben, SEVEN, at("2026-11-28T11:00:00Z"), "raunak", { viceCaptain: "navneet" });
-    expect(openGwStatus(s2, rules, ben, now)).toMatchObject({ kind: "changes", transfers: 0, viceChanged: true });
+    expect(openGwStatuses(s2, now).get(ben)).toMatchObject({ kind: "changes", transfers: 0, viceChanged: true });
 
     const hist = managerHistory(s, rules, ana, now);
     expect(hist.map((r) => [r.n, r.locked])).toEqual([
@@ -83,8 +83,7 @@ describe("gameweeks", () => {
     let { s, ana, ben } = league();
     s = pick(s, ana, SEVEN, "2026-11-21T10:00:00Z", "vikram");
     const now = new Date("2026-11-22T12:00:00Z");
-    const rules = rulesFrom(s.settings);
-    expect(openGwStatus(s, rules, ana, now)).toMatchObject({ n: 1, kind: "new" });
-    expect(openGwStatus(s, rules, ben, now)).toMatchObject({ n: 1, kind: "none" });
+    expect(openGwStatuses(s, now).get(ana)).toMatchObject({ n: 1, kind: "new" });
+    expect(openGwStatuses(s, now).get(ben)).toMatchObject({ n: 1, kind: "none" });
   });
 });

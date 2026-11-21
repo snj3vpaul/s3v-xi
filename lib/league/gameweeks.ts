@@ -158,23 +158,39 @@ export interface GwStatus {
   chip: boolean;
 }
 
-export function openGwStatus(state: LeagueState, rules: ScoringRules, userId: string, now: Date): GwStatus | null {
+/**
+ * Open-week status for every account in one pass: the gameweek list is built once and
+ * each account's open team is compared with their last team before it. No scoring.
+ */
+export function openGwStatuses(state: LeagueState, now: Date): Map<string, GwStatus> {
+  const out = new Map<string, GwStatus>();
   const open = nextDeadlineMatch(state, now);
-  if (!open) return null;
-  const n = gwOf(state.matchDays, open.id);
-  if (n === null) return null;
-  const last = managerHistory(state, rules, userId, now).at(-1);
-  if (!last || last.matchId !== open.id || !last.team || !last.changes) return { n, kind: "none", transfers: 0, captainChanged: false, viceChanged: false, benchChanged: false, chip: false };
-  const c = last.changes;
-  return {
-    n,
-    kind: c.newTeam ? "new" : c.changed ? "changes" : "no_changes",
-    transfers: c.transfers,
-    captainChanged: !!c.captain,
-    viceChanged: !!c.vice,
-    benchChanged: !!c.bench,
-    chip: !!last.team.chip,
-  };
+  if (!open) return out;
+  const gws = gameweeks(state.matchDays);
+  const i = gws.findIndex((g) => g.match.id === open.id);
+  if (i < 0) return out;
+  const n = gws[i].n;
+  const earlier = gws.slice(0, i).reverse();
+  for (const user of state.users) {
+    const team = teamFor(user, open, now);
+    if (!team) {
+      out.set(user.id, { n, kind: "none", transfers: 0, captainChanged: false, viceChanged: false, benchChanged: false, chip: false });
+      continue;
+    }
+    let prev: GwTeam | null = null;
+    for (const g of earlier) if ((prev = teamFor(user, g.match, now))) break;
+    const c = diffTeams(prev, team);
+    out.set(user.id, {
+      n,
+      kind: c.newTeam ? "new" : c.changed ? "changes" : "no_changes",
+      transfers: c.transfers,
+      captainChanged: !!c.captain,
+      viceChanged: !!c.vice,
+      benchChanged: !!c.bench,
+      chip: !!team.chip,
+    });
+  }
+  return out;
 }
 
 /** Strip player names from weeks that haven't locked (for anyone but the owner). */

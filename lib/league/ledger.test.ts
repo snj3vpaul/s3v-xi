@@ -1,32 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { verifyDraw } from "@/lib/draw/draw";
-import { isDropIn } from "@/config/club";
 import { buildStandings } from "@/lib/scoring/rules";
 import {
-  DEFAULT_CONSTRAINTS,
   LedgerError,
   createMatchDay,
   deleteMatchDay,
   initialState,
-  recordDraw,
   rulesFrom,
   saveScorecard,
-  setAttendance,
   setSquad,
   signUp,
   updateSettings,
   type Ctx,
+  setTeamSheet,
+  snapshotSelections,
 } from "./ledger";
 import type { GoalEvent, LeagueState } from "./types";
 
 let idn = 0;
 const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `id${++idn}` });
+
+/**
+ * White and Red from the attendance list, in order (stands in for the old random draw),
+ * with every seven locked as at kick-off, as saving the scorecard does.
+ */
+const teams = (s: LeagueState, id: string, c: Ctx): LeagueState => {
+  const m = s.matchDays.find((x) => x.id === id)!;
+  const h = Math.ceil(m.attendees.length / 2);
+  const t = setTeamSheet(s, id, { teamA: m.attendees.slice(0, h), teamB: m.attendees.slice(h) }, c);
+  return { ...t, matchDays: t.matchDays.map((x) => (x.id === id ? { ...x, selections: snapshotSelections(t.users, x.kickoffAt, id) } : x)) };
+};
 const SQUAD = ["navneet", "archit", "vikram", "ghous", "danish", "danial", "karminder", "vineet", "inder", "raunak", "sanjeev", "jedi", "tadas", "jaskaran", "gurnaam", "savi"];
-const SEED = "b".repeat(64);
 
 function played(state: LeagueState, date: string, events: (teams: { A: string[]; B: string[] }) => GoalEvent[]) {
   const c = createMatchDay(state, { date, attendees: SQUAD }, at(`${date}T09:00:00Z`));
-  let s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at(`${date}T09:30:00Z`), SEED);
+  let s = teams(c.state, c.match.id, at(`${date}T09:30:00Z`));
   const d = s.matchDays.find((m) => m.id === c.match.id)!.draw!;
   s = saveScorecard(s, c.match.id, events({ A: d.teamA, B: d.teamB }), {}, at(`${date}T12:00:00Z`));
   return { state: s, id: c.match.id, teams: { A: d.teamA, B: d.teamB } };
@@ -34,7 +41,7 @@ function played(state: LeagueState, date: string, events: (teams: { A: string[];
 const goal = (id: string, scorerId: string, side: "A" | "B", assistId?: string): GoalEvent => ({ id, kind: "open_play", side, scorerId, assistId });
 
 describe("match-day lifecycle", () => {
-  it("L01 Pick 7 squads: exactly 7 different roster players; snapshotted into the match at the draw", () => {
+  it("L01 Pick 7 squads: exactly 7 different roster players; locked into the match at kick-off", () => {
     const c = createMatchDay(initialState(), { date: "2026-05-01", attendees: SQUAD }, at("2026-04-30T10:00:00Z"));
     const u = signUp(c.state, { email: "a@b.co", name: "Sanjeev", passwordHash: "x" }, at("2026-04-30T10:01:00Z"));
     const uid = u.user.id;
@@ -47,15 +54,8 @@ describe("match-day lifecycle", () => {
     let s = setSquad(u.state, uid, A, at("2026-04-30T11:00:00Z"));
     s = setSquad(s, uid, B, at("2026-04-30T11:05:00Z"));
     expect(s.audit.filter((a) => a.action === "squad.update")).toHaveLength(2);
-    s = recordDraw(s, c.match.id, DEFAULT_CONSTRAINTS, at("2026-05-01T09:00:00Z"), SEED);
+    s = teams(s, c.match.id, at("2026-05-01T09:00:00Z"));
     expect(s.matchDays[0].selections).toEqual([{ selectorId: uid, picks: B, captain: null, submittedAt: "2026-04-30T11:05:00.000Z" }]);
-  });
-
-  it("L02 attendance locks at the draw; recorded draws verify", () => {
-    const c = createMatchDay(initialState(), { date: "2026-05-01", attendees: SQUAD }, at("2026-04-30T10:00:00Z"));
-    const s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-05-01T09:00:00Z"));
-    expect(() => setAttendance(s, c.match.id, SQUAD.slice(0, 10), at("2026-05-01T09:01:00Z"))).toThrow(/locked/);
-    expect(verifyDraw(s.matchDays[0].draw!, isDropIn).ok).toBe(true);
   });
 
   it("L03 a match with a scorecard can't be deleted", () => {
@@ -65,7 +65,7 @@ describe("match-day lifecycle", () => {
 
   it("L04 scorecard errors block saving", () => {
     const c = createMatchDay(initialState(), { date: "2026-05-01", attendees: SQUAD }, at("2026-04-30T10:00:00Z"));
-    const s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-05-01T09:00:00Z"), SEED);
+    const s = teams(c.state, c.match.id, at("2026-05-01T09:00:00Z"));
     expect(() => saveScorecard(s, c.match.id, [goal("g1", "robin", "A")], {}, at("2026-05-01T12:00:00Z"))).toThrow(/errors/);
   });
 });

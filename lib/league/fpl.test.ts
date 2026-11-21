@@ -1,23 +1,22 @@
 /** Accounts, weekly fixtures, FPL-style carry-over, calendar feed and reminders. */
+import type { LeagueState } from "./types";
 import { describe, expect, it } from "vitest";
 import { SERIES } from "@/config/schedule";
 import { buildCalendar } from "./ics";
 import {
-  DEFAULT_CONSTRAINTS,
   LedgerError,
   deleteMatchDay,
   ensureSeries,
   initialState,
   migrate,
   nextDeadlineMatch,
-  recordDraw,
   recordReminders,
-  resetDraw,
   setSquad,
   signUp,
   squadAt,
   updateAccount,
   type Ctx,
+  lockedSelections,
 } from "./ledger";
 import { planReminders, reminderEmail } from "./reminders";
 import { weeklyDates, zonedToUtc } from "./schedule";
@@ -96,41 +95,30 @@ describe("FPL-style carry-over", () => {
     return { s, uid: a.user.id, w1, w2 };
   };
 
+  // Kick-off for w1 is 2026-11-20T03:00Z (Thu 10 pm Toronto); w2 a week later.
+  const lockedAt = (s: LeagueState, id: string, iso: string) => lockedSelections(s, s.matchDays.find((m) => m.id === id)!, new Date(iso));
+
   it("C01 the seven saved before a deadline carries into every later week until changed", () => {
     let { s, uid, w1, w2 } = setup();
     s = setSquad(s, uid, SEVEN, at("2026-11-15T12:00:00Z"));
-    s = recordDraw(s, w1.id, DEFAULT_CONSTRAINTS, at("2026-11-20T02:50:00Z"), "a".repeat(64));
-    s = recordDraw(s, w2.id, DEFAULT_CONSTRAINTS, at("2026-11-27T02:50:00Z"), "b".repeat(64));
-    expect(s.matchDays.find((m) => m.id === w1.id)!.selections[0].picks).toEqual(SEVEN);
-    expect(s.matchDays.find((m) => m.id === w2.id)!.selections[0].picks).toEqual(SEVEN);
+    expect(lockedAt(s, w1.id, "2026-11-20T03:01:00Z")[0].picks).toEqual(SEVEN);
+    expect(lockedAt(s, w2.id, "2026-11-27T03:01:00Z")[0].picks).toEqual(SEVEN);
   });
 
-  it("C02 a change after the deadline counts from the next week, even if the draw happens later", () => {
+  it("C02 a change after kick-off counts from the next week", () => {
     let { s, uid, w1, w2 } = setup();
     s = setSquad(s, uid, SEVEN, at("2026-11-15T12:00:00Z"));
-    s = setSquad(s, uid, OTHER, at("2026-11-20T03:05:00Z")); // 10:05 pm Thursday — past kick-off
-    s = recordDraw(s, w1.id, DEFAULT_CONSTRAINTS, at("2026-11-20T03:10:00Z"), "a".repeat(64)); // late draw
-    s = recordDraw(s, w2.id, DEFAULT_CONSTRAINTS, at("2026-11-27T02:55:00Z"), "b".repeat(64));
-    expect(s.matchDays.find((m) => m.id === w1.id)!.selections[0].picks).toEqual(SEVEN);
-    expect(s.matchDays.find((m) => m.id === w2.id)!.selections[0].picks).toEqual(OTHER);
+    s = setSquad(s, uid, OTHER, at("2026-11-20T03:05:00Z")); // 10:05 pm Thursday, past kick-off
+    expect(lockedAt(s, w1.id, "2026-11-20T03:10:00Z")[0].picks).toEqual(SEVEN);
+    expect(lockedAt(s, w2.id, "2026-11-27T03:01:00Z")[0].picks).toEqual(OTHER);
   });
 
-  it("C03 an early draw is the deadline; users with no team are simply not in that round", () => {
+  it("C03 picks stay open until kick-off; a first seven saved after it sits that week out", () => {
     let { s, uid, w1 } = setup();
-    s = setSquad(s, uid, SEVEN, at("2026-11-20T02:58:00Z")); // 9:58 pm
-    s = recordDraw(s, w1.id, DEFAULT_CONSTRAINTS, at("2026-11-20T02:55:00Z"), "a".repeat(64)); // drawn 9:55 pm
-    expect(s.matchDays.find((m) => m.id === w1.id)!.selections).toEqual([]);
-    expect(squadAt(s.users[0], "2026-11-20T03:00:00.000Z")).toEqual(SEVEN);
-  });
-
-  it("C04 resetting a draw clears the snapshot; re-drawing re-snapshots", () => {
-    let { s, uid, w1 } = setup();
-    s = setSquad(s, uid, SEVEN, at("2026-11-15T12:00:00Z"));
-    s = recordDraw(s, w1.id, DEFAULT_CONSTRAINTS, at("2026-11-20T02:50:00Z"), "a".repeat(64));
-    s = resetDraw(s, w1.id, "late arrival", at("2026-11-20T02:52:00Z"));
-    expect(s.matchDays.find((m) => m.id === w1.id)!.selections).toEqual([]);
-    s = recordDraw(s, w1.id, DEFAULT_CONSTRAINTS, at("2026-11-20T02:54:00Z"), "c".repeat(64));
-    expect(s.matchDays.find((m) => m.id === w1.id)!.selections).toHaveLength(1);
+    expect(lockedAt(s, w1.id, "2026-11-20T02:59:00Z")).toEqual([]); // not locked yet
+    s = setSquad(s, uid, SEVEN, at("2026-11-20T03:02:00Z")); // 10:02 pm
+    expect(lockedAt(s, w1.id, "2026-11-20T03:05:00Z")).toEqual([]);
+    expect(squadAt(s.users[0], "2026-11-20T03:05:00.000Z")).toEqual(SEVEN);
   });
 
   it("C05 next deadline skips past kick-offs and drawn match days", () => {

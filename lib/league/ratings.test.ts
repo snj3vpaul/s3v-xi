@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ROSTER } from "@/config/club";
-import { ALL_SKILLS, FACE_STATS, SCOUTED_OVR, SCOUTING, SCOUTING_TOP, SQUAD_RATINGS, rate, ratingFor, tier } from "./ratings";
+import { ALL_SKILLS, FACE_STATS, SCOUTED_OVR, SCOUTING, SCOUTING_TOP, SQUAD_RATINGS, rate, ratingFor } from "./ratings";
 
 describe("player ratings", () => {
   it("R01 gives every roster player a card", () => {
@@ -36,9 +36,8 @@ describe("player ratings", () => {
     expect(avg("ATT", "SHO")).toBeGreaterThan(avg("DEF", "SHO") + 10);
   });
 
-  it("R05 is sorted best first and tiers cards", () => {
+  it("R05 is sorted best first", () => {
     for (let i = 1; i < SQUAD_RATINGS.length; i++) expect(SQUAD_RATINGS[i - 1].ovr).toBeGreaterThanOrEqual(SQUAD_RATINGS[i].ovr);
-    expect([tier(80), tier(76), tier(70)]).toEqual(["gold", "silver", "bronze"]);
   });
 
   it("R06 follows the club's scouting order, keeping each player's strengths", () => {

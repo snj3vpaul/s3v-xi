@@ -6,7 +6,7 @@ import "server-only";
 import { cache } from "react";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import type { User } from "@/lib/league/types";
+import type { LeagueState, User } from "@/lib/league/types";
 import { getState } from "./store";
 
 export const USER_COOKIE = "rsfc_user";
@@ -46,18 +46,30 @@ export const userCookieOptions = {
   maxAge: MAX_AGE_S,
 };
 
-/** The logged-in user, or null. Shared across one server render. */
-export const currentUser = cache(async (): Promise<User | null> => {
-  let token: string | undefined;
+async function sessionToken() {
   try {
-    token = (await cookies()).get(USER_COOKIE)?.value;
+    return parseUserToken((await cookies()).get(USER_COOKIE)?.value);
   } catch {
     return null;
   }
-  const t = parseUserToken(token);
+}
+
+/**
+ * The logged-in user within a league state you've already read. Route handlers use
+ * this: React's cache() only dedupes inside a server render, so calling getState()
+ * and currentUser() in a route would read storage twice.
+ */
+export async function currentUserIn(state: Pick<LeagueState, "users">): Promise<User | null> {
+  const t = await sessionToken();
   if (!t) return null;
-  const u = (await getState()).users.find((x) => x.id === t.id);
+  const u = state.users.find((x) => x.id === t.id);
   return u && u.sessionVersion === t.version ? u : null;
+}
+
+/** The logged-in user, or null. Shared across one server render. */
+export const currentUser = cache(async (): Promise<User | null> => {
+  if (!(await sessionToken())) return null; // logged out: no storage read at all
+  return currentUserIn(await getState());
 });
 
 /** Simple per-key throttle for login/sign-up (in-memory; fine for a club-sized app). */

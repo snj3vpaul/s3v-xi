@@ -7,10 +7,9 @@
  * `before`, so a correction never silently overwrites anything.
  */
 
-import { CHIPS, CLUB, ROSTER, getPlayer, isDropIn, playerName } from "@/config/club";
+import { CHIPS, CLUB, ROSTER, getPlayer, playerName } from "@/config/club";
 import { SERIES } from "@/config/schedule";
 import { weeklyDates, zonedToUtc } from "./schedule";
-import { drawTeams, generateSeed } from "@/lib/draw/draw";
 import { DEFAULT_RULES, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
 import { checkTeam, currentStars, isFormationValid } from "./pick7";
 import type {
@@ -174,62 +173,6 @@ export function deleteMatchDay(state: LeagueState, matchId: string, ctx: Ctx): L
 }
 
 // ---------------------------------------------------------------------------
-// Draw
-// ---------------------------------------------------------------------------
-
-/** Matches that were drawn before `match` (by date, then creation). */
-function earlierDrawn(state: LeagueState, match: MatchDay): MatchDay[] {
-  return state.matchDays
-    .filter((m) => m.id !== match.id && m.draw && (m.date < match.date || (m.date === match.date && m.createdAt < match.createdAt)))
-    .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
-}
-
-export function floaterCounts(matches: MatchDay[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const m of matches) if (m.draw?.floater) out[m.draw.floater] = (out[m.draw.floater] ?? 0) + 1;
-  return out;
-}
-
-/** @deprecated Legacy random draw (locked Pick 7 at the draw). Match days now use setTeamSheet. */
-export function recordDraw(
-  state: LeagueState,
-  matchId: string,
-  constraints: DrawConstraints,
-  ctx: Ctx,
-  seed: string = generateSeed(),
-): LeagueState {
-  const m = findMatch(state, matchId);
-  if (m.status !== "open") throw new LedgerError("Teams are already drawn for this match day.");
-  checkRoster(constraints.keepTogether.flat(), "Keep-together");
-  checkRoster(constraints.keepApart.flat(), "Keep-apart");
-  const history = earlierDrawn(state, m);
-  const prev = history.at(-1)?.draw ?? null;
-  let draw;
-  try {
-    draw = drawTeams({
-      attendees: m.attendees,
-      constraints,
-      seed,
-      isDropIn,
-      previousTeams: prev ? { A: prev.teamA, B: prev.teamB } : null,
-      floaterCounts: floaterCounts(history),
-      minPerSide: CLUB.minPerSide,
-      now: () => ctx.now,
-    });
-  } catch (e) {
-    throw new LedgerError((e as Error).message);
-  }
-  // Pick 7 locks now: snapshot every user's seven as it stood at the deadline
-  // (kick-off, or the moment of the draw if that came first).
-  const deadline = new Date(Math.min(new Date(m.kickoffAt).getTime(), ctx.now.getTime())).toISOString();
-  return replaceMatch(
-    state,
-    { ...m, status: "drawn", draw, selections: snapshotSelections(state.users, deadline, m.id) },
-    audit(ctx, { actor: "admin", action: "draw.create", matchId, after: draw }),
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Team sheet — captains pick sides over WhatsApp; the admin enters them here
 // ---------------------------------------------------------------------------
 
@@ -291,19 +234,6 @@ export function lockedSelections(state: LeagueState, m: MatchDay, now: Date): Se
   if (m.scorecardAt || m.selections.length) return m.selections;
   if (now.getTime() < new Date(m.kickoffAt).getTime()) return [];
   return snapshotSelections(state.users, m.kickoffAt, m.id);
-}
-
-/** @deprecated Legacy random draw; match days now use setTeamSheet. Kept for old data and tests. */
-export function resetDraw(state: LeagueState, matchId: string, reason: string, ctx: Ctx): LeagueState {
-  const m = findMatch(state, matchId);
-  if (!m.draw) throw new LedgerError("No draw to reset.");
-  if (m.scorecardAt) throw new LedgerError("This match already has a scorecard; its teams are final.");
-  if (!reason.trim()) throw new LedgerError("Give a reason for resetting the draw (it's shown in the audit log).");
-  return replaceMatch(
-    state,
-    { ...m, status: "open", draw: null, selections: [] },
-    audit(ctx, { actor: "admin", action: "draw.reset", matchId, reason, before: { draw: m.draw, selections: m.selections } }),
-  );
 }
 
 // ---------------------------------------------------------------------------

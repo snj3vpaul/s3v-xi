@@ -354,11 +354,6 @@ export function rate(player: Pick<Player, "id" | "name" | "position">, seed = RA
   };
 }
 
-/** Card tier: gold 80+, silver 74–79, bronze below. */
-export function tier(ovr: number): "gold" | "silver" | "bronze" {
-  return ovr >= 80 ? "gold" : ovr >= 74 ? "silver" : "bronze";
-}
-
 /** Every roster player's card, best first (ties by name). */
 export const SQUAD_RATINGS: readonly PlayerRating[] = ROSTER.map((p) => rate(p)).sort(
   (a, b) => b.ovr - a.ovr || a.name.localeCompare(b.name),

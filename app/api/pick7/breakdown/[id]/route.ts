@@ -3,7 +3,7 @@ import { rulesFrom } from "@/lib/league/ledger";
 import { selectorBreakdown } from "@/lib/league/pick7Table";
 import { managerHistory, publicHistory } from "@/lib/league/gameweeks";
 import { handle } from "@/lib/server/http";
-import { currentUser } from "@/lib/server/session";
+import { currentUserIn } from "@/lib/server/session";
 import { getState } from "@/lib/server/store";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
  * changed, everyone else sees counts.
  */
 export const GET = handle<{ id: string }>(async (_req, { id }) => {
-  const [state, me] = await Promise.all([getState(), currentUser()]);
+  const state = await getState();
+  const me = await currentUserIn(state);
   const rules = rulesFrom(state.settings);
   const rows = managerHistory(state, rules, id, new Date());
   const history = me?.id === id ? rows : publicHistory(rows);

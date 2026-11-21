@@ -1,24 +1,29 @@
 /** The live Pick 7 table: no pick vs picked-on-0, edits, removal, ranking and optimistic updates. */
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_CONSTRAINTS,
   clearSquad,
   createMatchDay,
   currentSquad,
   initialState,
-  recordDraw,
   rulesFrom,
   saveScorecard,
   setSquad,
   signUp,
   type Ctx,
+  setTeamSheet,
 } from "./ledger";
 import { applyOptimistic, buildPick7Table, rankPick7, type Pick7Row } from "./pick7Table";
 import type { LeagueState, User } from "./types";
 
 let n = 0;
 const at = (iso: string): Ctx => ({ now: new Date(iso), newId: () => `t7-${++n}` });
-const SEED = "b".repeat(64);
+
+/** White and Red from the attendance list, in order (stands in for the old random draw). */
+const teams = (s: LeagueState, id: string, c: Ctx) => {
+  const m = s.matchDays.find((x) => x.id === id)!;
+  const h = Math.ceil(m.attendees.length / 2);
+  return setTeamSheet(s, id, { teamA: m.attendees.slice(0, h), teamB: m.attendees.slice(h) }, c);
+};
 const SEVEN = ["archit", "danial", "navneet", "raunak", "ghous", "vikram", "karminder"];
 const ALT = ["vineet", "jaskaran", "sanjeev", "jedi", "danish", "harpreet", "nakul"];
 const ATTEND = [...SEVEN, ...ALT, "gurnaam", "tadas"];
@@ -65,7 +70,7 @@ describe("Pick 7 table", () => {
     let { s, ids } = league(["Ana", "Ben"]);
     s = setSquad(s, ids.Ana, SEVEN, at("2026-11-13T10:00:00Z"));
     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
-    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(c.state, c.match.id, at("2026-11-19T20:00:00Z"));
     expect(row(s, ids.Ana).points).toBe(0); // drawn, not played
     const d = s.matchDays[0].draw!;
     s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] }, rotationChecked: true }, at("2026-11-20T04:00:00Z"));
@@ -85,7 +90,7 @@ describe("Pick 7 table", () => {
     expect(s.audit.at(-1)).toMatchObject({ action: "squad.clear", before: SEVEN });
     expect(clearSquad(s, ids.Ana, at("2026-11-14T11:00:00Z"))).toBe(s); // nothing left to remove
     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
-    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(c.state, c.match.id, at("2026-11-19T20:00:00Z"));
     expect(s.matchDays[0].selections).toEqual([]);
     // Picking again puts them straight back on 0.
     s = setSquad(s, ids.Ana, ALT, at("2026-11-20T10:00:00Z"));
@@ -96,7 +101,7 @@ describe("Pick 7 table", () => {
     let { s, ids } = league(["Ana"]);
     s = setSquad(s, ids.Ana, SEVEN, at("2026-11-13T10:00:00Z"));
     const c = createMatchDay(s, { date: "2026-11-19", attendees: ATTEND }, at("2026-11-12T00:00:00Z"));
-    s = recordDraw(c.state, c.match.id, DEFAULT_CONSTRAINTS, at("2026-11-19T20:00:00Z"), SEED);
+    s = teams(c.state, c.match.id, at("2026-11-19T20:00:00Z"));
     const d = s.matchDays[0].draw!;
     s = saveScorecard(s, c.match.id, [], { motm: { A: d.teamA[0], B: d.teamB[0] }, rotationChecked: true }, at("2026-11-20T04:00:00Z"));
     const before = row(s, ids.Ana).points;
