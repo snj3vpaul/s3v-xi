@@ -121,6 +121,8 @@ export interface Profile {
   /** Always-on traits (random ones fill the rest, up to 3). */
   traits?: string[];
   workRate?: { att: (typeof WORK)[number]; def: (typeof WORK)[number] };
+  /** Weak foot, 1–5. Only profiles can give 1 or 5; the dice stay between 2 and 4. */
+  weakFoot?: number;
 }
 
 const BOX_TO_BOX: Profile = {
@@ -187,8 +189,8 @@ export const SCOUTED_OVR: Readonly<Record<string, number>> = (() => {
 /** What the club knows about players, by id. Anyone missing is rated entirely at random. */
 export const PROFILES: Record<string, Profile> = {
   // The most skilled all-round players.
-  savi: ALL_ROUNDER(82),
-  tadas: ALL_ROUNDER(81, { traits: ["Technical dribbler", "Long passer"] }),
+  savi: ALL_ROUNDER(82, { weakFoot: 5 }),
+  tadas: ALL_ROUNDER(81, { traits: ["Technical dribbler", "Long passer"], weakFoot: 5 }),
   navneet: ALL_ROUNDER(81, { style: "Playmaker", traits: ["Team player", "Long passer"] }),
 
   // Strikers.
@@ -227,7 +229,11 @@ export const PROFILES: Record<string, Profile> = {
     skills: { Awareness: 85, Composure: 82, Heading: 80, "Sprint speed": 55, Acceleration: 56 },
     traits: ["Leadership", "Solid player"],
     workRate: { att: "Low", def: "Med" },
+    weakFoot: 1,
   },
+
+  // Weakest weak foot in the squad, with Jaskaran.
+  awais: { weakFoot: 1 },
 
   // Box to box.
   ghous: { ...BOX_TO_BOX, base: 70 },
@@ -340,7 +346,8 @@ export function rate(player: Pick<Player, "id" | "name" | "position">, seed = RA
     skills,
     style,
     skillMoves: Math.max(1, Math.min(5, Math.round(gauss(SKILL_MOVES_MEAN[position], 0.8)))),
-    weakFoot: wfRoll < 0.05 ? 1 : wfRoll < 0.3 ? 2 : wfRoll < 0.7 ? 3 : wfRoll < 0.92 ? 4 : 5,
+    // Club's view: Savi and Tadas have the best weak foot (5), Jaskaran and Awais the weakest (1).
+    weakFoot: prof.weakFoot ?? (wfRoll < 0.3 ? 2 : wfRoll < 0.75 ? 3 : 4),
     foot: rand() < 0.22 ? "Left" : "Right",
     workRate: prof.workRate ?? rolledWork,
     traits,

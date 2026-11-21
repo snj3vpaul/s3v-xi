@@ -57,4 +57,14 @@ describe("player ratings", () => {
     for (const id of ["vikram", "karminder"]) expect(r(id).face.SHO).toBeGreaterThan(r(id).face.PAC + 10);
     for (const id of ["archit", "danial", "vineet"]) expect(r(id).face.DEF).toBeGreaterThan(r(id).face.SHO + 25);
   });
+
+  it("R07 weak foot: Savi and Tadas best, Jaskaran and Awais weakest", () => {
+    const wf = (id: string) => ratingFor(id)!.weakFoot;
+    expect([wf("savi"), wf("tadas"), wf("jaskaran"), wf("awais")]).toEqual([5, 5, 1, 1]);
+    for (const r of SQUAD_RATINGS) {
+      if (["savi", "tadas", "jaskaran", "awais"].includes(r.id)) continue;
+      expect(r.weakFoot).toBeGreaterThanOrEqual(2);
+      expect(r.weakFoot).toBeLessThanOrEqual(4);
+    }
+  });
 });
