@@ -152,8 +152,8 @@ export default async function SquadPage({ searchParams }: { searchParams: Promis
           Every player, <em>rated.</em>
         </h1>
         <p className="lede">
-          FIFA-style cards for the whole roster: six headline stats built from 29 skills. They&apos;re for fun, generated at random
-          and fixed per player, and they don&apos;t affect points or Pick 7 stars.
+          FIFA-style cards for the whole roster: six headline stats built from 29 skills. They start from what the club knows about
+          each player, the dice fill in the detail, and they don&apos;t affect points or Pick 7 stars.
         </p>
       </header>
 
