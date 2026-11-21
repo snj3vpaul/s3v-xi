@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
+import type React from "react";
 import Link from "next/link";
 import { POSITIONS, POSITION_LABEL, isDropIn, type Position } from "@/config/club";
 import { Kicker } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
+import { AnimePortrait } from "@/components/AnimePortrait";
+import { HoloCard } from "@/components/HoloCard";
+import { portraitFor } from "@/config/portraits";
 import { FACE_LABEL, FACE_STATS, SKILLS, type FaceStat } from "@/lib/league/ratings";
 import { formMoves, squadWithForm, type FormRating } from "@/lib/league/ratingForm";
 import { deriveSeason } from "@/lib/league/derive";
@@ -69,17 +73,38 @@ function Web({ face, size = 168 }: { face: Record<FaceStat, number>; size?: numb
 function Card({ r }: { r: FormRating }) {
   const inForm = !r.form.fixed && r.form.total > 0;
   const tags = [r.style, ...r.traits.filter((t) => SIGNATURE.has(t))].slice(0, 3);
+  const look = portraitFor(r.id);
+  const phase = (r.id.length * 0.9) % 5;
+  const badge = inForm && (
+    <span className="fut-tag">
+      <span className="fut-form is-up" title="Playing well lately">In form ▲</span>
+    </span>
+  );
   return (
-    <article className={`fut fut-${r.position.toLowerCase()}`} id={r.id}>
-      <header className="fut-top">
-        <span className="fut-pos">{r.position}</span>
-        {inForm && (
-          <span className="fut-tag">
-            <span className="fut-form is-up" title="Playing well lately">In form ▲</span>
+    <HoloCard
+      id={r.id}
+      className={`fut fut-${r.position.toLowerCase()}${look ? " fut-has-portrait" : ""}`}
+      style={{ "--pt-phase": `${phase}s` } as React.CSSProperties}
+    >
+      {look ? (
+        <header className="fut-stage">
+          <span className="fut-rays" aria-hidden="true" />
+          <span className="fut-sparks" aria-hidden="true">
+            {Array.from({ length: 7 }, (_, i) => (
+              <i key={i} style={{ "--i": i } as React.CSSProperties} />
+            ))}
           </span>
-        )}
-        <Mascot id={r.id} size={64} className="fut-mascot" />
-      </header>
+          <AnimePortrait id={r.id} look={look} phase={phase} className="fut-portrait" />
+          <span className="fut-stage-pos">{r.position}</span>
+          {badge}
+        </header>
+      ) : (
+        <header className="fut-top">
+          <span className="fut-pos">{r.position}</span>
+          {badge}
+          <Mascot id={r.id} size={64} className="fut-mascot" />
+        </header>
+      )}
       <h2 className="fut-name">
         {r.name}
         {isDropIn(r.id) && <span className="fut-dropin"> · drop-in</span>}
@@ -121,7 +146,8 @@ function Card({ r }: { r: FormRating }) {
           ))}
         </div>
       </details>
-    </article>
+      <span className="fut-glare" aria-hidden="true" />
+    </HoloCard>
   );
 }
 

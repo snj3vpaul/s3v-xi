@@ -1406,3 +1406,51 @@ a.chip { text-decoration: none; }
 .gw-swaps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
 .gw-in { color: var(--accent); }
 .gw-out { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--brick) 60%, transparent); }
+
+/* ---------------------------------------------------------------------
+   Squad: anime portraits with FIFA-promo VFX (stage, rays, sparks, holo
+   shine, pointer tilt). Everything stops with prefers-reduced-motion.
+   --------------------------------------------------------------------- */
+.fut { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transform-style: preserve-3d; transition: transform 0.5s var(--ease), box-shadow 0.4s var(--ease); overflow: hidden; isolation: isolate; }
+.fut[data-tilt] { transition: transform 0.08s linear, box-shadow 0.4s var(--ease); box-shadow: 0 18px 40px -18px color-mix(in oklab, var(--fut-key) 55%, transparent), inset 0 0 0 4px color-mix(in oklab, var(--fut-key) 22%, transparent); }
+.fut:hover { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); }
+.fut-glare { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity 0.3s; background: radial-gradient(circle at var(--gx, 50%) var(--gy, 30%), rgba(255, 250, 235, 0.22), transparent 45%); mix-blend-mode: soft-light; z-index: 3; }
+.fut[data-tilt] .fut-glare { opacity: 1; }
+
+/* Holographic shine sweeping across portrait cards. */
+.fut-has-portrait::after {
+  content: ""; position: absolute; inset: -40%; pointer-events: none; z-index: 2;
+  background: linear-gradient(115deg, transparent 42%, color-mix(in oklab, var(--fut-key) 35%, transparent) 47%, rgba(255, 253, 245, 0.28) 50%, color-mix(in oklab, #9fd1e8 30%, transparent) 53%, transparent 58%);
+  transform: translateX(-60%); animation: fut-sweep 7s var(--ease) infinite; animation-delay: calc(var(--pt-phase, 0s) + 1s);
+}
+@keyframes fut-sweep { 0%, 62% { transform: translateX(-60%); } 85%, 100% { transform: translateX(60%); } }
+
+.fut-stage { position: relative; height: 214px; margin: -1rem -1.1rem 0; border-radius: 22px 22px 0 0; overflow: hidden;
+  background: radial-gradient(120% 80% at 50% 100%, color-mix(in oklab, var(--fut-key) 45%, var(--fut-bg)) 0%, var(--fut-bg) 70%); }
+.fut-rays { position: absolute; left: 50%; top: 58%; width: 520px; height: 520px; margin: -260px 0 0 -260px; opacity: 0.32;
+  background: repeating-conic-gradient(from 0deg, color-mix(in oklab, var(--fut-key) 70%, transparent) 0deg 5deg, transparent 5deg 18deg);
+  mask-image: radial-gradient(circle, #000 18%, transparent 62%); -webkit-mask-image: radial-gradient(circle, #000 18%, transparent 62%);
+  animation: fut-spin 40s linear infinite; }
+@keyframes fut-spin { to { transform: rotate(360deg); } }
+.fut-sparks i { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #fffbe8; box-shadow: 0 0 8px 2px color-mix(in oklab, var(--fut-key) 80%, #fff);
+  left: calc(8% + var(--i) * 13%); top: calc(14% + (var(--i) * 37 % 60) * 1%); opacity: 0; animation: fut-twinkle 3.4s ease-in-out infinite; animation-delay: calc(var(--i) * 0.47s); }
+@keyframes fut-twinkle { 0%, 100% { opacity: 0; transform: scale(0.4) translateY(4px); } 45% { opacity: 0.9; transform: scale(1) translateY(-6px); } }
+.fut-portrait { position: absolute; left: 50%; bottom: -2px; width: 176px; height: auto; transform: translateX(-50%) translateZ(30px); filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45)); }
+.fut-stage-pos { position: absolute; top: 0.8rem; left: 1rem; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em; color: var(--fut-key); z-index: 1; }
+.fut-stage .fut-tag { position: absolute; top: 2.1rem; left: 1rem; z-index: 1; }
+.fut-has-portrait .fut-name { margin-top: 0.2rem; position: relative; z-index: 1; }
+
+/* Portrait life: blink, breathe, hair sway. */
+.pt-eyes { animation: pt-blink 5.2s infinite; animation-delay: var(--pt-phase, 0s); }
+@keyframes pt-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.08); } }
+.pt-bust { animation: pt-breathe 4.6s ease-in-out infinite; animation-delay: calc(var(--pt-phase, 0s) * -1); }
+@keyframes pt-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.6px); } }
+.pt-hair { animation: pt-sway 6s ease-in-out infinite; animation-delay: calc(var(--pt-phase, 0s) * -0.7); }
+@keyframes pt-sway { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(0.9deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fut, .fut:hover { transform: none; }
+  .fut-has-portrait::after, .fut-rays, .fut-sparks i, .pt-eyes, .pt-bust, .pt-hair { animation: none; }
+  .fut-has-portrait::after { display: none; }
+  .fut-sparks i { opacity: 0.5; }
+}
