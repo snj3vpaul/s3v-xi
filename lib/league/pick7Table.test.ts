@@ -114,7 +114,7 @@ describe("Pick 7 table", () => {
   });
 
   it("T08 optimistic: a save shows the user ranked on 0 instantly; a removal drops them; points never move", () => {
-    const base: Pick7Row = { id: "", name: "", status: "no_pick", points: 0, rounds: 0, hits: 0, totalPicks: 0, firstPickedAt: null, rank: null, sharedRank: false };
+    const base: Pick7Row = { id: "", name: "", status: "no_pick", points: 0, rounds: 0, hits: 0, totalPicks: 0, firstPickedAt: null, rank: null, sharedRank: false, gw: null };
     const rows = rankPick7([
       { ...base, id: "a", name: "Ana", status: "picked", points: 9, rounds: 1, firstPickedAt: "2026-11-01T00:00:00Z" },
       { ...base, id: "b", name: "Ben" },

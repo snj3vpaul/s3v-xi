@@ -25,6 +25,7 @@ import {
   type SelectorRow,
 } from "@/lib/scoring/rules";
 import { isFormationValid } from "./pick7";
+import { openGwStatus, type GwHistoryRow, type GwStatus } from "./gameweeks";
 import type { Chip, LeagueState } from "./types";
 
 export type Pick7Status = "no_pick" | "picked" | "needs_fix";
@@ -43,6 +44,8 @@ export interface Pick7Row {
   /** null = not on the table yet (no pick and no rounds played). */
   rank: number | null;
   sharedRank: boolean;
+  /** Changes made for the open gameweek (counts only, never names). null for former members. */
+  gw: GwStatus | null;
 }
 
 /** Ranked rows have a pick or a played round. */
@@ -76,7 +79,7 @@ export function rankPick7(rows: Pick7Row[]): Pick7Row[] {
 }
 
 /** `selectors` may be passed in when the caller already has the selector standings. */
-export function buildPick7Table(state: LeagueState, rules: ScoringRules, selectors?: SelectorRow[]): Pick7Row[] {
+export function buildPick7Table(state: LeagueState, rules: ScoringRules, selectors?: SelectorRow[], now = new Date()): Pick7Row[] {
   const season = new Map((selectors ?? buildSelectorStandings(state.matchDays, rules)).map((s) => [s.selectorId, s]));
   const rows: Pick7Row[] = state.users.map((u) => {
     const current = u.squadHistory.at(-1)?.picks ?? [];
@@ -94,6 +97,7 @@ export function buildPick7Table(state: LeagueState, rules: ScoringRules, selecto
       firstPickedAt: u.squadHistory.find((h) => h.picks.length > 0)?.at ?? null,
       rank: null,
       sharedRank: false,
+      gw: openGwStatus(state, rules, u.id, now),
     };
   });
   // Selectors whose account is gone (or legacy v1 roster-id selectors) keep their season line.
@@ -109,6 +113,7 @@ export function buildPick7Table(state: LeagueState, rules: ScoringRules, selecto
       firstPickedAt: null,
       rank: null,
       sharedRank: false,
+      gw: null,
     });
   }
   return rankPick7(rows);
@@ -167,6 +172,8 @@ export interface SelectorBreakdown {
   /** Season points by source, for the "where your points came from" bar. */
   byKind: Partial<Record<ContributionKind, number>>;
   total: number;
+  /** Team-selection history by gameweek (added by the API; names hidden for weeks not yet locked). */
+  history?: GwHistoryRow[];
 }
 
 /**

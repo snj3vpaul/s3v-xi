@@ -424,6 +424,8 @@ tr:last-child td { border-bottom: 0; }
 .pts { font-family: var(--display); font-variation-settings: var(--display-axes); font-weight: 400; font-size: 1.3rem; font-variant-numeric: lining-nums tabular-nums; }
 .neg { color: var(--danger); }
 @media (max-width: 560px) { .hide-sm { display: none; } }
+.show-sm { display: none; }
+@media (max-width: 560px) { .show-sm { display: inline-flex; margin-left: 0.4rem; } }
 
 /* ---------- Teams ---------- */
 .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
@@ -1388,3 +1390,19 @@ a.chip { text-decoration: none; }
 .fut-skills li b { text-align: right; font-variant-numeric: tabular-nums; }
 .fut-bar { height: 4px; border-radius: 2px; background: rgba(245, 240, 230, 0.14); overflow: hidden; }
 .fut-bar i { display: block; height: 100%; background: var(--fut-key); border-radius: inherit; }
+
+/* Gameweek changes (Pick 7 table column + team history) */
+.gw-cell { font-size: 0.85rem; line-height: 1.25; }
+.gw-cell span { display: block; white-space: nowrap; }
+.gw-cell.gw-changes { color: var(--accent); font-weight: 600; }
+.gw-cell.gw-new { color: var(--bronze-deep); font-weight: 600; }
+.gw-cell.gw-no_changes, .gw-cell.gw-none { color: var(--muted); }
+.gw-table { width: 100%; font-size: 0.88rem; }
+.gw-table td { vertical-align: top; }
+.gw-n { display: flex; flex-direction: column; gap: 0.05rem; white-space: nowrap; }
+.gw-n .muted { font-size: 0.75rem; }
+.gw-tag { font-size: 0.68rem; font-weight: 700; color: var(--bronze-deep); }
+.gw-open td { background: color-mix(in oklab, var(--champagne) 10%, transparent); }
+.gw-swaps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.gw-in { color: var(--accent); }
+.gw-out { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--brick) 60%, transparent); }

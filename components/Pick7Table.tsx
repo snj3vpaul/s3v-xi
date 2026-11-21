@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { applyOptimistic, type Pick7Row, type Pick7Status, type SelectorBreakdown } from "@/lib/league/pick7Table";
 import { onPick7 } from "./pick7Live";
 import { PointsBreakdown } from "./PointsBreakdown";
+import { GwHistory, gwStatusText } from "./GwHistory";
 
 const POLL_MS = 15_000;
 
@@ -104,6 +105,7 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
 
   const shown = overlay && meId ? applyOptimistic(rows, meId, overlay, new Date().toISOString()) : rows;
   const ranked = shown.filter((r) => r.rank !== null);
+  const gwN = shown.find((r) => r.gw)?.gw?.n ?? null;
   const waiting = shown.filter((r) => r.rank === null);
 
   if (!shown.length) return <p className="muted">No accounts yet. The first person to join and pick starts the table.</p>;
@@ -114,7 +116,8 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
         <table className="p7-table">
           <thead>
             <tr>
-              <th>#</th><th>Selector</th><th>Status</th>
+              <th>#</th><th>Selector</th><th className="hide-sm">Status</th>
+              {gwN !== null && <th title={`Changes made for gameweek ${gwN}`}>GW{gwN}</th>}
               <th className="r hide-sm">Rounds</th><th className="r hide-sm">Hits</th><th className="r">Pts</th>
             </tr>
           </thead>
@@ -124,7 +127,7 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
               const pending = mine && overlay !== null;
               const st = STATUS[r.status];
               const onTable = r.rank !== null;
-              const canOpen = r.rounds > 0;
+              const canOpen = r.rounds > 0 || (!!r.gw && r.gw.kind !== "none");
               const isOpen = open === r.id;
               const d = details[r.id];
               return (
@@ -153,23 +156,39 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
                       r.name
                     )}
                     {mine && <span className="badge badge-kit" style={{ marginLeft: "0.4rem" }}>You</span>}
+                    {(pending || r.status !== "picked") && (
+                      <span className={`p7-status show-sm ${pending ? "p7-saving" : st.cls}`}>{pending ? "Saving…" : st.label}</span>
+                    )}
                   </td>
-                  <td>
+                  <td className="hide-sm">
                     <span className={`p7-status ${pending ? "p7-saving" : st.cls}`}>{pending ? "Saving…" : st.label}</span>
                   </td>
+                  {gwN !== null && (
+                    <td className={`gw-cell gw-${r.gw?.kind ?? "none"}`}>
+                      {r.gw ? gwStatusText(r.gw).split(" · ").map((t) => <span key={t}>{t}</span>) : "–"}
+                    </td>
+                  )}
                   <td className="r hide-sm">{onTable ? r.rounds : "–"}</td>
                   <td className="r hide-sm">{onTable ? `${r.hits}/${r.totalPicks}` : "–"}</td>
                   <td className="r pts">{onTable ? r.points : <span className="muted">–</span>}</td>
                 </tr>
                 {isOpen && (
                   <tr id={`bd-${r.id}`}>
-                    <td colSpan={6} className="p7-expand">
+                    <td colSpan={gwN !== null ? 7 : 6} className="p7-expand">
                       {d === "loading" || !d ? (
                         <p className="small muted" style={{ margin: 0 }}>Loading breakdown…</p>
                       ) : d === "error" ? (
                         <p className="small neg" style={{ margin: 0 }}>Couldn&apos;t load the breakdown. Tap the name to try again.</p>
                       ) : (
-                        <PointsBreakdown data={d} />
+                        <div className="stack" style={{ gap: "0.9rem" }}>
+                          {d.history && d.history.length > 0 && (
+                            <div>
+                              <div className="pos-head"><span>Team history</span></div>
+                              <GwHistory rows={d.history} owner={mine} />
+                            </div>
+                          )}
+                          <PointsBreakdown data={d} />
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -182,7 +201,7 @@ export function Pick7Table({ initial, meId }: { initial: Pick7Row[]; meId: strin
       </div>
       <p className="small muted" style={{ margin: 0 }} aria-live="off">
         <span className="p7-live-dot" aria-hidden="true" /> Live · updated <Ago at={updatedAt} />. Everyone starts on 0 the moment they pick; points
-        arrive when a match they picked for is played. Tap a name to see exactly where their points came from. Which players people picked stays hidden until the week locks.
+        arrive when a match they picked for is played. Tap a name for their team history and exactly where their points came from.{gwN !== null && ` GW${gwN} shows whether each selector has changed their team for this week; which players they swapped stays hidden until the week locks.`}
       </p>
     </div>
   );

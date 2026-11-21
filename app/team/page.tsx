@@ -19,6 +19,8 @@ import {
 import type { Selection } from "@/lib/league/types";
 import { currentStars, fitToFormation, isFormationValid, lastOwnership } from "@/lib/league/pick7";
 import { buildPick7Table, selectorBreakdown } from "@/lib/league/pick7Table";
+import { managerHistory } from "@/lib/league/gameweeks";
+import { GwHistory } from "@/components/GwHistory";
 import { PointsBreakdown } from "@/components/PointsBreakdown";
 import { Pick7Table } from "@/components/Pick7Table";
 import { fmtKickoff } from "@/lib/league/schedule";
@@ -62,6 +64,9 @@ export default async function TeamPage() {
   const ownership = lastOwnership(state.matchDays);
   const myRow = me ? pick7.find((r) => r.id === me.id && r.rank !== null) : undefined;
   const myBreakdown = me ? selectorBreakdown(state, rules, me.id) : null;
+  const myHistory = me ? managerHistory(state, rules, me.id, now) : [];
+  const openGw = myHistory.at(-1)?.locked === false ? myHistory.at(-1)! : null;
+  const prevGw = openGw ? myHistory.at(-2) : undefined;
   const deadlineLabel = next ? fmtKickoff(next.kickoffAt, SERIES.timeZone) : null;
   const nextLabel = next ? fmtDate(next.date) : null;
   const unavailable = unavailableFor(next);
@@ -187,6 +192,27 @@ export default async function TeamPage() {
               )}
             </section>
           </div>
+
+          {myHistory.length > 0 && (
+            <section className="panel stack" id="transfers">
+              <div className="panel-head">
+                <h3>{openGw ? `GW${openGw.n} changes` : "Team history"}</h3>
+                {openGw && <span className="small muted">Locks at kick-off</span>}
+              </div>
+              {openGw?.changes && (
+                <p className="gw-summary" style={{ margin: 0 }}>
+                  {openGw.changes.newTeam
+                    ? `This is your first team. It plays from GW${openGw.n}.`
+                    : !openGw.changes.changed
+                      ? `No changes yet. Your GW${prevGw?.n ?? openGw.n - 1} team carries over as it is.`
+                      : `You've made ${openGw.changes.transfers === 1 ? "1 transfer" : `${openGw.changes.transfers} transfers`}${
+                          openGw.changes.captain ? " and changed your captain" : ""
+                        } since GW${prevGw?.n ?? openGw.n - 1}. Other selectors see how many, not who, until kick-off.`}
+                </p>
+              )}
+              <GwHistory rows={myHistory} owner />
+            </section>
+          )}
 
           <div className="grid grid-2" style={{ alignItems: "start" }}>
             <section className="panel stack">
