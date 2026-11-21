@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/matches", label: "Matches", hint: "Fixtures, team sheets and scoresheets" },
   { href: "/table", label: "Table", hint: "Who's top of the league and of Pick 7" },
   { href: "/stats", label: "Stats", hint: "Goals, assists and form, player by player" },
+  { href: "/squad", label: "Squad", hint: "FIFA-style ratings for every player" },
   { href: "/rules", label: "Rules", hint: "How every point is scored" },
 ] as const;
 

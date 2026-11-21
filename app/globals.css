@@ -1329,3 +1329,70 @@ body:has(.orbit) .topbar.menu-open { background: #16140f; }
   .bdetail-inner { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .bdetail-inner { animation: none; } .share i, .podium li, .brow { transition: none; } }
+
+/* =====================================================================
+   Squad ratings (/squad): FIFA-style cards and the skill matrix
+   ===================================================================== */
+a.chip { text-decoration: none; }
+.chip[aria-current="true"] { background: var(--espresso); color: var(--bone); border-color: var(--espresso); font-weight: 500; }
+.chip-sm { min-height: 34px; padding: 0.25rem 0.75rem; font-size: 0.82rem; }
+.squad-controls .row { gap: 0.5rem; }
+
+.fut-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 232px), 1fr)); gap: 1.1rem; align-items: start; }
+.fut {
+  --fut-bg: var(--surface); --fut-ink: var(--ink); --fut-soft: var(--muted); --fut-key: var(--line);
+  position: relative; display: flex; flex-direction: column; gap: 0.6rem;
+  padding: 1rem 1.1rem 0.9rem; border-radius: 22px 22px 34px 34px;
+  background: linear-gradient(160deg, color-mix(in oklab, var(--fut-bg) 88%, var(--offwhite)) 0%, var(--fut-bg) 55%);
+  color: var(--fut-ink); border: 1px solid var(--fut-key);
+  box-shadow: inset 0 1px 0 rgba(255, 253, 248, 0.35), inset 0 0 0 4px color-mix(in oklab, var(--fut-key) 25%, transparent);
+  scroll-margin-top: 6rem; transition: transform 0.35s var(--ease);
+}
+.fut:hover { transform: translateY(-3px); }
+.fut-gold { --fut-bg: var(--espresso); --fut-ink: var(--bone); --fut-soft: #d8c69c; --fut-key: var(--champagne); }
+.fut-silver { --fut-bg: var(--sand); --fut-key: var(--taupe); }
+.fut-bronze { --fut-bg: #dcc09a; --fut-key: var(--bronze); --fut-soft: #6b5136; }
+.fut:target { outline: 2px solid var(--focus); outline-offset: 3px; }
+.fut-top { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto 1fr; min-height: 96px; }
+.fut-ovr { font-family: var(--display); font-size: 2.6rem; line-height: 0.9; font-weight: 600; font-variation-settings: var(--display-axes); }
+.fut-gold .fut-ovr { color: var(--champagne); }
+.fut-pos { grid-column: 1; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em; color: var(--fut-soft); }
+.fut-mascot { grid-column: 2; grid-row: 1 / span 3; justify-self: end; align-self: end; }
+.fut-name { font-size: var(--step-2); line-height: 1.05; text-align: center; margin: 0; padding-bottom: 0.45rem; border-bottom: 1px solid color-mix(in oklab, var(--fut-key) 60%, transparent); }
+.fut-dropin { font-family: var(--body); font-size: 0.72rem; font-weight: 500; color: var(--fut-soft); }
+.fut-face { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem 0.6rem; margin: 0; }
+.fut-face div { display: flex; align-items: baseline; justify-content: center; gap: 0.35rem; }
+.fut-face dd { margin: 0; font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.fut-face dt { font-size: 0.74rem; font-weight: 600; color: var(--fut-soft); }
+.fut-more summary { cursor: pointer; font-size: 0.82rem; color: var(--fut-soft); text-align: center; padding: 0.3rem 0; list-style: none; }
+.fut-more summary::-webkit-details-marker { display: none; }
+.fut-more summary::after { content: " ▾"; }
+.fut-more[open] summary::after { content: " ▴"; }
+.fut-meta { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--fut-soft); margin: 0.2rem 0 0.7rem; }
+.fut-traits { color: var(--fut-ink); font-style: italic; }
+.fut-pips b { color: var(--champagne); font-weight: 400; }
+.fut-silver .fut-pips b, .fut-bronze .fut-pips b { color: var(--bronze-deep); }
+.fut-pips span { opacity: 0.25; }
+.fut-skills { display: grid; gap: 0.7rem; }
+.fut-skills h3 { font-family: var(--body); font-size: 0.82rem; font-weight: 700; display: flex; justify-content: space-between; margin: 0 0 0.25rem; }
+.fut-skills ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.fut-skills li { display: grid; grid-template-columns: 7.2rem 1fr 1.6rem; align-items: center; gap: 0.45rem; font-size: 0.78rem; }
+.fut-skills li b { text-align: right; font-variant-numeric: tabular-nums; }
+.fut-bar { height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--fut-key) 35%, transparent); overflow: hidden; }
+.fut-bar i { display: block; height: 100%; background: var(--forest-ui); border-radius: inherit; }
+.fut-gold .fut-bar i { background: var(--champagne); }
+
+.skill-matrix-wrap { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--surface); }
+.skill-matrix-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.skill-matrix { border-collapse: collapse; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.skill-matrix th, .skill-matrix td { padding: 0.32rem 0.4rem; text-align: center; border-bottom: 1px solid var(--line-soft); }
+.skill-matrix td { min-width: 2.1rem; }
+.skill-matrix .sm-name { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; white-space: nowrap; box-shadow: 1px 0 0 var(--line-soft); }
+.skill-matrix .sm-name small { color: var(--muted); font-size: 0.68rem; }
+.skill-matrix .sm-group { font-family: var(--body); font-weight: 700; color: var(--text-2); border-left: 1px solid var(--line); }
+.skill-matrix .sm-first { border-left: 1px solid var(--line); }
+.skill-matrix .sm-skill { height: 7.5rem; vertical-align: bottom; font-weight: 500; color: var(--muted); }
+.skill-matrix .sm-skill span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+.skill-matrix .sm-ovr { font-weight: 800; }
+.skill-matrix th { font-family: var(--body); text-transform: none; letter-spacing: 0; font-size: 0.76rem; }
+.skill-matrix .sm-name, .skill-matrix .sm-name a { color: var(--text); font-weight: 600; }
