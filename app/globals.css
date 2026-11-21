@@ -1411,10 +1411,11 @@ a.chip { text-decoration: none; }
    Squad: anime portraits with FIFA-promo VFX (stage, rays, sparks, holo
    shine, pointer tilt). Everything stops with prefers-reduced-motion.
    --------------------------------------------------------------------- */
-.fut { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transform-style: preserve-3d; transition: transform 0.5s var(--ease), box-shadow 0.4s var(--ease); overflow: hidden; isolation: isolate; }
-.fut[data-tilt] { transition: transform 0.08s linear, box-shadow 0.4s var(--ease); box-shadow: 0 18px 40px -18px color-mix(in oklab, var(--fut-key) 55%, transparent), inset 0 0 0 4px color-mix(in oklab, var(--fut-key) 22%, transparent); }
-.fut:hover { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); }
-.fut-glare { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity 0.3s; background: radial-gradient(circle at var(--gx, 50%) var(--gy, 30%), rgba(255, 250, 235, 0.22), transparent 45%); mix-blend-mode: soft-light; z-index: 3; }
+/* --px/--py (-1…1) are set per card by HoloCard (GSAP): pointer on desktop, a slow idle turn otherwise. */
+.fut { transform: perspective(900px) rotateX(calc(var(--py, 0) * -7deg)) rotateY(calc(var(--px, 0) * 9deg)); overflow: hidden; isolation: isolate; transition: box-shadow 0.4s var(--ease); }
+.fut:hover { transform: perspective(900px) rotateX(calc(var(--py, 0) * -7deg)) rotateY(calc(var(--px, 0) * 9deg)); }
+.fut[data-tilt] { box-shadow: 0 18px 40px -18px color-mix(in oklab, var(--fut-key) 55%, transparent), inset 0 0 0 4px color-mix(in oklab, var(--fut-key) 22%, transparent); }
+.fut-glare { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity 0.3s; background: radial-gradient(circle at calc(50% + var(--px, 0) * 40%) calc(30% + var(--py, 0) * 35%), rgba(255, 250, 235, 0.22), transparent 45%); mix-blend-mode: soft-light; z-index: 3; }
 .fut[data-tilt] .fut-glare { opacity: 1; }
 
 /* Holographic shine sweeping across portrait cards. */
@@ -1435,7 +1436,16 @@ a.chip { text-decoration: none; }
 .fut-sparks i { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #fffbe8; box-shadow: 0 0 8px 2px color-mix(in oklab, var(--fut-key) 80%, #fff);
   left: calc(8% + var(--i) * 13%); top: calc(14% + (var(--i) * 37 % 60) * 1%); opacity: 0; animation: fut-twinkle 3.4s ease-in-out infinite; animation-delay: calc(var(--i) * 0.47s); }
 @keyframes fut-twinkle { 0%, 100% { opacity: 0; transform: scale(0.4) translateY(4px); } 45% { opacity: 0.9; transform: scale(1) translateY(-6px); } }
-.fut-portrait { position: absolute; left: 50%; bottom: -2px; width: 176px; height: auto; transform: translateX(-50%) translateZ(30px); filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45)); }
+.fut-portrait { position: absolute; left: 50%; bottom: -2px; width: 176px; transform: translateX(-50%); }
+
+/* 2.5D portrait: four stacked vector layers, each shifted by its depth. */
+.pt3d { position: relative; aspect-ratio: 200 / 240; }
+.pt-bust { position: absolute; inset: 0; }
+.pt-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; shape-rendering: geometricPrecision; will-change: transform;
+  transform: translate3d(calc(var(--px, 0) * var(--d) * 4.5px), calc(var(--py, 0) * var(--d) * 2.6px), 0); }
+.pt-look { transform: translate(calc(var(--px, 0) * 1.7px * var(--s, 1)), calc(var(--py, 0) * 1.3px)); }
+.pt-light { transform: translate(calc(var(--px, 0) * 20px), calc(var(--py, 0) * 14px)); }
+.pt-rim { opacity: calc(0.35 + max(0, -1 * var(--px, 0)) * 0.55); }
 .fut-stage-pos { position: absolute; top: 0.8rem; left: 1rem; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em; color: var(--fut-key); z-index: 1; }
 .fut-stage .fut-tag { position: absolute; top: 2.1rem; left: 1rem; z-index: 1; }
 .fut-has-portrait .fut-name { margin-top: 0.2rem; position: relative; z-index: 1; }
@@ -1449,7 +1459,7 @@ a.chip { text-decoration: none; }
 @keyframes pt-sway { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(0.9deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .fut, .fut:hover { transform: none; }
+  .fut, .fut:hover, .pt-layer, .pt-look, .pt-light { transform: none; }
   .fut-has-portrait::after, .fut-rays, .fut-sparks i, .pt-eyes, .pt-bust, .pt-hair { animation: none; }
   .fut-has-portrait::after { display: none; }
   .fut-sparks i { opacity: 0.5; }

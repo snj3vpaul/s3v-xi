@@ -2,13 +2,19 @@ import type { CSSProperties } from "react";
 import type { PortraitLook } from "@/config/portraits";
 
 /**
- * A hand-built anime-style bust (SVG). Geometry is parametrised by the look so
- * each player keeps their own face shape, hair, beard and skin tone.
- * Animation is pure CSS (blink, breathing, hair sway) and switches off with
- * prefers-reduced-motion. `phase` staggers the blink so cards don't sync.
+ * A hand-built anime-style bust in four stacked SVG layers (2.5D):
+ *   0 shoulders, kit, neck, back hair    (depth 0)
+ *   1 face, ears, beard, light and rim   (depth 1)
+ *   2 eyes, brows, nose, mouth, glasses  (depth 1.7)
+ *   3 front hair and cap                 (depth 2.1)
+ * Each layer shifts by its depth × the card's --px/--py (set by HoloCard with
+ * GSAP), so the head turns in 3D while staying vector-sharp. The pupils follow
+ * the same vars, and a highlight slides across the face toward the light.
+ * Blink, breathing and hair sway are CSS. All motion stops with reduced motion.
  */
 const INK = "#1a1210";
 const CX = 100;
+const VB = "0 0 200 240";
 
 export function AnimePortrait({ id, look, phase = 0, className }: { id: string; look: PortraitLook; phase?: number; className?: string }) {
   const cw = 41 + look.jaw * 4; // cheek half-width
@@ -16,97 +22,120 @@ export function AnimePortrait({ id, look, phase = 0, className }: { id: string; 
   const chin = 170 + look.length * 12;
   const eyeY = 120;
   const g = (s: string) => `${id}-${s}`;
-
   const face = `M${CX - cw} 104 C${CX - cw} 132 ${CX - jw} 150 ${CX - 13} ${chin - 5} Q${CX} ${chin + 3} ${CX + 13} ${chin - 5} C${CX + jw} 150 ${CX + cw} 132 ${CX + cw} 104 C${CX + cw} 52 ${CX - cw} 52 ${CX - cw} 104 Z`;
+  const torso = "M14 240 C20 206 52 192 78 188 L122 188 C148 192 180 206 186 240 Z";
   const style = { "--pt-phase": `${phase}s` } as CSSProperties;
+  const layer = (depth: number) => ({ className: "pt-layer", viewBox: VB, "aria-hidden": true, style: { "--d": depth } as CSSProperties });
 
   return (
-    <svg className={`pt ${className ?? ""}`} viewBox="0 0 200 240" role="img" aria-hidden="true" style={style}>
-      <defs>
-        <linearGradient id={g("skin")} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor={look.skin} />
-          <stop offset="0.72" stopColor={look.skin} />
-          <stop offset="1" stopColor={look.shade} />
-        </linearGradient>
-        <radialGradient id={g("iris")} cx="0.5" cy="0.35" r="0.75">
-          <stop offset="0" stopColor="#ffffff" stopOpacity="0.15" />
-          <stop offset="0.35" stopColor={look.iris} />
-          <stop offset="1" stopColor={INK} />
-        </radialGradient>
-        <linearGradient id={g("kit")} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={look.kit} />
-          <stop offset="1" stopColor={look.kit} stopOpacity="0.85" />
-        </linearGradient>
-        <clipPath id={g("torso")}>
-          <path d="M14 240 C20 206 52 192 78 188 L122 188 C148 192 180 206 186 240 Z" />
-        </clipPath>
-        <clipPath id={g("face")}>
-          <path d={face} />
-        </clipPath>
-      </defs>
+    <div className={`pt3d ${className ?? ""}`} style={style} role="img" aria-hidden="true">
+      <div className="pt-bust">
+        {/* 0: body */}
+        <svg {...layer(0)}>
+          <defs>
+            <radialGradient id={g("skin")} cx="0.42" cy="0.38" r="0.75">
+              <stop offset="0" stopColor={look.skin} />
+              <stop offset="0.68" stopColor={look.skin} />
+              <stop offset="1" stopColor={look.shade} />
+            </radialGradient>
+            <radialGradient id={g("iris")} cx="0.5" cy="0.35" r="0.75">
+              <stop offset="0" stopColor="#ffffff" stopOpacity="0.15" />
+              <stop offset="0.35" stopColor={look.iris} />
+              <stop offset="1" stopColor={INK} />
+            </radialGradient>
+            <linearGradient id={g("kit")} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor={look.kit} />
+              <stop offset="1" stopColor={look.kit} stopOpacity="0.78" />
+            </linearGradient>
+            <radialGradient id={g("light")} cx="0.5" cy="0.5" r="0.5">
+              <stop offset="0" stopColor="#fff8e8" stopOpacity="0.55" />
+              <stop offset="1" stopColor="#fff8e8" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id={g("ao")} cx="0.5" cy="0.5" r="0.5">
+              <stop offset="0" stopColor="#000" stopOpacity="0.45" />
+              <stop offset="1" stopColor="#000" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id={g("rim")} x1="0" y1="0" x2="1" y2="0.3">
+              <stop offset="0.62" stopColor="#fff" stopOpacity="0" />
+              <stop offset="1" style={{ stopColor: "var(--fut-key, #e9d8a6)" }} />
+            </linearGradient>
+            <clipPath id={g("torso")}>
+              <path d={torso} />
+            </clipPath>
+            <clipPath id={g("face")}>
+              <path d={face} />
+            </clipPath>
+          </defs>
+          {/* soft contact shadow behind the head (no filters: stays crisp while moving) */}
+          <ellipse cx={CX + 4} cy={150} rx={cw + 22} ry={70} fill={`url(#${g("ao")})`} />
+          {look.hair === "curls" && <CurlsBack c={look.hairColor} />}
+          <path d={torso} fill={`url(#${g("kit")})`} />
+          <path d="M14 240 C20 206 52 192 78 188 L84 188 C62 198 40 214 34 240 Z" fill="#000" opacity="0.14" />
+          <path d="M186 240 C180 206 148 192 122 188 L116 188 C140 198 162 214 168 240 Z" fill="#fff" opacity="0.08" />
+          <Kit look={look} clip={g("torso")} />
+          <path d={`M${CX - 16} ${chin - 16} L${CX - 17} 196 Q${CX} 205 ${CX + 17} 196 L${CX + 16} ${chin - 16} Z`} fill={look.shade} />
+          <path d={`M${CX - 3} ${chin - 10} L${CX + 16} ${chin - 16} L${CX + 17} 196 Q${CX + 8} 202 ${CX - 3} 201 Z`} fill={look.skin} opacity="0.7" />
+          {look.extras?.includes("chain") && (
+            <path d={`M${CX - 17} 190 Q${CX} 214 ${CX + 17} 190`} fill="none" stroke="#d9b24a" strokeWidth="2" strokeDasharray="2.5 1.5" />
+          )}
+          {look.extras?.includes("medal") && <Medal />}
+        </svg>
 
-      <g className="pt-bust">
-        {look.hair === "curls" && <CurlsBack c={look.hairColor} />}
-
-        {/* Shoulders and kit */}
-        <path d="M14 240 C20 206 52 192 78 188 L122 188 C148 192 180 206 186 240 Z" fill={`url(#${g("kit")})`} />
-        <path d="M14 240 C20 206 52 192 78 188 L84 188 C62 198 40 214 34 240 Z" fill="#000" opacity="0.12" />
-        <Kit look={look} clip={g("torso")} />
-
-        {/* Neck */}
-        <path d={`M${CX - 16} ${chin - 16} L${CX - 17} 196 Q${CX} 205 ${CX + 17} 196 L${CX + 16} ${chin - 16} Z`} fill={look.skin} />
-        <path d={`M${CX - 16} ${chin - 12} Q${CX} ${chin + 10} ${CX + 16} ${chin - 12} L${CX + 16} ${chin} Q${CX} ${chin + 14} ${CX - 16} ${chin} Z`} fill={look.shade} opacity="0.8" />
-
-        {look.extras?.includes("chain") && (
-          <path d={`M${CX - 17} 190 Q${CX} 214 ${CX + 17} 190`} fill="none" stroke="#d9b24a" strokeWidth="2" strokeDasharray="2.5 1.5" />
-        )}
-        {look.extras?.includes("medal") && <Medal />}
-
-        {/* Ears */}
-        <ellipse cx={CX - cw + 1} cy={eyeY + 4} rx="6.5" ry="10" fill={look.shade} />
-        <ellipse cx={CX + cw - 1} cy={eyeY + 4} rx="6.5" ry="10" fill={look.shade} />
-
-        {/* Face, with cel shadow under the hairline */}
-        <path d={face} fill={`url(#${g("skin")})`} />
-        <g clipPath={`url(#${g("face")})`}>
-          <path d={`M${CX - cw} 70 Q${CX} 98 ${CX + cw} 70 L${CX + cw} 92 Q${CX} 108 ${CX - cw} 92 Z`} fill={look.shade} opacity="0.35" />
-          <Beard look={look} chin={chin} />
-        </g>
-        {look.beard === "full" && <path d={`M${CX - 24} ${chin - 10} Q${CX} ${chin + 18} ${CX + 24} ${chin - 10} Z`} fill={look.beardColor} />}
-        {look.beard === "long" && <path d={`M${CX - 30} ${chin - 14} Q${CX - 18} ${chin + 26} ${CX} ${chin + 30} Q${CX + 18} ${chin + 26} ${CX + 30} ${chin - 14} Z`} fill={look.beardColor} />}
-        <ellipse cx={CX - 24} cy={eyeY + 17} rx="7" ry="3.5" fill="#e8807a" opacity="0.22" />
-        <ellipse cx={CX + 24} cy={eyeY + 17} rx="7" ry="3.5" fill="#e8807a" opacity="0.22" />
-
-        {/* Brows */}
-        <path d={`M${CX - 30} ${eyeY - 16} Q${CX - 20} ${eyeY - 22} ${CX - 9} ${eyeY - 17}`} fill="none" stroke={look.hairColor} strokeWidth="3.4" strokeLinecap="round" />
-        <path d={`M${CX + 9} ${eyeY - 17} Q${CX + 20} ${eyeY - 22} ${CX + 30} ${eyeY - 16}`} fill="none" stroke={look.hairColor} strokeWidth="3.4" strokeLinecap="round" />
-
-        {/* Eyes (blink together) */}
-        <g className="pt-eyes" style={{ transformOrigin: `${CX}px ${eyeY}px` }}>
-          <Eye x={CX - 19} y={eyeY} iris={`url(#${g("iris")})`} />
-          <Eye x={CX + 19} y={eyeY} iris={`url(#${g("iris")})`} flip />
-        </g>
-
-        {/* Nose */}
-        <path d={`M${CX + 1} ${eyeY + 13} L${CX - 3} ${eyeY + 24} Q${CX} ${eyeY + 26} ${CX + 3} ${eyeY + 24}`} fill="none" stroke={look.shade} strokeWidth="1.8" strokeLinecap="round" />
-
-        <Mouth look={look} y={eyeY + 36} />
-        {look.lines && (
-          <g fill="none" stroke={look.shade} strokeWidth="1.6" strokeLinecap="round">
-            <path d={`M${CX - 22} ${eyeY + 28} Q${CX - 25} ${eyeY + 38} ${CX - 20} ${eyeY + 45}`} />
-            <path d={`M${CX + 22} ${eyeY + 28} Q${CX + 25} ${eyeY + 38} ${CX + 20} ${eyeY + 45}`} />
-            <path d={`M${CX - 28} ${eyeY + 10} Q${CX - 20} ${eyeY + 13} ${CX - 12} ${eyeY + 10}`} opacity="0.6" />
-            <path d={`M${CX + 12} ${eyeY + 10} Q${CX + 20} ${eyeY + 13} ${CX + 28} ${eyeY + 10}`} opacity="0.6" />
+        {/* 1: face */}
+        <svg {...layer(1)}>
+          <ellipse cx={CX - cw + 1} cy={eyeY + 4} rx="6.5" ry="10" fill={look.shade} />
+          <ellipse cx={CX + cw - 1} cy={eyeY + 4} rx="6.5" ry="10" fill={look.shade} />
+          <ellipse cx={CX + cw} cy={eyeY + 4} rx="2.5" ry="5" fill="#000" opacity="0.15" />
+          <path d={face} fill={`url(#${g("skin")})`} />
+          {look.beard === "full" && <path d={`M${CX - 24} ${chin - 10} Q${CX} ${chin + 18} ${CX + 24} ${chin - 10} Z`} fill={look.beardColor} />}
+          {look.beard === "long" && (
+            <path d={`M${CX - 30} ${chin - 14} Q${CX - 18} ${chin + 26} ${CX} ${chin + 30} Q${CX + 18} ${chin + 26} ${CX + 30} ${chin - 14} Z`} fill={look.beardColor} />
+          )}
+          <g clipPath={`url(#${g("face")})`}>
+            {/* cel shadow under the hairline, cheekbone and jaw shading */}
+            <path d={`M${CX - cw} 70 Q${CX} 98 ${CX + cw} 70 L${CX + cw} 92 Q${CX} 108 ${CX - cw} 92 Z`} fill={look.shade} opacity="0.35" />
+            <path d={`M${CX + cw - 10} 110 Q${CX + cw - 4} 140 ${CX + 12} ${chin}`} fill="none" stroke={look.shade} strokeWidth="8" opacity="0.35" />
+            <Beard look={look} chin={chin} />
+            {/* moving key light: slides toward the pointer */}
+            <ellipse className="pt-light" cx={CX - 12} cy={eyeY - 8} rx={cw} ry={cw * 0.9} fill={`url(#${g("light")})`} />
           </g>
-        )}
-        {look.glasses && <Glasses g={look.glasses} y={eyeY} cw={cw} />}
+          {/* rim light on the shadow side */}
+          <path className="pt-rim" d={face} fill="none" stroke={`url(#${g("rim")})`} strokeWidth="3" clipPath={`url(#${g("face")})`} />
+          <ellipse cx={CX - 24} cy={eyeY + 17} rx="7" ry="3.5" fill="#e8807a" opacity="0.22" />
+          <ellipse cx={CX + 24} cy={eyeY + 17} rx="7" ry="3.5" fill="#e8807a" opacity="0.22" />
+        </svg>
 
-        <g className="pt-hair" style={{ transformOrigin: `${CX}px 70px` }}>
-          <Hair look={look} cw={cw} />
-        </g>
-        {look.cap && <Cap cap={look.cap} cw={cw} />}
-      </g>
-    </svg>
+        {/* 2: features */}
+        <svg {...layer(1.7)}>
+          <path d={`M${CX - 30} ${eyeY - 16} Q${CX - 20} ${eyeY - 22} ${CX - 9} ${eyeY - 17}`} fill="none" stroke={look.hairColor} strokeWidth="3.4" strokeLinecap="round" />
+          <path d={`M${CX + 9} ${eyeY - 17} Q${CX + 20} ${eyeY - 22} ${CX + 30} ${eyeY - 16}`} fill="none" stroke={look.hairColor} strokeWidth="3.4" strokeLinecap="round" />
+          <g className="pt-eyes" style={{ transformOrigin: `${CX}px ${eyeY}px` }}>
+            <Eye x={CX - 19} y={eyeY} iris={`url(#${g("iris")})`} />
+            <Eye x={CX + 19} y={eyeY} iris={`url(#${g("iris")})`} flip />
+          </g>
+          <path d={`M${CX + 1} ${eyeY + 13} L${CX - 3} ${eyeY + 24} Q${CX} ${eyeY + 26} ${CX + 3} ${eyeY + 24}`} fill="none" stroke={look.shade} strokeWidth="1.8" strokeLinecap="round" />
+          <circle cx={CX - 1} cy={eyeY + 15} r="1.4" fill="#fff" opacity="0.5" />
+          <Mouth look={look} y={eyeY + 36} />
+          {look.lines && (
+            <g fill="none" stroke={look.shade} strokeWidth="1.6" strokeLinecap="round">
+              <path d={`M${CX - 22} ${eyeY + 28} Q${CX - 25} ${eyeY + 38} ${CX - 20} ${eyeY + 45}`} />
+              <path d={`M${CX + 22} ${eyeY + 28} Q${CX + 25} ${eyeY + 38} ${CX + 20} ${eyeY + 45}`} />
+              <path d={`M${CX - 28} ${eyeY + 10} Q${CX - 20} ${eyeY + 13} ${CX - 12} ${eyeY + 10}`} opacity="0.6" />
+              <path d={`M${CX + 12} ${eyeY + 10} Q${CX + 20} ${eyeY + 13} ${CX + 28} ${eyeY + 10}`} opacity="0.6" />
+            </g>
+          )}
+          {look.glasses && <Glasses g={look.glasses} y={eyeY} cw={cw} />}
+        </svg>
+
+        {/* 3: front hair and cap */}
+        <svg {...layer(2.1)}>
+          <g className="pt-hair" style={{ transformOrigin: `${CX}px 70px` }}>
+            <Hair look={look} cw={cw} />
+          </g>
+          {look.cap && <Cap cap={look.cap} cw={cw} />}
+        </svg>
+      </div>
+    </div>
   );
 }
 
@@ -115,10 +144,12 @@ function Eye({ x, y, iris, flip = false }: { x: number; y: number; iris: string;
   return (
     <g transform={`translate(${x} ${y}) scale(${s} 1)`}>
       <path d="M-11 1 Q-1 -9 11 -3 L11 7 Q0 11 -10 6 Z" fill="#fff" />
-      <ellipse cx="0.5" cy="1.5" rx="6.6" ry="8" fill={iris} />
-      <ellipse cx="0.5" cy="2.5" rx="2.8" ry="3.6" fill={INK} />
-      <circle cx="-2" cy="-1.8" r="2.4" fill="#fff" />
-      <circle cx="3" cy="5" r="1.1" fill="#fff" opacity="0.85" />
+      <g className="pt-look" style={{ "--s": s } as CSSProperties}>
+        <ellipse cx="0.5" cy="1.5" rx="6.6" ry="8" fill={iris} />
+        <ellipse cx="0.5" cy="2.5" rx="2.8" ry="3.6" fill={INK} />
+        <circle cx="-2" cy="-1.8" r="2.4" fill="#fff" />
+        <circle cx="3" cy="5" r="1.1" fill="#fff" opacity="0.85" />
+      </g>
       <path d="M-12.5 2 Q-2 -11 12 -3.5" fill="none" stroke={INK} strokeWidth="3" strokeLinecap="round" />
       <path d="M11 -3.5 L14 -6" stroke={INK} strokeWidth="2" strokeLinecap="round" />
       <path d="M-8 8.5 Q0 11.5 8 8" fill="none" stroke={INK} strokeWidth="0.9" opacity="0.5" />

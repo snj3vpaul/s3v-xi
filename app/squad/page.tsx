@@ -85,6 +85,8 @@ function Card({ r }: { r: FormRating }) {
       id={r.id}
       className={`fut fut-${r.position.toLowerCase()}${look ? " fut-has-portrait" : ""}`}
       style={{ "--pt-phase": `${phase}s` } as React.CSSProperties}
+      idle={!!look}
+      phase={phase}
     >
       {look ? (
         <header className="fut-stage">
