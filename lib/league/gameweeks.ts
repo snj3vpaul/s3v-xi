@@ -153,6 +153,8 @@ export interface GwStatus {
   kind: "none" | "new" | "no_changes" | "changes";
   transfers: number;
   captainChanged: boolean;
+  viceChanged: boolean;
+  benchChanged: boolean;
   chip: boolean;
 }
 
@@ -162,13 +164,15 @@ export function openGwStatus(state: LeagueState, rules: ScoringRules, userId: st
   const n = gwOf(state.matchDays, open.id);
   if (n === null) return null;
   const last = managerHistory(state, rules, userId, now).at(-1);
-  if (!last || last.matchId !== open.id || !last.team || !last.changes) return { n, kind: "none", transfers: 0, captainChanged: false, chip: false };
+  if (!last || last.matchId !== open.id || !last.team || !last.changes) return { n, kind: "none", transfers: 0, captainChanged: false, viceChanged: false, benchChanged: false, chip: false };
   const c = last.changes;
   return {
     n,
     kind: c.newTeam ? "new" : c.changed ? "changes" : "no_changes",
     transfers: c.transfers,
     captainChanged: !!c.captain,
+    viceChanged: !!c.vice,
+    benchChanged: !!c.bench,
     chip: !!last.team.chip,
   };
 }

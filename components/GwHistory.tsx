@@ -10,8 +10,14 @@ export function gwStatusText(g: GwStatus): string {
   if (g.kind === "none") return "–";
   if (g.kind === "new") return "New team";
   if (g.kind === "no_changes") return "No changes";
-  const bits = [g.transfers ? plural(g.transfers, "transfer") : null, g.captainChanged ? "new captain" : null].filter(Boolean);
-  return bits.length ? bits.join(" · ") : "Tweaked";
+  const bits = [
+    g.transfers ? plural(g.transfers, "transfer") : null,
+    g.captainChanged ? "new captain" : null,
+    g.viceChanged ? "new vice" : null,
+    g.benchChanged ? "new bench" : null,
+  ].filter(Boolean);
+  // Two lines at most in the table: transfers and the first armband/bench change.
+  return bits.slice(0, 2).join(" · ") || "Changed";
 }
 
 /** Swaps as "In ← Out" pairs (FPL style), plus armband and bench changes. */

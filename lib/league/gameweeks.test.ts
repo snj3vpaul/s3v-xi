@@ -55,6 +55,9 @@ describe("gameweeks", () => {
 
     expect(openGwStatus(s, rules, ana, now)).toMatchObject({ n: 2, kind: "changes", transfers: 1, captainChanged: true });
     expect(openGwStatus(s, rules, ben, now)).toMatchObject({ n: 2, kind: "no_changes", transfers: 0 });
+    // Changing only the vice-captain counts as a change, and says so.
+    const s2 = setSquad(s, ben, SEVEN, at("2026-11-28T11:00:00Z"), "raunak", { viceCaptain: "navneet" });
+    expect(openGwStatus(s2, rules, ben, now)).toMatchObject({ kind: "changes", transfers: 0, viceChanged: true });
 
     const hist = managerHistory(s, rules, ana, now);
     expect(hist.map((r) => [r.n, r.locked])).toEqual([
