@@ -37,6 +37,9 @@ export function AnimePortrait({ id, look, phase = 0, className }: { id: string; 
           <stop offset="0" stopColor={look.kit} />
           <stop offset="1" stopColor={look.kit} stopOpacity="0.85" />
         </linearGradient>
+        <clipPath id={g("torso")}>
+          <path d="M14 240 C20 206 52 192 78 188 L122 188 C148 192 180 206 186 240 Z" />
+        </clipPath>
         <clipPath id={g("face")}>
           <path d={face} />
         </clipPath>
@@ -48,7 +51,7 @@ export function AnimePortrait({ id, look, phase = 0, className }: { id: string; 
         {/* Shoulders and kit */}
         <path d="M14 240 C20 206 52 192 78 188 L122 188 C148 192 180 206 186 240 Z" fill={`url(#${g("kit")})`} />
         <path d="M14 240 C20 206 52 192 78 188 L84 188 C62 198 40 214 34 240 Z" fill="#000" opacity="0.12" />
-        <path d="M80 188 Q100 206 120 188" fill="none" stroke={look.kitTrim} strokeWidth="5" strokeLinecap="round" />
+        <Kit look={look} clip={g("torso")} />
 
         {/* Neck */}
         <path d={`M${CX - 16} ${chin - 16} L${CX - 17} 196 Q${CX} 205 ${CX + 17} 196 L${CX + 16} ${chin - 16} Z`} fill={look.skin} />
@@ -70,6 +73,7 @@ export function AnimePortrait({ id, look, phase = 0, className }: { id: string; 
           <Beard look={look} chin={chin} />
         </g>
         {look.beard === "full" && <path d={`M${CX - 24} ${chin - 10} Q${CX} ${chin + 18} ${CX + 24} ${chin - 10} Z`} fill={look.beardColor} />}
+        {look.beard === "long" && <path d={`M${CX - 30} ${chin - 14} Q${CX - 18} ${chin + 26} ${CX} ${chin + 30} Q${CX + 18} ${chin + 26} ${CX + 30} ${chin - 14} Z`} fill={look.beardColor} />}
         <ellipse cx={CX - 24} cy={eyeY + 17} rx="7" ry="3.5" fill="#e8807a" opacity="0.22" />
         <ellipse cx={CX + 24} cy={eyeY + 17} rx="7" ry="3.5" fill="#e8807a" opacity="0.22" />
 
@@ -87,10 +91,20 @@ export function AnimePortrait({ id, look, phase = 0, className }: { id: string; 
         <path d={`M${CX + 1} ${eyeY + 13} L${CX - 3} ${eyeY + 24} Q${CX} ${eyeY + 26} ${CX + 3} ${eyeY + 24}`} fill="none" stroke={look.shade} strokeWidth="1.8" strokeLinecap="round" />
 
         <Mouth look={look} y={eyeY + 36} />
+        {look.lines && (
+          <g fill="none" stroke={look.shade} strokeWidth="1.6" strokeLinecap="round">
+            <path d={`M${CX - 22} ${eyeY + 28} Q${CX - 25} ${eyeY + 38} ${CX - 20} ${eyeY + 45}`} />
+            <path d={`M${CX + 22} ${eyeY + 28} Q${CX + 25} ${eyeY + 38} ${CX + 20} ${eyeY + 45}`} />
+            <path d={`M${CX - 28} ${eyeY + 10} Q${CX - 20} ${eyeY + 13} ${CX - 12} ${eyeY + 10}`} opacity="0.6" />
+            <path d={`M${CX + 12} ${eyeY + 10} Q${CX + 20} ${eyeY + 13} ${CX + 28} ${eyeY + 10}`} opacity="0.6" />
+          </g>
+        )}
+        {look.glasses && <Glasses g={look.glasses} y={eyeY} cw={cw} />}
 
         <g className="pt-hair" style={{ transformOrigin: `${CX}px 70px` }}>
           <Hair look={look} cw={cw} />
         </g>
+        {look.cap && <Cap cap={look.cap} cw={cw} />}
       </g>
     </svg>
   );
@@ -157,6 +171,15 @@ function Beard({ look, chin }: { look: PortraitLook; chin: number }) {
           {tash(14, 3)}
         </g>
       );
+    case "moustache":
+      return <g fill={c}>{tash(18, 6)}</g>;
+    case "long":
+      return (
+        <g fill={c}>
+          <path d={`${below(120, 148)} ${mouthHole}`} fillRule="evenodd" />
+          {tash(19, 5)}
+        </g>
+      );
     default:
       return null;
   }
@@ -201,6 +224,56 @@ function Hair({ look, cw }: { look: PortraitLook; cw: number }) {
           {shine}
         </g>
       );
+    case "crop":
+      return (
+        <g>
+          <path d={`M${CX - cw + 0.5} 104 C${CX - cw - 1} 50 ${CX + cw + 1} 50 ${CX + cw - 0.5} 104 Q${CX + cw - 5} 82 ${CX + 30} 78 Q${CX} 72 ${CX - 30} 78 Q${CX - cw + 5} 82 ${CX - cw + 0.5} 104 Z`} fill={c} opacity="0.92" />
+          <path d={`M${CX - 20} 68 Q${CX} 62 ${CX + 18} 66`} fill="none" stroke="#fff" strokeWidth="3" opacity="0.12" strokeLinecap="round" />
+        </g>
+      );
+    case "short":
+      return (
+        <g fill={c}>
+          <path d={`M${CX - cw - 1} 106 C${CX - cw - 4} 52 ${CX + cw + 4} 52 ${CX + cw + 1} 106 L${CX + cw - 3} 92 Q${CX + 26} 76 ${CX} 78 Q${CX - 26} 76 ${CX - cw + 3} 92 Z`} />
+          <path d={`M${CX - 22} 76 Q${CX} 68 ${CX + 20} 74`} fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" opacity="0.15" />
+        </g>
+      );
+    case "spiked":
+      return (
+        <g fill={c}>
+          <path d={`M${CX - cw - 1} 106 C${CX - cw - 4} 58 ${CX - 20} 42 ${CX} 42 C${CX + 20} 42 ${CX + cw + 4} 58 ${CX + cw + 1} 106 L${CX + cw - 3} 92 Q${CX + 26} 76 ${CX} 78 Q${CX - 26} 76 ${CX - cw + 3} 92 Z`} />
+          <path d={`M${CX - 26} 56 L${CX - 20} 30 L${CX - 10} 46 L${CX - 2} 24 L${CX + 6} 44 L${CX + 16} 28 L${CX + 20} 48 L${CX + 30} 40 L${CX + 28} 60 Z`} />
+          {shine}
+        </g>
+      );
+    case "fluffy":
+      return (
+        <g fill={c}>
+          <path d={`M${CX - cw - 6} 112 C${CX - cw - 14} 50 ${CX - 24} 28 ${CX + 4} 30 C${CX + 34} 30 ${CX + cw + 14} 52 ${CX + cw + 6} 112 L${CX + cw - 1} 96 Q${CX + 30} 82 ${CX + 16} 86 Q${CX + 8} 74 ${CX - 4} 86 Q${CX - 16} 78 ${CX - 26} 90 Q${CX - cw + 2} 86 ${CX - cw + 1} 98 Z`} />
+          <path d={`M${CX - 34} 44 Q${CX - 10} 22 ${CX + 22} 30 Q${CX + 4} 34 ${CX - 8} 44 Z`} />
+          {shine}
+        </g>
+      );
+    case "receding":
+      return (
+        <g fill={c}>
+          <path d={`M${CX - cw - 1} 108 C${CX - cw - 3} 62 ${CX - cw + 6} 56 ${CX - 24} 54 Q${CX} 50 ${CX + 24} 54 C${CX + cw - 6} 56 ${CX + cw + 3} 62 ${CX + cw + 1} 108 L${CX + cw - 3} 92 Q${CX + cw - 6} 76 ${CX + 22} 70 Q${CX} 60 ${CX - 22} 70 Q${CX - cw + 6} 76 ${CX - cw + 3} 92 Z`} />
+          <ellipse cx={CX - 4} cy={66} rx="14" ry="4.5" fill="#fff" opacity="0.16" />
+        </g>
+      );
+    case "curlyShort":
+      return (
+        <g fill={c}>
+          <path d={`M${CX - cw - 1} 104 C${CX - cw - 4} 54 ${CX + cw + 4} 54 ${CX + cw + 1} 104 L${CX + cw - 4} 90 Q${CX} 72 ${CX - cw + 4} 90 Z`} />
+          {[[-34, 66], [-22, 54], [-8, 48], [8, 48], [22, 54], [34, 66], [-28, 80], [28, 80], [-14, 60], [12, 60]].map(([dx, y], i) => (
+            <circle key={i} cx={CX + dx} cy={y} r="8" />
+          ))}
+          <g fill="#fff" opacity="0.12">
+            <circle cx={CX - 8} cy={44} r="3" />
+            <circle cx={CX + 20} cy={50} r="2.5" />
+          </g>
+        </g>
+      );
     case "shaved":
       return (
         <g>
@@ -230,6 +303,76 @@ function Medal() {
       <path d="M92 189 L100 214 L108 189" fill="none" stroke="#f5f2ea" strokeWidth="2" />
       <circle cx="100" cy="227" r="8" fill="#b07a3e" stroke="#7c5427" strokeWidth="1.5" />
       <circle cx="98" cy="225" r="2.5" fill="#fff" opacity="0.35" />
+    </g>
+  );
+}
+
+function Kit({ look, clip }: { look: PortraitLook; clip: string }) {
+  const t = look.kitTrim;
+  switch (look.kitStyle) {
+    case "polo":
+      return (
+        <g>
+          <path d="M80 187 L100 206 L92 214 L74 194 Z" fill={look.kit} stroke={t} strokeWidth="1.5" />
+          <path d="M120 187 L100 206 L108 214 L126 194 Z" fill={look.kit} stroke={t} strokeWidth="1.5" />
+          <path d="M100 206 L100 232" stroke={t} strokeWidth="1.5" />
+          <circle cx="100" cy="216" r="1.6" fill={t} />
+          <circle cx="100" cy="226" r="1.6" fill={t} />
+        </g>
+      );
+    case "hoodie":
+      return (
+        <g>
+          <path d="M66 192 Q100 222 134 192 Q128 208 100 214 Q72 208 66 192 Z" fill={t} />
+          <path d="M92 210 L90 236 M108 210 L110 236" stroke={t} strokeWidth="2" strokeLinecap="round" />
+        </g>
+      );
+    case "jacket":
+      return (
+        <g clipPath={`url(#${clip})`}>
+          <path d="M14 240 C20 206 52 192 78 188 L90 240 Z" fill={t} />
+          <path d="M186 240 C180 206 148 192 122 188 L110 240 Z" fill={t} />
+          <path d="M78 188 L90 240 M122 188 L110 240" stroke="#000" strokeOpacity="0.25" strokeWidth="1.5" />
+        </g>
+      );
+    case "stripes":
+      return (
+        <g clipPath={`url(#${clip})`}>
+          {[196, 208, 220, 232].map((y) => (
+            <rect key={y} x="0" y={y} width="200" height="5" fill={t} />
+          ))}
+          <path d="M80 188 Q100 206 120 188" fill="none" stroke={t} strokeWidth="5" strokeLinecap="round" />
+        </g>
+      );
+    default:
+      return <path d="M80 188 Q100 206 120 188" fill="none" stroke={t} strokeWidth="5" strokeLinecap="round" />;
+  }
+}
+
+function Glasses({ g, y, cw }: { g: NonNullable<PortraitLook["glasses"]>; y: number; cw: number }) {
+  const lens = g.clear ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.06)";
+  const frame = (x: number) =>
+    g.shape === "round" ? <circle cx={x} cy={y + 1} r="13" /> : <rect x={x - 14} y={y - 10} width="28" height="21" rx="6" />;
+  return (
+    <g fill={lens} stroke={g.frame} strokeWidth={g.clear ? 2.6 : 2.2}>
+      {frame(CX - 19)}
+      {frame(CX + 19)}
+      <path d={`M${CX - 6} ${y - 1} Q${CX} ${y - 5} ${CX + 6} ${y - 1}`} fill="none" />
+      <path d={`M${CX - 33} ${y - 3} L${CX - cw + 1} ${y - 1} M${CX + 33} ${y - 3} L${CX + cw - 1} ${y - 1}`} fill="none" />
+      <path d={`M${CX - 26} ${y - 6} L${CX - 21} ${y - 9} M${CX + 12} ${y - 6} L${CX + 17} ${y - 9}`} stroke="#fff" strokeOpacity="0.55" strokeWidth="1.6" fill="none" />
+    </g>
+  );
+}
+
+function Cap({ cap, cw }: { cap: NonNullable<PortraitLook["cap"]>; cw: number }) {
+  return (
+    <g>
+      <path d={`M${CX - cw - 3} 92 C${CX - cw - 4} 40 ${CX + cw + 4} 40 ${CX + cw + 3} 92 Q${CX} 82 ${CX - cw - 3} 92 Z`} fill={cap.color} />
+      <path d={`M${CX - cw - 2} 92 Q${CX} 80 ${CX + cw + 2} 92 Q${CX + cw + 10} 98 ${CX + cw + 4} 102 Q${CX} 90 ${CX - cw - 4} 102 Q${CX - cw - 10} 98 ${CX - cw - 2} 92 Z`} fill={cap.brim ?? cap.color} />
+      <path d={`M${CX} 56 L${CX} 84`} stroke="#000" strokeOpacity="0.12" strokeWidth="1.5" />
+      <circle cx={CX} cy={55} r="2.5" fill={cap.brim ?? cap.color} />
+      {cap.logo && <rect x={CX - 12} y={62} width="24" height="10" rx="2" fill={cap.logo} opacity="0.85" />}
+      <path d={`M${CX - 26} 70 Q${CX - 8} 60 ${CX + 14} 64`} fill="none" stroke="#fff" strokeWidth="3" opacity="0.2" strokeLinecap="round" />
     </g>
   );
 }
