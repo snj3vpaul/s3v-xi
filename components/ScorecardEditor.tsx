@@ -3,11 +3,13 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ROSTER, playerName } from "@/config/club";
 import type {
+  AssistStyle,
   DrawResult,
   FairPlayBreach,
   FairPlayLoss,
   GoalEvent,
   GoalKind,
+  GoalStyle,
   LeagueSettings,
   RotationLapse,
   RotationMiss,
@@ -15,6 +17,12 @@ import type {
   Side,
 } from "@/lib/league/types";
 import {
+  ASSIST_STYLES,
+  ASSIST_STYLE_LABEL,
+  GOAL_STYLES,
+  GOAL_STYLE_LABEL,
+  cleanStyles,
+  takesGoalStyle,
   FAIR_PLAY_BREACHES,
   FAIR_PLAY_LABEL,
   GOAL_KINDS,
@@ -80,6 +88,45 @@ function PlayerSelect({
   );
 }
 
+/** Optional tag row: tap to pick, tap again to clear. Descriptive only. */
+function StyleChips<T extends string>({
+  label,
+  options,
+  labels,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  options: readonly T[];
+  labels: Record<T, string>;
+  value: T | null | undefined;
+  onChange: (v: T | null) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="stack" style={{ gap: "0.3rem" }}>
+      <label>{label} <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· optional, no points</span></label>
+      <div className="chips" role="radiogroup" aria-label={label}>
+        {options.map((o) => (
+          <button
+            key={o}
+            type="button"
+            role="radio"
+            className="chip"
+            aria-checked={value === o}
+            aria-pressed={value === o}
+            disabled={disabled}
+            onClick={() => onChange(value === o ? null : o)}
+          >
+            {labels[o]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** v2 labels: "Open play" reads as just "Goal". */
 const V2_KIND_LABEL: Partial<Record<GoalKind, string>> = { open_play: "Goal", penalty: "Penalty", free_kick: "Direct free kick", own_goal: "Own goal" };
 
@@ -120,6 +167,7 @@ export function ScorecardEditor({
   const [noResult, setNoResult] = useState(initialRotation.noResult);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tagMsg, setTagMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const rules = { secondAssistEnabled: settings.secondAssistEnabled, deflectionDefault: settings.deflectionDefault };
 
@@ -164,6 +212,35 @@ export function ScorecardEditor({
       return a;
     });
 
+  // Goal / assist type tags on a published match save separately: no points
+  // change, so no reason and no correction window.
+  const tagsDirty =
+    isCorrection &&
+    events.some((e) => {
+      const o = initial.find((x) => x.id === e.id);
+      return !!o && ((o.style ?? null) !== (e.style ?? null) || (o.assistStyle ?? null) !== (e.assistStyle ?? null));
+    });
+
+  async function saveTags() {
+    setBusy(true);
+    setTagMsg(null);
+    try {
+      const tags = events
+        .filter((e) => initial.some((x) => x.id === e.id))
+        .map((e) => {
+          const c = cleanStyles(e);
+          return { id: e.id, style: c.style ?? null, assistStyle: c.assistStyle ?? null };
+        });
+      await api(`/api/matchdays/${matchId}/goal-styles`, "PUT", { tags });
+      setTagMsg({ ok: true, text: "Goal types saved. Points unchanged." });
+      router.refresh();
+    } catch (e) {
+      setTagMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save() {
     setBusy(true);
     setMsg(null);
@@ -178,8 +255,10 @@ export function ScorecardEditor({
           out.deflectedById = e.deflectedById ?? null;
           out.deflectionRuling = deflectionRulingOf(e, rules);
         }
+        if (e.style) out.style = e.style;
+        if (e.assistStyle) out.assistStyle = e.assistStyle;
         if (e.note) out.note = e.note;
-        return out;
+        return cleanStyles(out);
       });
       await api(`/api/matchdays/${matchId}/scorecard`, "PUT", {
         events: clean,
@@ -218,7 +297,7 @@ export function ScorecardEditor({
       )}
 
       {locked && (
-        <div className="alert alert-warn">The correction window closed on {deadline?.slice(0, 10)}. This scorecard is final (widen the window in Settings if you must).</div>
+        <div className="alert alert-warn">The correction window closed on {deadline?.slice(0, 10)}. This scorecard is final (widen the window in Settings if you must). You can still tag what sort of goal and assist each one was.</div>
       )}
 
       <ol className="stack" style={{ listStyle: "none", padding: 0, margin: 0 }}>
@@ -290,7 +369,7 @@ export function ScorecardEditor({
                 <PlayerSelect
                   label={!v2 && e.kind === "penalty" ? "Assist (only if you're crediting one)" : "Assist"}
                   value={noAssist ? null : e.assistId}
-                  onChange={(v) => update(e.id, { assistId: v, secondAssistId: v ? e.secondAssistId : null })}
+                  onChange={(v) => update(e.id, { assistId: v, secondAssistId: v ? e.secondAssistId : null, assistStyle: v ? e.assistStyle : null })}
                   draw={draw}
                   prefer={e.side}
                   optional
@@ -312,6 +391,26 @@ export function ScorecardEditor({
                   />
                 </div>
               </div>
+              {takesGoalStyle(e.kind) && (
+                <StyleChips<GoalStyle>
+                  label="What sort of goal?"
+                  options={GOAL_STYLES}
+                  labels={GOAL_STYLE_LABEL}
+                  value={e.style}
+                  onChange={(v) => update(e.id, { style: v })}
+                  disabled={busy}
+                />
+              )}
+              {!noAssist && e.assistId && (
+                <StyleChips<AssistStyle>
+                  label={`How did ${playerName(e.assistId)} set it up?`}
+                  options={ASSIST_STYLES}
+                  labels={ASSIST_STYLE_LABEL}
+                  value={e.assistStyle}
+                  onChange={(v) => update(e.id, { assistStyle: v })}
+                  disabled={busy}
+                />
+              )}
               {noAssist && (
                 <p className="small muted" style={{ margin: 0 }}>
                   {own || ruling === "own_goal" ? "Own goals carry no assist." : e.kind === "penalty" ? "Penalties carry no assist." : "Direct free kicks carry no assist."}
@@ -324,6 +423,19 @@ export function ScorecardEditor({
           );
         })}
       </ol>
+
+      {isCorrection && events.length > 0 && (
+        <div className="row">
+          <button type="button" className="btn" onClick={saveTags} disabled={busy || !tagsDirty}>
+            {busy ? "Saving…" : "Save goal types"}
+          </button>
+          {tagMsg ? (
+            <span className={`small ${tagMsg.ok ? "" : "neg"}`} role="status">{tagMsg.text}</span>
+          ) : (
+            <span className="small muted">Tags only — no points change, no reason needed.</span>
+          )}
+        </div>
+      )}
 
       {!locked && (
         <div className="row">

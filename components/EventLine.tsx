@@ -1,6 +1,6 @@
 import { playerName } from "@/config/club";
 import type { GoalEvent, RulesVersion } from "@/lib/league/types";
-import { GOAL_KIND_LABEL, deflectionRulingOf, scoreEvent, type ScoringRules } from "@/lib/scoring/rules";
+import { ASSIST_STYLE_LABEL, GOAL_KIND_LABEL, GOAL_STYLE_LABEL, deflectionRulingOf, scoreEvent, type ScoringRules } from "@/lib/scoring/rules";
 import { Points } from "./ui";
 
 export function describeEvent(e: GoalEvent, rules: ScoringRules, version: RulesVersion = 1): string {
@@ -10,10 +10,12 @@ export function describeEvent(e: GoalEvent, rules: ScoringRules, version: RulesV
     const d = e.deflectedById ? playerName(e.deflectedById) : "?";
     return deflectionRulingOf(e, rules) === "own_goal"
       ? `${s}'s shot deflected in off ${d} — ruled own goal (${d})`
-      : `${s} — deflected off ${d}, ruled ${s}'s goal${e.assistId ? ` · assist ${playerName(e.assistId)}` : ""}`;
+      : `${s} — deflected off ${d}, ruled ${s}'s goal${e.assistId ? ` · assist ${playerName(e.assistId)}${e.assistStyle ? ` (${ASSIST_STYLE_LABEL[e.assistStyle].toLowerCase()})` : ""}` : ""}`;
   }
-  const parts = [`${s}${e.kind !== "open_play" ? ` (${GOAL_KIND_LABEL[e.kind].toLowerCase()})` : ""}`];
-  if (e.assistId && e.kind !== "free_kick" && !(version >= 2 && e.kind === "penalty")) parts.push(`assist ${playerName(e.assistId)}`);
+  const tag = e.kind !== "open_play" ? GOAL_KIND_LABEL[e.kind] : e.style ? GOAL_STYLE_LABEL[e.style] : null;
+  const parts = [`${s}${tag ? ` (${tag.toLowerCase()})` : ""}`];
+  if (e.assistId && e.kind !== "free_kick" && !(version >= 2 && e.kind === "penalty"))
+    parts.push(`assist ${playerName(e.assistId)}${e.assistStyle ? ` (${ASSIST_STYLE_LABEL[e.assistStyle].toLowerCase()})` : ""}`);
   if (version === 1 && e.secondAssistId && rules.secondAssistEnabled) parts.push(`pre-assist ${playerName(e.secondAssistId)}`);
   return parts.join(" · ");
 }

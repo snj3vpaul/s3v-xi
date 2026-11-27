@@ -10,7 +10,7 @@
 import { CHIPS, CLUB, ROSTER, getPlayer, playerName } from "@/config/club";
 import { SERIES } from "@/config/schedule";
 import { weeklyDates, zonedToUtc } from "./schedule";
-import { DEFAULT_RULES, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
+import { DEFAULT_RULES, cleanStyles, rulesVersionOf, validateAwards, validateScorecard, type ScoringRules } from "@/lib/scoring/rules";
 import { checkTeam, currentStars, isFormationValid } from "./pick7";
 import type {
   AuditEntry,
@@ -708,7 +708,7 @@ export function saveScorecard(
   const next: MatchDay = {
     ...m,
     status: "played",
-    events: events.map((e) => ({ ...e })),
+    events: events.map((e) => cleanStyles(e)),
     // Pick 7 locks at kick-off: store the sevens as they stood then (or now, if
     // the scorecard somehow comes in before kick-off). Corrections keep them.
     selections: m.scorecardAt || m.selections.length ? m.selections : snapshotSelections(state.users, new Date(Math.min(new Date(m.kickoffAt).getTime(), ctx.now.getTime())).toISOString(), m.id),
@@ -743,6 +743,35 @@ export function saveScorecard(
       before: isCorrection ? snap(m) : undefined,
       after: snap(next),
     }),
+  );
+}
+
+/**
+ * Tag what sort of goal / assist each event was on an already-published
+ * scorecard. Tags never change points, so this works on any played match,
+ * even after the correction window has closed, needs no reason, and doesn't
+ * bump the scorecard version. Only `style` and `assistStyle` can change.
+ */
+export function setGoalStyles(
+  state: LeagueState,
+  matchId: string,
+  tags: { id: string; style?: GoalEvent["style"]; assistStyle?: GoalEvent["assistStyle"] }[],
+  ctx: Ctx,
+): LeagueState {
+  const m = findMatch(state, matchId);
+  if (m.scorecardAt === null) throw new LedgerError("Publish the scorecard first.");
+  const byId = new Map(tags.map((t) => [t.id, t]));
+  const unknown = tags.filter((t) => !m.events.some((e) => e.id === t.id));
+  if (unknown.length) throw new LedgerError("Some goals weren't found on this scorecard. Reload and try again.");
+  const pick = (e: GoalEvent) => ({ id: e.id, style: e.style ?? null, assistStyle: e.assistStyle ?? null });
+  const events = m.events.map((e) => {
+    const t = byId.get(e.id);
+    return t ? cleanStyles({ ...e, style: t.style ?? null, assistStyle: t.assistStyle ?? null }) : e;
+  });
+  return replaceMatch(
+    state,
+    { ...m, events },
+    audit(ctx, { actor: "admin", action: "scorecard.tags", matchId, before: m.events.map(pick), after: events.map(pick) }),
   );
 }
 

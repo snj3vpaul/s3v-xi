@@ -25,6 +25,32 @@ export type GoalKind = "open_play" | "header" | "penalty" | "free_kick" | "own_g
 
 export type DeflectionRuling = "own_goal" | "goal";
 
+/** How the goal went in. Descriptive only: never changes points. */
+export type GoalStyle =
+  | "tap_in"
+  | "inside_box"
+  | "outside_d"
+  | "header"
+  | "volley"
+  | "chip"
+  | "solo"
+  | "rebound"
+  | "corner"
+  | "counter";
+
+/** How the assist was made. Descriptive only: never changes points. */
+export type AssistStyle =
+  | "through_ball"
+  | "cross"
+  | "cutback"
+  | "short_pass"
+  | "long_ball"
+  | "header"
+  | "corner"
+  | "throw_in"
+  | "backheel"
+  | "rebound";
+
 export interface GoalEvent {
   id: string;
   /** Team credited on the scoreboard (for own goals: the team that BENEFITS). */
@@ -44,6 +70,10 @@ export interface GoalEvent {
   /** deflection only: the admin's ruling. Stored on the event so later setting changes never rewrite history. */
   deflectionRuling?: DeflectionRuling;
   minute?: number | null;
+  /** Optional: what sort of goal it was (tap-in, outside the D…). No points effect. */
+  style?: GoalStyle | null;
+  /** Optional: how the assist was made (through ball, cross…). No points effect. */
+  assistStyle?: AssistStyle | null;
   note?: string;
 }
 
@@ -267,6 +297,7 @@ export type AuditAction =
   | "reminders.sent"
   | "scorecard.create"
   | "scorecard.correct"
+  | "scorecard.tags"
   | "settings.update";
 
 export interface AuditEntry {

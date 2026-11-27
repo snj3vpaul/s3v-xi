@@ -61,6 +61,7 @@
 
 import { getPlayer, type Position } from "@/config/club";
 import type {
+  AssistStyle,
   Chip,
   DeflectionRuling,
   DrawResult,
@@ -68,6 +69,7 @@ import type {
   FairPlayLoss,
   GoalEvent,
   GoalKind,
+  GoalStyle,
   MatchDay,
   RotationLapse,
   RotationMiss,
@@ -207,6 +209,56 @@ export const GOAL_KIND_LABEL: Record<GoalKind, string> = {
   own_goal: "Own goal",
   deflection: "Deflection",
 };
+
+// ---------------------------------------------------------------------------
+// Goal / assist style tags (descriptive only — they never change points)
+// ---------------------------------------------------------------------------
+
+export const GOAL_STYLE_LABEL: Record<GoalStyle, string> = {
+  tap_in: "Tap-in",
+  inside_box: "Inside the box",
+  outside_d: "Outside the D",
+  header: "Header",
+  volley: "Volley",
+  chip: "Chip / lob",
+  solo: "Solo run",
+  rebound: "Rebound",
+  corner: "Straight from a corner",
+  counter: "Counter-attack",
+};
+export const GOAL_STYLES = Object.keys(GOAL_STYLE_LABEL) as GoalStyle[];
+
+export const ASSIST_STYLE_LABEL: Record<AssistStyle, string> = {
+  through_ball: "Through ball",
+  cross: "Cross",
+  cutback: "Cut-back",
+  short_pass: "Short pass",
+  long_ball: "Long ball",
+  header: "Headed on",
+  corner: "Corner",
+  throw_in: "Throw-in",
+  backheel: "Backheel",
+  rebound: "Shot saved / rebound",
+};
+export const ASSIST_STYLES = Object.keys(ASSIST_STYLE_LABEL) as AssistStyle[];
+
+/** Can this event carry a goal style? (Own goals, penalties and free kicks already say how.) */
+export function takesGoalStyle(kind: GoalKind): boolean {
+  return kind === "open_play" || kind === "header" || kind === "deflection";
+}
+
+/**
+ * Keep only known style tags, and drop ones that don't apply (no goal style on
+ * own goals / set pieces, no assist style without an assist). Never touches scoring fields.
+ */
+export function cleanStyles<E extends GoalEvent>(e: E): E {
+  const out = { ...e };
+  const style = e.style && (GOAL_STYLES as string[]).includes(e.style) && takesGoalStyle(e.kind) ? e.style : null;
+  const assistStyle = e.assistStyle && (ASSIST_STYLES as string[]).includes(e.assistStyle) && e.assistId ? e.assistStyle : null;
+  if (style) out.style = style; else delete out.style;
+  if (assistStyle) out.assistStyle = assistStyle; else delete out.assistStyle;
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Single event → contributions
