@@ -39,6 +39,7 @@ const ACTION: Record<AuditEntry["action"], string> = {
   "reminders.sent": "Reminder emails sent",
   "scorecard.create": "Scorecard published",
   "scorecard.correct": "Scorecard corrected",
+  "scorecard.tags": "Goal types tagged",
   "settings.update": "Settings changed",
 };
 
